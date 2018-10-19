@@ -1,0 +1,10 @@
+---
+dependencies:
+  - name: etcd
+  - name: etcd/cluster/facts
+  - name: adduser
+    vars:
+      user: "{{ etcd_user }}"
+    when: not (ansible_os_family in ['CoreOS', 'Container Linux by CoreOS'])
+
+# @TODO(ant31) not in is_atomic

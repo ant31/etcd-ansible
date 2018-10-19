@@ -1,0 +1,21 @@
+etcd_access_addresses_list: |-
+  [
+  {% for item in groups['etcd'] -%}
+    "{{hostvars[item]['etcd_client_url']}}"{% if not loop.last %},{% endif %}
+  {%- endfor %}
+  ]
+
+etcd_peer_addresses_list: |-
+  [
+  {% for item in groups['etcd'] -%}
+    "{{ hostvars[item]['etcd_name']}}={{ hostvars[item].etcd_peer_url}}"{% if not loop.last %},{% endif %}
+  {%- endfor %}
+  ]
+etcd_access_addresses: "{{etcd_access_addresses_list | join(',')}}"
+etcd_access_addresses_semicolon: "{{etcd_access_addresses_list | join(';')}}"
+
+etcd_peer_addresses: "{{etcd_peer_addresses_list | join(',')}}"
+etcd_peer_addresses_semicolon: "{{etcd_peer_addresses_list | join(';')}}"
+
+etcd_backup_prefix: "/var/backups/{{etcd_name}}"
+etcd_data_dir: "/var/lib/{{etcd_name}}"

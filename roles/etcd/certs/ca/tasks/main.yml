@@ -1,0 +1,32 @@
+---
+
+- name: Rotate all certs
+  file:
+    path: "{{ etcd_cert_dir }}"
+    state: absent
+  when:
+    - etcd_rotate_certs |default(false) |bool
+
+- name: Gen_certs | create etcd {{inventory_hostname}} certs dir
+  file:
+    path: "{{ etcd_cert_dir }}/{{item}}"
+    group: "{{ etcd_cert_group }}"
+    state: directory
+    owner: "{{etcd_cert_user}}"
+    mode: 0700
+  loop: "{{etcd_hosts|default(groups['etcd-all']) | unique + ['archives']}} "
+  tags:
+    - etcd-certs
+
+- include_role:
+    name: download
+  vars:
+    downloads: "{{etcd_certs_downloads}}"
+    download_container: false
+
+- include_tasks: 0010_etcd-ca.yaml
+  loop:
+    - name: peer
+    - name: client
+  loop_control:
+    loop_var: cert

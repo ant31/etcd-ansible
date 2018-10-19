@@ -1,0 +1,61 @@
+---
+
+- include_role:
+    name: download
+  vars:
+    downloads: "{{etcd_downloads}}"
+    download_container: false
+
+- name: install | Copy etcd and etcdctl binary from download dir
+  copy:
+    src: "{{ bin_dir }}/etcd/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
+    dest: "{{ bin_dir }}/etcd/{{item}}"
+    mode: 0755
+    remote_src: yes
+  with_items:
+    - etcd
+    - etcdctl
+
+- include_tasks: "0010_install-etcd.yml"
+- name: Configure | Create etcd config file
+  template:
+    src: etcd.env.j2
+    dest: "{{etcd_config_dir}}/{{etcd_name}}.env"
+    backup: yes
+  register: confchanged
+
+- name: Configure | Copy etcd.service systemd file
+  template:
+    src: "etcd-host.service.j2"
+    dest: /etc/systemd/system/{{etcd_name}}.service
+    backup: yes
+  register: etcdsystemd
+
+- name: Configure | reload systemd
+  command: systemctl daemon-reload
+  when: etcdsystemd is changed
+
+- name: Configure | Ensure etcd is running
+  service:
+    name: "{{etcd_name}}"
+    state: started
+    enabled: yes
+
+- name: Configure | Check if etcd cluster is healthy
+  command: "{{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }} cluster-health"
+  register: etcd_cluster_is_healthy
+  changed_when: false
+  failed_when: "'cluster is healthy' in etcd_cluster_is_healthy.stdout and etcd_cluster_is_healthy.rc != 0"
+  retries: 4
+  delay: "{{ retry_stagger | default(5)}}"
+  environment:
+    ETCDCTL_CERT_FILE: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client.pem"
+    ETCDCTL_KEY_FILE: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client-key.pem"
+    ETCDCTL_CA_FILE: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/ca-client.pem"
+
+- name: Restart etcd if certs changed
+  service:
+    name: "{{etcd_name}}"
+    state: restarted
+    enabled: yes
+  when: etcd_secret_changed|default(false) or confchanged is changed
