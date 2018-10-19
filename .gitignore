@@ -1,4 +1,5 @@
 inventory.ini
+plugins/mitogen
 .vagrant
 *.retry
 **/vagrant_ansible_inventory

@@ -1,3 +1,6 @@
+etcd_version: v3.3.10
+etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+
 etcd_access_addresses_list: |-
   [
   {% for item in groups['etcd'] -%}
@@ -17,5 +20,16 @@ etcd_access_addresses_semicolon: "{{etcd_access_addresses_list | join(';')}}"
 etcd_peer_addresses: "{{etcd_peer_addresses_list | join(',')}}"
 etcd_peer_addresses_semicolon: "{{etcd_peer_addresses_list | join(';')}}"
 
-etcd_backup_prefix: "/var/backups/{{etcd_name}}"
-etcd_data_dir: "/var/lib/{{etcd_name}}"
+etcd_cert_paths:
+      server:
+        cert:  "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server.pem"
+        key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server-key.pem"
+        ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+      client:
+        cert:  "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client.pem"
+        key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client-key.pem"
+        ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+      peer:
+        cert:  "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer.pem"
+        key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer-key.pem"
+        ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/peer-ca.pem"

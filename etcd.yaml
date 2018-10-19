@@ -8,39 +8,47 @@
 
 # Install the certs tools
 # Optionally prepare all certificates
-- hosts: etcd-cert-managers
-  any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
-  roles:
-    # Create the CA certs
-    - name: etcd/certs/ca
-      tags:
-        - etcd-ca
-        - etcd-certs
-        - etcd-certs-init
+# - hosts: etcd-cert-managers
+#   any_errors_fatal: "{{ any_errors_fatal | default(true) }}"
+#   roles:
+#     # Create the CA certs
+#     - name: etcd/certs/ca
+#       tags:
+#         - etcd-ca
+#         - etcd-certs
+#         - etcd-certs-init
 
-    # Pre generate all certs
-    - name: etcd/certs
-      when:
-        - etcd_prepare_certs | default(false) | bool
-      tags:
-        - etcd-certs
-        - etcd-certs-init
+#     # Pre generate all certs
+#     - name: etcd/certs
+#       when:
+#         - etcd_prepare_certs | default(false) | bool
+#       tags:
+#         - etcd-certs
+#         - etcd-certs-init
 
 # Install the etcd cluster
 - hosts: etcd
+  any_errors_fatal: true
   vars:
     etcd_clusters:
       - name: k8s
         ports: {client: 2379, peer: 2380}
       - name: k8s-event
         ports: {client: 2381, peer: 2382}
-
   roles:
     - name: etcd
-    - name: etcd/certs/fetch
-      tags:
-        - etcd-certs
   tasks:
+    - include_role:
+        name: etcd/cluster/delete
+      loop: "{{etcd_clusters}}"
+      loop_control:
+        loop_var: cluster
+      vars:
+        cluster_name: "{{cluster.name}}"
+        etcd_ports: "{{cluster.ports}}"
+      when:
+        - etcd_delete_cluster | default(false) | bool
+
     - include_role:
         name: etcd/cluster
       loop: "{{etcd_clusters}}"
@@ -49,6 +57,31 @@
       vars:
         cluster_name: "{{cluster.name}}"
         etcd_ports: "{{cluster.ports}}"
+      when:
+        - etcd_action | default('none') in ['upgrade', 'create']
+
+# - hosts: etcd
+#   strategy: linear
+#   serial: 1
+#   vars:
+#     etcd_clusters:
+#       - name: k8s
+#         ports: {client: 2379, peer: 2380}
+#       # - name: k8s-event
+#       #   ports: {client: 2381, peer: 2382}
+#   roles:
+#     - name: etcd
+#   tasks:
+#     - include_role:
+#         name: etcd/cluster
+#       loop: "{{etcd_clusters}}"
+#       loop_control:
+#         loop_var: cluster
+#       vars:
+#         cluster_name: "{{cluster.name}}"
+#         etcd_ports: "{{cluster.ports}}"
+#       when:
+#         - etcd_action | default('none') in ['upgrade']
 
 
 # # install the etcd client certificates

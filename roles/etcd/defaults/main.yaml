@@ -20,17 +20,17 @@ etcd_ports:
   peer: 444
 
 cfssl_version: 1.2
-etcd_version: v3.2.24
-etcd_download_url: "https://github.com/coreos/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+
+
 etcd_checksums:
   v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
-
+  v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
 etcd_downloads:
   etcd:
     file: true
     enabled: true
     dest: "{{bin_dir}}/etcd/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
-    sha256: "{{ etcd_checksums[etcd_version]}}"
+    sha256: "{{ etcd_checksums[etcd_version] | default(omit)}}"
     url: "{{ etcd_download_url }}"
     unarchive: true
     owner: "root"
@@ -85,8 +85,8 @@ cert_expiry: 175200h
 # Set to true to separate k8s events to a different etcd cluster
 etcd_events_cluster_enabled: false
 
-etcd_backup_prefix: "/var/backups/{{etcd_name}}"
-etcd_data_dir: "/var/lib/{{etcd_name}}"
+
+etcd_home: "/var/lib/etcd/"
 
 etcd_cert_group: root
 etcd_cert_user: root
@@ -133,6 +133,6 @@ etcd_user:
     name: etcd
     comment: "Etcd user"
     createhome: yes
-    home: "{{ etcd_data_dir }}"
+    home: "{{ etcd_home }}"
     system: yes
     shell: /bin/nologin

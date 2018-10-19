@@ -26,5 +26,5 @@
 
     - name: copy plugin
       synchronize:
-        src: "{{playbook_dir}}/dist/mitogen-{{mitogen_version}}/ansible_mitogen/"
-        dest: "{{playbook_dir}}/plugins/mitogen/ansible_mitogen"
+        src: "{{playbook_dir}}/dist/mitogen-{{mitogen_version}}/"
+        dest: "{{playbook_dir}}/plugins/mitogen"

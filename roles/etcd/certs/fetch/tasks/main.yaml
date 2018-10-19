@@ -32,11 +32,17 @@
     state: directory
     owner: "{{etcd_cert_user}}"
     mode: 0700
+  when:
+    - not etcd_skip_certs|default(false) | bool
+    - etcd_action in ["create"]
 
 - name: install server_certs
   shell: echo "{{item.content}}" | base64 -d > {{etcd_cert_dir}}/{{item.item.host}}.tar.bz2
   changed_when: false
   loop: "{{etcd_cert_tarballs_b64.results}}"
+  when:
+    - not etcd_skip_certs|default(false) | bool
+    - etcd_action in ["create"]
 
 - name: unpack certs
   unarchive:
@@ -47,12 +53,33 @@
     owner: "{{etcd_cert_user}}"
     mode: 0700
   loop: "{{etcd_cert_tarballs_b64.results}}"
+  when:
+    - not etcd_skip_certs|default(false) | bool
+    - etcd_action in ["create"]
 
 - name: "Gen_certs | Get etcd certificate serials"
   command: "openssl x509 -in {{ etcd_cert_dir }}/{{inventory_hostname}}/{{ inventory_hostname }}-client.pem -noout -serial"
-  register: "etcd_client_cert_serial_result"
+  register: "etcd_client_serial_result"
   changed_when: false
+  tags:
+    - facts
+
+- name: "Gen_certs | Get etcd certificate serials"
+  command: "openssl x509 -in {{ etcd_cert_dir }}/{{inventory_hostname}}/{{ inventory_hostname }}-peer.pem -noout -serial"
+  register: "etcd_peer_serial_result"
+  changed_when: false
+  when:
+    - inventory_hostname in groups['etcd']
+  tags:
+    - facts
 
 - name: Set etcd_client_cert_serial
   set_fact:
-    etcd_client_cert_serial: "{{ etcd_client_cert_serial_result.stdout.split('=')[1] }}"
+    etcd_client_cert_serial: "{{ etcd_client_serial_result.stdout.split('=')[1] }}"
+
+- name: Set etcd_peer_cert_serial
+  set_fact:
+    etcd_peer_cert_serial: "{{ etcd_peer_serial_result.stdout.split('=')[1] }}"
+  when:
+    - inventory_hostname in groups['etcd']
+

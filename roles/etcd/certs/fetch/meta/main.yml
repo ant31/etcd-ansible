@@ -5,3 +5,6 @@ dependencies:
     vars:
       etcd_hosts: ["{{inventory_hostname}}"]
       skip_downloads: true
+    when:
+      - etcd_action == "create"
+      - not etcd_skip_certs|default(false) | bool

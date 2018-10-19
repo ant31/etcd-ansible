@@ -1,0 +1,4 @@
+---
+dependencies:
+  - name: etcd
+  - name: etcd/cluster/facts

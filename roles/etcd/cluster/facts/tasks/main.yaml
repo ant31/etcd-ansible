@@ -19,4 +19,10 @@
   tags:
     - facts
 
-
+- name: fact3
+  set_fact:
+    etcd_data_dir: "{{etcd_home}}/{{etcd_name}}"
+    etcd_backup_dir: "{{etcd_home}}/backups/{{etcd_name}}"
+    etcd_backup_prefix: "{{etcd_home}}/backups/{{etcd_name}}/{{etcd_name}}-"
+  tags:
+    - facts
