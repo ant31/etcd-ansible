@@ -10,7 +10,7 @@
   tags:
     - etcd-certs
 
-- name: Copy server etcd-ca
+- name: Copy server and client etcd-ca
   copy:
     remote_src: true
     src: "{{ etcd_cert_dir }}/{{item.1}}-ca.pem"

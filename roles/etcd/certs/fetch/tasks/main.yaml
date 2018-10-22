@@ -82,4 +82,3 @@
     etcd_peer_cert_serial: "{{ etcd_peer_serial_result.stdout.split('=')[1] }}"
   when:
     - inventory_hostname in groups['etcd']
-

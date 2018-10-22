@@ -1,3 +1,4 @@
 ---
 dependencies:
   - name: etcd
+  - name: etcd/certs/ca
