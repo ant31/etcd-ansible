@@ -13,7 +13,7 @@
 
 - name: fact2
   set_fact:
-    etcd_name: "{{cluster_name + '-' + etcd_member_name|default('etcd' + '-' + etcd_member_index)}}"
+    etcd_name: "{{etcd_member_name|default(['etcd', cluster_name, etcd_member_index] | join('-'))}}"
     etcd_peer_url: "https://{{ etcd_access_address }}:{{etcd_ports['peer']}}"
     etcd_client_url: "https://{{ etcd_access_address }}:{{etcd_ports['client']}}"
   tags:

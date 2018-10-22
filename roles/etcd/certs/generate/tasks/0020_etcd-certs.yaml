@@ -8,8 +8,6 @@
     cert_name: "{{cert.host}}"
     host: "{{cert.host}}"
   register: certconf
-  tags:
-    - etcd-certs
 
 - name: "Check certs | check if a cert exists for *{{cert.profile}}/{{cert.host}}*"
   stat:
@@ -21,10 +19,6 @@
     - "{{cert.host}}-{{cert.profile}}.csr"
     - "{{cert.host}}-{{cert.profile}}.pem"
     - "{{cert.host}}-{{cert.profile}}-key.pem"
-  tags:
-    - etcd-certs-peers
-
-# - debug: msg="{{certs.results | map(attribute='stat.exists')|unique|join(' ')|bool}}"
 
 - name: Verify cert validity
   command: |
@@ -36,11 +30,9 @@
     - certs.results | map(attribute='stat.exists')|unique|join(' ')|bool
   register: certvalid
   failed_when: false
-  tags:
-    - etcd-certs-peers
   changed_when: false
 
-- name: Generate CA and CAKEY for *{{cert.profile}}/{{cert.host}}*
+- name: Generate Json cfssl for *{{cert.profile}}/{{cert.host}}*
   command: >-
     {{bin_dir}}/cfssl gencert
     -ca={{ etcd_cert_dir }}/{{etcd_capem}}
@@ -52,16 +44,12 @@
     chdir: "{{ etcd_cert_dir }}/{{cert.host}}"
   when:
     - certvalid is failed or certvalid is skipped
-  tags: 
-    - etcd-certs-peers
 
-- name: JSON Generate CA and CAKEY for *{{cert.profile}}/{{cert.host}}*
-  command: 'cfssljson -bare {{cert.host}}-{{cert.profile}}'
+- name: Generate Certificate for *{{cert.profile}}/{{cert.host}}*
+  command: '{{bin_dir}}/cfssljson -bare {{cert.host}}-{{cert.profile}}'
   register: certgen
   args:
     chdir: "{{ etcd_cert_dir }}/{{cert.host}}"
     stdin: "{{certjson.stdout | from_json |to_json}}"
   when:
     - certjson is changed
-  tags:
-    - etcd-certs-peers

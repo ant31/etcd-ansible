@@ -1,4 +1,5 @@
 ---
+etcd_action: none
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
 bin_dir: /opt/bin
 etcd_config_dir: /etc/etcd

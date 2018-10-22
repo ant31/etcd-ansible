@@ -1,17 +1,20 @@
 ---
 dependencies:
   - name: etcd
-
-  - name: etcd/cluster/facts
-
-  # - name: adduser
-  #   vars:
-  #     user: "{{ etcd_user }}"
-  #   when:
-  #     - not (ansible_os_family in ['CoreOS', 'Container Linux by CoreOS'])
-
-  - name: etcd/certs/fetch
     tags:
-      - etcd-certs
+      - always
 
-# @TODO(ant31) not in is_atomic
+  # Teardown a cluster
+  - name: etcd/cluster/delete
+    when:
+      - etcd_delete_cluster | default(false) | bool
+    tags:
+      - etcd-delete
+
+  # Install or upgrade cluster
+  - name: etcd/cluster/install
+    when:
+      - etcd_action | default('none') in ['upgrade', 'create']
+    tags:
+      - etcd
+      - etcd-cluster

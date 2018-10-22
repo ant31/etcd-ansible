@@ -32,4 +32,3 @@
     - "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
   when:
     - etcd_delete_cluster | default(false) | bool
-

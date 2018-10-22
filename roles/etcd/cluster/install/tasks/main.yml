@@ -47,10 +47,12 @@
   when:
     - etcd_action == "upgrade"
 
-- name: create etcd data dir
+- name: CREATE | create etcd data dir
   file:
     path: "{{etcd_data_dir}}"
     state: directory
+    owner: "{{ etcd_user.name}}"
+    group: "{{ etcd_user.name}}"
   when:
     - etcd_action == "create"
 
@@ -79,15 +81,15 @@
     backup: false
   register: etcdsystemd
 
-- name: ETCD | reload systemd
+- name: UPDATE | reload systemd
   command: systemctl daemon-reload
   when:
     - etcd_action == 'upgrade' or etcd_force_create |default(false) | bool
     - etcdsystemd is changed
 
-- name: ETCD | Ensure etcd is running
+- name: CREATE | Ensure etcd is running
   delay: 10
-  retry: 5
+  retries: 5
   until: started_etcd is succeeded
   register: started_etcd
   service:
@@ -99,9 +101,9 @@
 
 
 # The delegation and loop, is a workaround to restart 1 by 1 services(serial=1)
-- name: ETCD | Restart etcd
+- name: UPDATE | Restart etcd
   delay: 20
-  retry: 5
+  retries: 5
   until: restarted_etcd is succeeded
   register: restarted_etcd
   service:
@@ -134,7 +136,7 @@
   set_fact:
     cluster_state: existing
 
-- name: ETCD |  etcd as exsiting cluster
+- name: CREATE |  etcd as exsiting cluster
   template:
     src: etcd-conf.yaml.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
