@@ -1,6 +1,6 @@
-- name: delete existing cluster {{cluster_name}}
+- name: delete existing cluster {{etcd_cluster_name}}
   pause:
-    prompt: "You're about to delete the cluster {{cluster_name}} and all it's content, are you sure? (yes/no) "
+    prompt: "You're about to delete the cluster {{etcd_cluster_name}} and all it's content, are you sure? (yes/no) "
   when:
     - etcd_delete_cluster | default(false) | bool
   register: uinput
@@ -12,7 +12,7 @@
     - uinput.user_input != 'yes'
   run_once: true
 
-- name: stop the cluster {{cluster_name}}
+- name: stop the cluster {{etcd_cluster_name}}
   service:
     name: "{{etcd_name}}"
     state: stopped
@@ -22,7 +22,7 @@
     - etcd_delete_cluster | default(false) | bool
 
 
-- name: delete data_dir and configurations {{cluster_name}}
+- name: delete data_dir and configurations {{etcd_cluster_name}}
   file:
     path: "{{ item }}"
     state: "absent"

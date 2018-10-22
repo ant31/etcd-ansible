@@ -59,7 +59,7 @@ advertise-client-urls: {{ etcd_client_url }}
 initial-cluster: {{ etcd_peer_addresses }}
 
 # Initial cluster token for the etcd cluster during bootstrap.
-initial-cluster-token: {{cluster_token|default(cluster_name)}}
+initial-cluster-token: {{cluster_token|default(etcd_cluster_name)}}
 
 # Reject reconfiguration requests that would cause quorum loss.
 strict-reconfig-check: true

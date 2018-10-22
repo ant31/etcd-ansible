@@ -34,7 +34,7 @@
 
 - name: CREATE | fail if it exists
   assert:
-    msg: "Etcd data already exists, can't create the new cluster: {{cluster_name}}"
+    msg: "Etcd data already exists, can't create the new cluster: {{etcd_cluster_name}}"
     that: not etcd_data.stat.exists
   when:
     - etcd_action == "create"
@@ -42,7 +42,7 @@
 
 - name: UPDATE | fail if not data dir exists
   assert:
-    msg: "Etcd data don't exist, can't upgrade the cluster: {{cluster_name}}"
+    msg: "Etcd data don't exist, can't upgrade the cluster: {{etcd_cluster_name}}"
     that: etcd_data.stat.exists
   when:
     - etcd_action == "upgrade"

@@ -15,10 +15,10 @@ etcd_clusters:
       client: 2389
       peer: 2390
 
-cluster_name: default
+etcd_cluster_name: default
 etcd_ports:
-  client: 4444
-  peer: 444
+  client: 2379
+  peer: 2380
 
 cfssl_version: 1.2
 

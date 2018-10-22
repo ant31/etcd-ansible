@@ -4,11 +4,7 @@
 - hosts: etcd
   any_errors_fatal: true
   vars:
-    etcd_clusters:
-      - name: k8s1
-        port:
-          client: 2379
-          peer: 2380
+    etcd_cluster_name: foo
   roles:
     - name: etcd/cluster
 
@@ -16,5 +12,3 @@
 # - hosts: etcd-clients
 #   roles:
 #     - name: etcd/certs/fetch
-#       vars:
-#         etcd_client_only: true
