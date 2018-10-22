@@ -19,7 +19,7 @@ As an alternative, `/etcd/certs/fetch` as a role dependencie (see: [roles/etcd/c
 
 ### Roles
 
-#### etcd/certs/ca
+####  [roles/etcd/certs/ca](https://github.com/ant31/etcd-ansible/blob/master/roles/etcd/certs/ca)
 
 Must be called or delegated to the `[etcd-cert-managers]` hosts.
 It installs the `cfssl` binaries, and creates the peer-ca and client-ca certificates.
@@ -27,7 +27,7 @@ It installs the `cfssl` binaries, and creates the peer-ca and client-ca certific
 ###### cfssl_version
 Version of the cfssl binary
 
-#### etcd/certs/generate
+#### [roles/etcd/certs/generate](https://github.com/ant31/etcd-ansible/blob/master/roles/etcd/certs/generate)
 
 Must be called or delegated to the `[etcd-cert-managers]` hosts.
 
@@ -47,7 +47,7 @@ The variable is automatically set to `[{{inventory_hostname}}]` when called via 
 etcd_hosts: [{{inventory_hostname}}]
 ```
 
-#### etcd/certs/fetch
+####  [roles/etcd/certs/fetch](https://github.com/ant31/etcd-ansible/blob/master/roles/etcd/certs/fetch)
 
 Must be called from all `[etcd]` and `[etcd-clients]` nodes.
 This role calls `etcd/certs/generate` as a dependency and in addition download to the current host its certificate. 
