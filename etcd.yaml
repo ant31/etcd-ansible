@@ -3,12 +3,11 @@
 # Install the etcd cluster
 - hosts: etcd
   any_errors_fatal: true
-  vars:
-    etcd_cluster_name: foo
   roles:
     - name: etcd/cluster
 
 # install the etcd client certificates to all hosts using etcd
-# - hosts: etcd-clients
-#   roles:
-#     - name: etcd/certs/fetch
+- hosts: etcd-clients
+  roles:
+    - name: etcd/facts
+    - name: etcd/certs
