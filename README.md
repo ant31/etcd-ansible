@@ -2,6 +2,24 @@
 Deploy and manage etcd cluster via Ansible
 
 
+## Quick Start
+1. Install mitogen plugin
+```ansible-playbook -c local mitogen.yaml -vv```
+
+2. Create an inventory with the following groups 
+ - [etcd]:  list of the cluster nodes
+ - [etcd-clients]: list of the nodes that must receive a client certificate
+See [inventory-example.ini](https://github.com/ant31/etcd-ansible/blob/master/inventory-example.ini)
+```
+cp inventory-example.ini inventory.ini
+```
+
+3. Install the cluster and distributes certificates to clients:
+```
+ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root   -e etcd_action=create
+```
+
+
 ### Roles
 
 The playbook is composed by 3 top levels roles: cluster, facts, certs.
@@ -9,7 +27,6 @@ The playbook is composed by 3 top levels roles: cluster, facts, certs.
 - Cluster: deploy and manage lifecycle of the etcd-nodes
 - Certs: generate and synchronize etcd peer/client/server certificates
 - Facts: configure some useful variables to be integrated with external roles
-
 
 ### Cluster management
 
