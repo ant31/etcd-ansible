@@ -13,6 +13,8 @@ dependencies:
     when:
       - etcd_backup | d(true)
       - etcd_action | d('none') in ['upgrade']
+      - inventory_hostname == groups['etcd'][0]
+    delegate_to: "{{hostvars[groups['etcd'][0]].ansible_ssh_host}}"
 
   - name: etcd/certs
     tags:
