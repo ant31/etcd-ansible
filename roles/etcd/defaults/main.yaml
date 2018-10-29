@@ -5,6 +5,17 @@ bin_dir: /opt/bin
 etcd_config_dir: /etc/etcd
 etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
 dns_domain: cluster.local
+etcd_backup: yes
+# etcd_upload_backup:
+#   # storage: s3 or gcs
+#   storage: s3
+#   bucket:
+#   access_key:
+#   secret_key:
+#   region:
+#   s3_url:
+#   metadata:
+#     key: value
 
 ################
 ## DOWNLOADS

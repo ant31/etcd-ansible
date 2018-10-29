@@ -1,0 +1,47 @@
+---
+- name: Refresh Time Fact
+  setup: filter=ansible_date_time
+
+- name: Set Backup Directory
+  set_fact:
+    etcd_backup_file: "{{ etcd_backup_prefix }}-{{ ansible_date_time.date }}_{{ ansible_date_time.time }}-snapshot.db"
+
+- name: Create Backup Directory
+  file:
+    path: "{{ etcd_backup_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0600
+
+- name: backup from offline
+  copy:
+    remote_src: true
+    dest: "{{ etcd_backup_file }}"
+    src: "{{etcd_data_dir}}/member/snap/db"
+  when:
+    - etcd_backup_offline | d(false)
+
+- name: Backup etcd v3 data
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{etcd_cert_paths.client.cert}}
+    --cacert={{etcd_cert_paths.client.ca}}
+    --key={{etcd_cert_paths.client.key}}
+    snapshot save "{{ etcd_backup_file }}"
+  register: etcd_snapshot
+  environment:
+    ETCDCTL_API: "3"
+  when:
+    - not etcd_backup_offline | d(false)
+
+- name: Copy latest snapshot
+  copy:
+    remote_src: true
+    src:  "{{ etcd_backup_file }}"
+    dest: "{{ etcd_backup_prefix }}-snapshot.db"
+
+- include_tasks: "upload_object_storage.yaml"
+  when:
+    - etcd_upload_backup is defined
+    - etcd_upload_backup.storage in ['gcs', 's3', 'aws']
