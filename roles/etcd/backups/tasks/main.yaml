@@ -8,19 +8,26 @@
 
 - name: Create Backup Directory
   file:
-    path: "{{ etcd_backup_directory }}"
+    path: "{{ etcd_backup_dir }}"
     state: directory
     owner: root
     group: root
     mode: 0600
 
-- name: backup from offline
-  copy:
-    remote_src: true
-    dest: "{{ etcd_backup_file }}"
-    src: "{{etcd_data_dir}}/member/snap/db"
-  when:
-    - etcd_backup_offline | d(false)
+- name: ETCD | Check if etcd cluster is healthy
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{etcd_cert_paths.client.cert}}
+    --cacert={{etcd_cert_paths.client.ca}}
+    --key={{etcd_cert_paths.client.key}}
+    endpoint health
+  register: etcd_cluster_is_healthy
+  changed_when: false
+  retries: 4
+  delay: "{{ retry_stagger | default(5)}}"
+  until: etcd_cluster_is_healthy.rc == 0
+  environment:
+    ETCDCTL_API: "3"
 
 - name: Backup etcd v3 data
   command: >-
@@ -33,7 +40,16 @@
   environment:
     ETCDCTL_API: "3"
   when:
-    - not etcd_backup_offline | d(false)
+    - not etcd_backup_offline | d(false) | bool
+
+- name: backup from offline
+  copy:
+    remote_src: true
+    dest: "{{ etcd_backup_file }}"
+    src: "{{etcd_data_dir}}/member/snap/db"
+  when:
+    - etcd_backup_offline | d(false) | bool
+
 
 - name: Copy latest snapshot
   copy:
