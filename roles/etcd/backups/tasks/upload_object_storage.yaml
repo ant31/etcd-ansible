@@ -1,4 +1,13 @@
 ---
+- name: Install boto3 and botocore
+  pip:
+    name: "{{ item }}"
+  loop:
+    - boto3
+    - botocore
+  environment:
+    PATH: "{{ ansible_env.PATH }}:{{ bin_dir }}"
+
 - name: create GCS bucket
   gc_storage:
     bucket: "{{etcd_upload_backup.bucket}}"
@@ -13,7 +22,7 @@
     - etcd_upload_backup.storage == "gcs"
 
 - name: create S3 bucket
-  s3:
+  aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
     mode: create
     permission: private
@@ -39,7 +48,7 @@
     - etcd_upload_backup.storage == "gcs"
 
 - name: uploads items
-  s3:
+  aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
     object: "{{etcd_backup_file | basename}}"
     src: "{{ etcd_backup_file}}"

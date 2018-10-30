@@ -26,8 +26,18 @@
   retries: 4
   delay: "{{ retry_stagger | default(5)}}"
   until: etcd_cluster_is_healthy.rc == 0
+  ignore_errors: true
   environment:
     ETCDCTL_API: "3"
+  when:
+    - not etcd_backup_offline | d(false) | bool
+
+- name:
+  fail:
+    msg: >-
+      Can't create a live backup, the cluster is not healthy.
+      It's possible to try with `etcd_backup_offline=true` to create a backup from the 'member/snap/db' file
+  when: etcd_cluster_is_healthy is failed
 
 - name: Backup etcd v3 data
   command: >-
@@ -42,7 +52,7 @@
   when:
     - not etcd_backup_offline | d(false) | bool
 
-- name: backup from offline
+- name: backup from 'member/snap/db' file
   copy:
     remote_src: true
     dest: "{{ etcd_backup_file }}"
