@@ -3,6 +3,7 @@ dependencies:
   - name: etcd
     tags:
       - always
+
   - name: adduser
     vars:
       user: "{{ etcd_user }}"
@@ -12,6 +13,7 @@ dependencies:
   - name: etcd/facts
     tags:
       - always
+
   - name: etcd/backups
     when:
       - etcd_backup | d(true)
