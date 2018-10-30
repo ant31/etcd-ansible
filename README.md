@@ -30,6 +30,8 @@ The playbook is composed by 4 top levels roles: cluster, facts, certs, backups
 - Backup: create a new snapshot and upload it to an object-storage if configured
           a snapshot is created before an upgrade or delete.
 
+![Dependencies](Docs/ansible-roles.png)
+
 ### Cluster management
 
 This role provide several actions to manage the etcd-nodes.
