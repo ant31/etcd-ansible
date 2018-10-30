@@ -1,3 +1,0 @@
-[submodule "vendor/kubespray"]
-	path = vendor/kubespray
-	url = git@github.com:kubernetes-incubator/kubespray.git
