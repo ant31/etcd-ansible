@@ -4,10 +4,10 @@
 - hosts: etcd
   any_errors_fatal: true
   roles:
-    - name: etcd/cluster
+    - name: etcd3/cluster
 
 # install the etcd client certificates to all hosts using etcd
 - hosts: etcd-clients
   roles:
-    - name: etcd/facts
-    - name: etcd/certs
+    - name: etcd3/facts
+    - name: etcd3/certs
