@@ -15,6 +15,7 @@
     path: "{{ bin_dir }}/etcd"
     state: absent
   when:
+    - etcdbin.stat.exists
     - etcdbin.stat.isdir
 
 - name: install | Copy etcd and etcdctl binary from download dir
@@ -34,7 +35,6 @@
     get_checksum: yes
   register: etcdbin
 
-- debug: msg="{{etcdbin.stat}}"
 - name: set cluster_state
   set_fact:
     cluster_state: '{% if etcd_action == "upgrade" %}existing{% else %}new{% endif %}'

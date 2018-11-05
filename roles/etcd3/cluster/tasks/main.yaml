@@ -1,10 +1,11 @@
 ---
-# Backup a cluster
-- name: manager cluster
+
+- name: Manage cluster
   include_tasks: manage-cluster.yaml
   vars:
     etcd_cluster_name: "{{cluster.name}}"
     etcd_ports: "{{cluster.ports}}"
+    _etcd_cluster_index: "{{loop.index}}"
   loop: "{{etcd_clusters}}"
   loop_control:
     loop_var: cluster
