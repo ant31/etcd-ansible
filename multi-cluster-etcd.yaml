@@ -16,12 +16,20 @@
       tags:
         - etcd
 
-# install the etcd client certificates to all hosts using etcd
-- hosts: etcd-clients
+# Install second etcd cluster
+- hosts: etcd-events
   strategy: mitogen_linear
+  any_errors_fatal: true
+  vars:
+    etcd_cluster_group: etcd-events
+    etcd_cluster_name: k8s-events
+    etcd_ports:
+      client: 2388
+      peer: 2389
   tasks:
-    - name: Create client certificates
+    - name: Manage etcd cluster
       import_role:
-        name: etcd3/certs
+        name: etcd3/cluster
       tags:
-        - etcd-certs
+        - etcd
+        - etcd-event

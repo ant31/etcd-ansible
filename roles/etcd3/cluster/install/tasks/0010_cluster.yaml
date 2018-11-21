@@ -1,20 +1,7 @@
-- debug: msg="{{etcd_cluster_name}}"
-
-- import_role:
-    name: etcd3/backups
-  when:
-    - etcd_backup | d(true) | bool
-    - etcd_action | d('none') in ['upgrade']
-    - inventory_hostname == groups['etcd'][0]
-  tags:
-    - etcd-backups
-
-- name: set cluster_state
-  set_fact:
-    cluster_state: '{% if etcd_action == "upgrade" %}existing{% else %}new{% endif %}'
-    etcd_binary_sha256: "{{etcdbin.stat.checksum}}"
-  tags:
-    - debug
+---
+- name: display cluster upgrading
+  debug:
+   msg: "{{etcd_cluster_name}}"
 
 - name: check if datadir exists
   stat:
@@ -36,6 +23,51 @@
   when:
     - etcd_action == "upgrade"
 
+- name: set cluster_state
+  set_fact:
+    cluster_state: >-
+      {%- if etcd_action == "upgrade" -%}
+      existing
+      {%- elif etcd_action == "deploy" and etcd_data.stat.exists -%}
+      existing
+      {%- else -%}
+      new
+      {%- endif -%}
+    etcd_binary_sha256: "{{etcdbin.stat.checksum}}"
+
+- debug: msg="${{cluster_state}}$"
+
+- name: ETCD | Check if etcd cluster is healthy
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{etcd_cert_paths.client.cert}}
+    --cacert={{etcd_cert_paths.client.ca}}
+    --key={{etcd_cert_paths.client.key}}
+    endpoint health
+  register: etcd_cluster_is_healthy
+  changed_when: false
+  retries: 10
+  delay: "{{ retry_stagger | default(5)}}"
+  until: etcd_cluster_is_healthy.rc == 0
+  ignore_errors: true
+  environment:
+    ETCDCTL_API: "3"
+  when:
+    - etcd_action | d('none') in ['upgrade', 'deploy']
+
+- name: Create a backup on upgrade, deploy
+  import_role:
+    name: etcd3/backups
+  vars:
+    etcd_backup_offline: true
+  when:
+    - etcd_backup | d(true) | bool
+    - etcd_action | d('none') in ['upgrade', 'deploy']
+    - inventory_hostname == groups[etcd_cluster_group][0]
+    - cluster_state == "existing"
+  tags:
+    - etcd-backups
+
 - name: CREATE | create etcd data dir
   file:
     path: "{{etcd_data_dir}}"
@@ -43,14 +75,14 @@
     owner: "{{ etcd_user.name}}"
     group: "{{ etcd_user.name}}"
   when:
-    - etcd_action == "create"
+    - etcd_action in ["create", "deploy"]
 
 # @TODO In which conditions we want to replace the configuration?
 - name: ETCD | Create etcd env file
   template:
     src: etcd.env.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}.env"
-    force: "{{etcd_action == 'upgrade' or etcd_force_create |default(false) | bool}}"
+    force: "{{etcd_action in ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
     backup: yes
   register: envchanged
 
@@ -58,7 +90,7 @@
   template:
     src: etcd-conf.yaml.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
-    force: "{{etcd_action == 'upgrade' or etcd_force_create |default(false) | bool}}"
+    force: "{{etcd_action in ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
     backup: yes
   register: confchanged
 
@@ -66,14 +98,14 @@
   template:
     src: "etcd-host.service.j2"
     dest: /etc/systemd/system/{{etcd_name}}.service
-    force: "{{etcd_action == 'upgrade' or etcd_force_create |default(false) | bool}}"
+    force: "{{etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
     backup: false
   register: etcdsystemd
 
 - name: UPDATE | reload systemd
   command: systemctl daemon-reload
   when:
-    - etcd_action == 'upgrade' or etcd_force_create |default(false) | bool
+    - etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool
     - etcdsystemd is changed
 
 - name: CREATE | Ensure etcd is running
@@ -86,7 +118,7 @@
     state: started
     enabled: yes
   when:
-    - etcd_action in ['create', 'upgrade']
+    - etcd_action in ['create', 'deploy', 'upgrade']
 
 
 # The delegation and loop, is a workaround to restart 1 by 1 services(serial=1)
@@ -96,15 +128,15 @@
   until: restarted_etcd is succeeded
   register: restarted_etcd
   service:
-    name: "{{hostvars[item].etcd_clusters_facts[etcd_cluster_name].etcd_members[item].etcd_name}}"
+    name: "{{etcd_members[item].etcd_name}}"
     state: restarted
     enabled: yes
   run_once: true
   delegate_to: "{{hostvars[item].ansible_ssh_host}}"
-  loop:  "{{groups['etcd']}}"
+  loop:  "{{groups[etcd_cluster_group]}}"
   when:
     - started_etcd is not changed
-    - etcd_action == 'upgrade' or etcd_force_create |default(false) | bool
+    - etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool
     - confchanged is changed or envchanged is changed or etcdsystemd is changed or etcd_force_restart|d(false)|bool
 
 - name: ETCD | Check if etcd cluster is healthy
@@ -116,7 +148,7 @@
     endpoint health
   register: etcd_cluster_is_healthy
   changed_when: false
-  retries: 4
+  retries: 10
   delay: "{{ retry_stagger | default(5)}}"
   until: etcd_cluster_is_healthy.rc == 0
   environment:
@@ -133,4 +165,4 @@
     force: yes
     backup: yes
   when:
-    - etcd_action == 'create'
+    - etcd_action == ['create', 'deploy']

@@ -1,5 +1,6 @@
 ---
-- include_role:
+- name: download etcd binaries
+  include_role:
     name: download
   vars:
     downloads: "{{etcd_downloads}}"
@@ -10,7 +11,7 @@
     path: "{{ bin_dir }}/etcd"
   register: etcdbin
 
-- name:
+- name: Check that etcd is not a directory
   file:
     path: "{{ bin_dir }}/etcd"
     state: absent
@@ -35,25 +36,4 @@
     get_checksum: yes
   register: etcdbin
 
-
-- include_tasks: 0010_cluster.yaml
-  loop: "{{etcd_clusters_facts.values()}}"
-  loop_control:
-    loop_var: cluster
-  vars:
-    etcd_cluster_name: "{{cluster.etcd_cluster_name}}"
-    etcd_ports: "{{cluster.etcd_ports}}"
-    etcd_access_addresses: "{{cluster.etcd_access_addresses}}"
-    etcd_access_addresses_semicolon: "{{cluster.etcd_access_addresses_semicolon}}"
-    etcd_peer_addresses: "{{cluster.etcd_peer_addresses}}"
-    etcd_peer_addresses_semicolon: "{{cluster.etcd_peer_addresses_semicolon}}"
-    etcd_member_info: "{{cluster.etcd_members[inventory_hostname]}}"
-    etcd_name: "{{cluster.etcd_members[inventory_hostname].etcd_name}}"
-    etcd_address: "{{cluster.etcd_members[inventory_hostname].etcd_address}}"
-    etcd_member_index: "{{cluster.etcd_members[inventory_hostname].etcd_member_index}}"
-    etcd_access_address: "{{cluster.etcd_members[inventory_hostname].etcd_access_address}}"
-    etcd_peer_url: "{{cluster.etcd_members[inventory_hostname].etcd_peer_url}}"
-    etcd_client_url: "{{cluster.etcd_members[inventory_hostname].etcd_client_url}}"
-    etcd_backup_dir: "{{cluster.etcd_members[inventory_hostname].etcd_backup_dir}}"
-    etcd_backup_prefix: "{{cluster.etcd_members[inventory_hostname].etcd_backup_prefix}}"
-    etcd_data_dir: "{{cluster.etcd_members[inventory_hostname].etcd_data_dir}}"
+- import_tasks: 0010_cluster.yaml

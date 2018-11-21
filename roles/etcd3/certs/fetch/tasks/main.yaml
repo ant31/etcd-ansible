@@ -38,8 +38,8 @@
 - name: set fact
   set_fact:
     _etcd_generate_cert: >-
-        {% if (inventory_hostname not in groups['etcd']
-        or (inventory_hostname in groups['etcd'] and etcd_action|default('none') in ['create'])
+        {% if (inventory_hostname not in groups[etcd_cluster_group]
+        or (inventory_hostname in groups[etcd_cluster_group] and etcd_action|default('none') in ['create', 'deploy'])
         or etcd_sync_certs | default(false) | bool
         or etcd_rotate_certs | default(false) | bool)
         and not etcd_skip_certs|default(false) | bool %}
@@ -93,14 +93,14 @@
     - facts
     - etcd-certs
   when:
-    - inventory_hostname in groups['etcd-clients']
+    - inventory_hostname in groups[etcd_clients_group]
 
 - name: "Gen_certs | Get etcd certificate serials"
   command: "openssl x509 -in {{ etcd_cert_paths.peer.cert }} -noout -serial"
   register: "etcd_peer_serial_result"
   changed_when: false
   when:
-    - inventory_hostname in groups['etcd']
+    - inventory_hostname in groups[etcd_cluster_group]
   tags:
     - facts
     - etcd-certs
@@ -109,7 +109,7 @@
   set_fact:
     etcd_client_cert_serial: "{{ etcd_client_serial_result.stdout.split('=')[1] }}"
   when:
-    - inventory_hostname in groups['etcd-clients']
+    - inventory_hostname in groups[etcd_clients_group]
   tags:
     - facts
     - etcd-certs
@@ -118,7 +118,7 @@
   set_fact:
     etcd_peer_cert_serial: "{{ etcd_peer_serial_result.stdout.split('=')[1] }}"
   when:
-    - inventory_hostname in groups['etcd']
+    - inventory_hostname in groups[etcd_cluster_group]
   tags:
     - facts
     - etcd-certs
