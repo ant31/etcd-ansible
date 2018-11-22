@@ -11,7 +11,7 @@ name: {{etcd_name}}
 
 
 # Initial cluster state ('new' or 'existing').
-initial-cluster-state: '{{cluster_state|default("new")}}'
+initial-cluster-state: '{{etcd_cluster_state|default("new")}}'
 
 # Path to the data directory.
 data-dir: {{etcd_data_dir }}

@@ -25,7 +25,7 @@
 
 - name: set cluster_state
   set_fact:
-    cluster_state: >-
+    etcd_cluster_state: >-
       {%- if etcd_action == "upgrade" -%}
       existing
       {%- elif etcd_action == "deploy" and etcd_data.stat.exists -%}
@@ -34,8 +34,6 @@
       new
       {%- endif -%}
     etcd_binary_sha256: "{{etcdbin.stat.checksum}}"
-
-- debug: msg="${{cluster_state}}$"
 
 - name: ETCD | Check if etcd cluster is healthy
   command: >-
@@ -53,7 +51,7 @@
   environment:
     ETCDCTL_API: "3"
   when:
-    - etcd_action | d('none') in ['upgrade', 'deploy']
+    - etcd_cluster_state == "existing"
 
 - name: Create a backup on upgrade, deploy
   import_role:
@@ -64,7 +62,7 @@
     - etcd_backup | d(true) | bool
     - etcd_action | d('none') in ['upgrade', 'deploy']
     - inventory_hostname == groups[etcd_cluster_group][0]
-    - cluster_state == "existing"
+    - etcd_cluster_state == "existing"
   tags:
     - etcd-backups
 
@@ -156,7 +154,7 @@
 
 - name: set cluster_state to existing
   set_fact:
-    cluster_state: existing
+    etcd_cluster_state: existing
 
 - name: CREATE |  etcd as exsiting cluster
   template:

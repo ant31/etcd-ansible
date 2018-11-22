@@ -56,8 +56,8 @@
 - name: uploads items
   aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
-    object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{item | basename}}"
-    src: "{{item}}"
+    object: "{{item.object}}"
+    src: "{{item.src}}"
     mode: put
     permission: private
     access_key: "{{etcd_upload_backup.access_key}}"
@@ -68,5 +68,7 @@
   when:
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
   loop:
-    - "{{etcd_backup_file}}"
-    - "{{etcd_backup_latest}}"
+    - object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_backup_file | basename}}"
+      src: "{{etcd_backup_file}}"
+    - object: "{{etcd_cluster_name}}/{{etcd_backup_latest | basename}}"
+      src: "{{etcd_backup_latest}}"
