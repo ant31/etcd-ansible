@@ -1,3 +1,4 @@
+---
 - name: delete existing cluster {{etcd_cluster_name}}
   pause:
     prompt: "You're about to delete the cluster {{etcd_cluster_name}} and all it's content, are you sure? (yes/no) "
@@ -20,7 +21,6 @@
   failed_when: false
   when:
     - etcd_delete_cluster | default(false) | bool
-
 
 - name: delete data_dir and configurations {{etcd_cluster_name}}
   file:

@@ -1,4 +1,7 @@
 ---
+- debug:
+    var: etcd_upload_backup
+
 - name: Install boto3 and botocore
   pip:
     name: "{{ item }}"
@@ -37,8 +40,8 @@
 - name: uploads items
   gc_storage:
     bucket: "{{etcd_upload_backup.bucket}}"
-    object: "{{etcd_backup_file | basename}}"
-    src: "{{ etcd_backup_file}}"
+    object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{item | basename}}"
+    src: "{{item}}"
     mode: put
     permission: private
     gs_access_key: "{{etcd_upload_backup.access_key}}"
@@ -46,12 +49,15 @@
     region: "{{etcd_upload_backup.region|d(omit)}}"
   when:
     - etcd_upload_backup.storage == "gcs"
+  loop:
+    - "{{etcd_backup_file}}"
+    - "{{etcd_backup_latest}}"
 
 - name: uploads items
   aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
-    object: "{{etcd_backup_file | basename}}"
-    src: "{{ etcd_backup_file}}"
+    object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{item | basename}}"
+    src: "{{item}}"
     mode: put
     permission: private
     access_key: "{{etcd_upload_backup.access_key}}"
@@ -61,3 +67,6 @@
     metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
   when:
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
+  loop:
+    - "{{etcd_backup_file}}"
+    - "{{etcd_backup_latest}}"
