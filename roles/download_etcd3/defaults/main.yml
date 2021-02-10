@@ -1,0 +1,50 @@
+---
+local_release_dir: /tmp/releases
+
+# Used to only evaluate vars from download role
+skip_downloads: false
+
+# if this is set to true will only download files once. Doesn't work
+# on Container Linux by CoreOS unless the download_localhost is true and localhost
+# is running another OS type. Default compress level is 1 (fastest).
+download_run_once: False
+download_compress: 1
+
+# if this is set to true will download container
+download_container: True
+
+# if this is set to true, uses the localhost for download_run_once mode
+# (requires docker and sudo to access docker). You may want this option for
+# local caching of docker images or for Container Linux by CoreOS cluster nodes.
+# Otherwise, uses the first node in the kube-master group to store images
+# in the download_run_once mode.
+download_localhost: False
+
+# Always pull images if set to True. Otherwise check by the repo's tag/digest.
+download_always_pull: False
+
+# Some problems may occur when downloading files over https proxy due to ansible bug
+# https://github.com/ansible/ansible/issues/32750. Set this variable to False to disable
+# SSL validation of get_url module. Note that kubespray will still be performing checksum validation.
+download_validate_certs: True
+
+# Use the first kube-master if download_localhost is not set
+download_delegate: "{% if download_localhost %}localhost{% else %}{{groups['kube-master'][0]}}{% endif %}"
+
+# Arch of Docker images and needed packages
+image_arch: "{{host_architecture | default('amd64')}}"
+
+downloads: {}
+
+download_defaults:
+  container: false
+  file: false
+  repo: None
+  tag: None
+  enabled: false
+  dest: None
+  version: None
+  url: None
+  unarchive: false
+  owner: kube
+  mode: None

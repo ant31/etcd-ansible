@@ -59,7 +59,7 @@ cfssl_version: 1.2
 etcd_checksums:
   v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
   v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
-
+  v3.14.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
 etcd_downloads:
   etcd:
     file: true
@@ -142,7 +142,7 @@ etcd_election_timeout: 5000
 # -n takes an integer between 0 (highest priority) and 7 (lowest priority)
 # etcd_ionice: "-c2 -n0"
 
-etcd_metrics: "basic"
+etcd_metrics: "extensive"
 
 ## A dictionary of extra environment variables to add to etcd.env, formatted like:
 ##  etcd_extra_vars:

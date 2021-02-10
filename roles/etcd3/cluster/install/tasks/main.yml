@@ -1,7 +1,7 @@
 ---
 - name: download etcd binaries
   include_role:
-    name: download
+    name: download_etcd
   vars:
     downloads: "{{etcd_downloads}}"
     download_container: false
