@@ -2,7 +2,7 @@
 
 # Install the etcd cluster
 - hosts: etcd
-  strategy: mitogen_linear
+  strategy: linear
   any_errors_fatal: true
   vars:
     etcd_cluster_name: k8s
@@ -18,7 +18,7 @@
 
 # Install second etcd cluster
 - hosts: etcd-events
-  strategy: mitogen_linear
+  strategy: linear
   any_errors_fatal: true
   vars:
     etcd_cluster_group: etcd-events

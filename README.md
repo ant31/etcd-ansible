@@ -3,10 +3,8 @@ Deploy and manage etcd cluster via Ansible
 
 
 ## Quick Start
-1. Install mitogen plugin
-```ansible-playbook -c local mitogen.yaml -vv```
 
-2. Create an inventory with the following groups
+1. Create an inventory with the following groups
  - [etcd]:  list of the cluster nodes
  - [etcd-clients]: list of the nodes that must receive a client certificate
 See [inventory-example.ini](https://github.com/ant31/etcd-ansible/blob/master/inventory-example.ini)
