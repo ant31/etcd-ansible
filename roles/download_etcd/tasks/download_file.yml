@@ -25,12 +25,14 @@
     validate_certs: "{{ download_validate_certs }}"
   register: get_url_result
   until: "'OK' in get_url_result.msg or 'file already exists' in get_url_result.msg"
-  retries: 4
+  retries: 1
   delay: "{{ retry_stagger | default(5) }}"
   when:
     - download.enabled
     - download.file
     - group_names | intersect(download.groups) | length
+  ignore_errors: yes
+
 
 - name: file_download | Extract archives
   unarchive:
