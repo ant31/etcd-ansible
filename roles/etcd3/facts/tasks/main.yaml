@@ -5,7 +5,7 @@
       {%- set _d = {} -%}
       {%- if not etcd_external_provisioner|d(false) -%}
       {%- for host in groups[etcd_cluster_group] -%}
-      {%- set node_name = hostvars[host]['etcd_member_name']|default(['etcd', etcd_cluster_name, loop.index|string] | join('-')) -%}
+      {%- set node_name = hostvars[host]['etcd_member_name']|default(['etcd', etcd_cluster_name, hostvars[host]['etcd_member_index']|d(loop.index)|string] | join('-')) -%}
       {%- set etcd_address = hostvars[host].ip | default(hostvars[host]['ansible_default_ipv4']['address']) -%}
       {%- set etcd_access_address = hostvars[host].access_ip | default(etcd_address) -%}
       {%- set _member = {
@@ -25,9 +25,9 @@
   tags:
     - facts
 
-- name: Etcd general fact
-  set_fact: {
-    "etcd_clusters": "{%- set _d = {} -%}
+- name: Etcd general fact2
+  set_fact:
+    etcd_clusters: >-
       {%- set _cluster_info = {} -%}
       {%- set _etcd_access_addresses_list = etcd_access_addresses_list|d([]) -%}
       {%- set _etcd_peer_addresses_list = etcd_peer_addresses_list|d([]) -%}
@@ -44,16 +44,14 @@
       'etcd_cluster_name': etcd_cluster_name,
       'etcd_ports': etcd_ports},
       'etcd_members': etcd_members,
+      'etcd_cert_dir': etcd_cert_dir,
       'etcd_access_addresses': _etcd_access_addresses_list | join(','),
       'etcd_access_addresses_semicolon': _etcd_access_addresses_list | join(';'),
       'etcd_peer_addresses': _etcd_peer_addresses_list | join(','),
       'etcd_peer_addresses_semicolon': _etcd_peer_addresses_list | join(';')
       }) -%}
-      {%- set _tmp = _d.update(_cluster_info) -%}
-      {%- set _d = etcd_clusters.update({etcd_cluster_name: _cluster_info}) -%}
-      {{etcd_clusters}}",
-
-      }
+      {%- set _d = {etcd_cluster_name: _cluster_info} -%}
+      {{_d}}
   tags:
     - facts
 
@@ -63,6 +61,3 @@
   tags:
     - facts
   loop: "{{etcd_clusters[etcd_cluster_name] | dict2items}}"
-
-- debug:
-    msg: "{{etcd_cluster_name}}, {{etcd_access_addresses}}"

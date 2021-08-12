@@ -5,7 +5,7 @@ etcd_certmanagers_group: etcd
 etcd_all_hosts: "{{groups[etcd_cluster_group] + groups[etcd_clients_group] + groups[etcd_certmanagers_group] | unique}}"
 etcd_clusters: {}
 etcd_cluster_backup:
-      directory: "{{etcd_home}}/backups/{{etcd_cluster_name}}"
+  directory: "{{etcd_home}}/backups/{{etcd_cluster_name}}"
 
 etcd_action: none
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
@@ -59,7 +59,13 @@ cfssl_version: 1.2
 etcd_checksums:
   v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
   v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
-  v3.14.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
+  v3.4.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
+
+etcd_version: v3.4.14
+
+
+etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+
 etcd_downloads:
   etcd:
     file: true

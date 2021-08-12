@@ -1,6 +1,6 @@
 
 {
-    "CN": "etcd client {{cert_name}}",
+    "CN": "etcd client",
     "hosts": [""],
     "key": {
         "algo": "rsa",
