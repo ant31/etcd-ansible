@@ -24,18 +24,18 @@
   when:
     - etcd_upload_backup.storage == "gcs"
 
-- name: create S3 bucket
-  aws_s3:
-    bucket: "{{etcd_upload_backup.bucket}}"
-    mode: create
-    permission: private
-    access_key: "{{etcd_upload_backup.access_key}}"
-    secret_key: "{{etcd_upload_backup.secret_key}}"
-    region: "{{etcd_upload_backup.region|d(omit)}}"
-    s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
-    metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
-  when:
-    - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
+# - name: create S3 bucket
+#   aws_s3:
+#     bucket: "{{etcd_upload_backup.bucket}}"
+#     mode: create
+#     permission: private
+#     access_key: "{{etcd_upload_backup.access_key}}"
+#     secret_key: "{{etcd_upload_backup.secret_key}}"
+#     region: "{{etcd_upload_backup.region|d(omit)}}"
+#     s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
+#     metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
+#   when:
+#     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
 
 - name: uploads items
   gc_storage:
@@ -43,7 +43,7 @@
     object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{item | basename}}"
     src: "{{item}}"
     mode: put
-    permission: private
+#    permission: private
     gs_access_key: "{{etcd_upload_backup.access_key}}"
     gs_secret_key: "{{etcd_upload_backup.secret_key}}"
     region: "{{etcd_upload_backup.region|d(omit)}}"
@@ -59,12 +59,13 @@
     object: "{{item.object}}"
     src: "{{item.src}}"
     mode: put
-    permission: private
+#    permission: private
     access_key: "{{etcd_upload_backup.access_key}}"
     secret_key: "{{etcd_upload_backup.secret_key}}"
     region: "{{etcd_upload_backup.region|d(omit)}}"
     s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
     metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
+    encrypt: "{{etcd_upload_backup.encrypt|d(true)}}"
   when:
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
   loop:

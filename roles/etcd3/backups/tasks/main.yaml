@@ -42,7 +42,7 @@
 
 - name: Backup etcd v3 data
   command: >-
-    {{bin_dir}}/etcdctl --endpoints={{etcd_access_addresses}}
+    {{bin_dir}}/etcdctl --endpoints={{etcd_client_url}}
     --cert={{etcd_cert_paths.client.cert}}
     --cacert={{etcd_cert_paths.client.ca}}
     --key={{etcd_cert_paths.client.key}}
