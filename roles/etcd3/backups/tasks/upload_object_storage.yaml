@@ -69,7 +69,7 @@
   when:
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
   loop:
-    - object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_backup_file | basename}}"
+    - object: "{{etcd_upload_backup.prefix|d('')}}{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_backup_file | basename}}"
       src: "{{etcd_backup_file}}"
     - object: "{{etcd_cluster_name}}/{{etcd_backup_latest | basename}}"
       src: "{{etcd_backup_latest}}"

@@ -1,5 +1,9 @@
 
 {
+    "CA": {
+        "expiry": "{{cert_expiry}}",
+        "pathlen": 0
+    },
     "CN": "ETCD-KUBESPRAY-CA-{{ca_name|upper}}",
     "key": {
         "algo": "rsa",
