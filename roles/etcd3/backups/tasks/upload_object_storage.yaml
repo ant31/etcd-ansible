@@ -59,7 +59,7 @@
     object: "{{item.object}}"
     src: "{{item.src}}"
     mode: put
-#    permission: private
+    permission: []
     access_key: "{{etcd_upload_backup.access_key}}"
     secret_key: "{{etcd_upload_backup.secret_key}}"
     region: "{{etcd_upload_backup.region|d(omit)}}"
@@ -71,5 +71,3 @@
   loop:
     - object: "{{etcd_upload_backup.prefix|d('')}}{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_backup_file | basename}}"
       src: "{{etcd_backup_file}}"
-    - object: "{{etcd_cluster_name}}/{{etcd_backup_latest | basename}}"
-      src: "{{etcd_backup_latest}}"

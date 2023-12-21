@@ -6,11 +6,11 @@
       {%- if not etcd_external_provisioner|d(false) -%}
       {%- for host in groups[etcd_cluster_group] -%}
       {%- set node_name = hostvars[host]['etcd_member_name']|default(['etcd', etcd_cluster_name, hostvars[host]['etcd_member_index']|d(loop.index)|string] | join('-')) -%}
-      {%- set etcd_address = hostvars[host].ip | default(hostvars[host]['ansible_default_ipv4']['address']) -%}
+      {%- set etcd_address = hostvars[host][ipvar|d("ip")] | default(hostvars[host]['ansible_default_ipv4']['address']) -%}
       {%- set etcd_access_address = hostvars[host].access_ip | default(etcd_address) -%}
       {%- set _member = {
       host: {
-        "etcd_member_index": loop.index|string,
+        "etcd_member_index": hostvars[host]['etcd_member_index']|d(loop.index)|string,
         "etcd_name": node_name,
         "etcd_address": etcd_address,
         "etcd_access_address": etcd_access_address,
@@ -57,6 +57,7 @@
 
 - name: Etcd top-level
   set_fact:
+    "{{item.key}}_{{etcd_cluster_name|replace('-','_')}}": "{{item.value}}"
     "{{item.key}}": "{{item.value}}"
   tags:
     - facts

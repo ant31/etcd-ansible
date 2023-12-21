@@ -38,7 +38,7 @@
 - name: Generate Json cfssl for *{{cert.profile}}/{{cert.host}}*
   command: >-
     {{bin_dir}}/cfssl gencert
-    -config={{ etcd_cert_dir }}/{{cert.profile}}-ca-config.json
+    -config={{ etcd_cert_dir }}/{{etcd_caconf}}
     -ca={{ etcd_cert_dir }}/{{etcd_capem}}
     -ca-key={{ etcd_cert_dir }}/{{etcd_cakey}}
     -profile={{cert.profile}}

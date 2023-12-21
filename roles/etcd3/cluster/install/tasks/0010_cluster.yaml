@@ -26,9 +26,7 @@
 - name: set cluster_state
   set_fact:
     etcd_cluster_state: >-
-      {%- if etcd_action == "upgrade" -%}
-      existing
-      {%- elif etcd_action == "deploy" and etcd_data.stat.exists -%}
+      {%- if etcd_action != "create" -%}
       existing
       {%- else -%}
       new
@@ -80,30 +78,31 @@
   template:
     src: etcd.env.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}.env"
-    force: "{{etcd_action in ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
     backup: yes
   register: envchanged
 
+# This is sensitive reconfiguration, should be not be replaced unvolontary
+# Most of the time it requires to run few etcdctl command to reconfigure the cluster before
+# Those etcdctl commands are not managed nor automated by this role
 - name: ETCD | Create etcd config file
   template:
     src: etcd-conf.yaml.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
-    force: "{{etcd_action in ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
+    force: "{{(etcd_force_reconfigure|default(false) | bool) or (etcd_force_create | d(false) | bool)}}"
     backup: yes
   register: confchanged
 
+# Should be safe to update the etcd service file when needed
 - name: ETCD | Copy etcd.service systemd file
   template:
     src: "etcd-host.service.j2"
     dest: /etc/systemd/system/{{etcd_name}}.service
-    force: "{{etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool}}"
     backup: false
   register: etcdsystemd
 
 - name: UPDATE | reload systemd
   command: systemctl daemon-reload
   when:
-    - etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool
     - etcdsystemd is changed
 
 - name: CREATE | Ensure etcd is running
@@ -115,8 +114,6 @@
     name: "{{etcd_name}}"
     state: started
     enabled: yes
-  when:
-    - etcd_action in ['create', 'deploy', 'upgrade']
 
 
 # The delegation and loop, is a workaround to restart 1 by 1 services(serial=1)
@@ -134,7 +131,7 @@
   loop:  "{{groups[etcd_cluster_group]}}"
   when:
     - started_etcd is not changed
-    - etcd_action == ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool
+    - etcd_action in ['upgrade', 'deploy'] or etcd_force_create |default(false) | bool
     - confchanged is changed or envchanged is changed or etcdsystemd is changed or etcd_force_restart|d(false)|bool
 
 - name: ETCD | Check if etcd cluster is healthy
@@ -155,12 +152,3 @@
 - name: set cluster_state to existing
   set_fact:
     etcd_cluster_state: existing
-
-- name: CREATE |  etcd as exsiting cluster
-  template:
-    src: etcd-conf.yaml.j2
-    dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
-    force: yes
-    backup: yes
-  when:
-    - etcd_action == ['create', 'deploy']

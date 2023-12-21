@@ -39,6 +39,7 @@
   when:
     - etcd_cluster_is_healthy is failed
     - not etcd_backup_offline | d(false) | bool
+    - not etcd_force_backup | d(false) | bool
 
 - name: Backup etcd v3 data
   command: >-
@@ -51,7 +52,7 @@
   environment:
     ETCDCTL_API: "3"
   when:
-    - etcd_cluster_is_healthy is succeeded
+    - etcd_cluster_is_healthy is succeeded or etcd_force_backup|d(false)|bool
 
 - name: backup from 'member/snap/db' file
   copy:
