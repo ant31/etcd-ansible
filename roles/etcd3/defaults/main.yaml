@@ -60,8 +60,9 @@ etcd_checksums:
   v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
   v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
   v3.4.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
+  v3.5.13: 31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7
 
-etcd_version: v3.4.14
+etcd_version: v3.5.13
 
 
 etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
