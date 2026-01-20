@@ -31,3 +31,9 @@
   register: etcdbin
 
 - import_tasks: 0010_cluster.yaml
+
+- name: Create etcd profile.d script
+  template:
+    src: etcd-profile.sh.j2
+    dest: /etc/profile.d/etcd.sh
+    mode: 0644
