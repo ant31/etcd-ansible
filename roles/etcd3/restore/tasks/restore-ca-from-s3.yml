@@ -56,8 +56,8 @@
   file:
     path: /etc/step-ca/secrets
     state: directory
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0700
     recurse: yes
   tags:

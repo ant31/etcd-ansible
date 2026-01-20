@@ -3,8 +3,8 @@
   template:
     src: etcd-backup.sh.j2
     dest: "{{ backup_scripts_dir }}/etcd-backup.sh"
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0755
   tags:
     - etcd-backup-cron
@@ -15,7 +15,7 @@
     minute: "{{ etcd_backup_cron_minute }}"
     hour: "{{ etcd_backup_cron_hour }}"
     job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
-    user: "{{ etcd_cert_user }}"
+    user: "{{ etcd_user.name }}"
     state: present
   when: inventory_hostname == groups[etcd_cluster_group][0]  # Only run on first node
   tags:
@@ -33,8 +33,8 @@
         missingok
         notifempty
       }
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0644
   when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:

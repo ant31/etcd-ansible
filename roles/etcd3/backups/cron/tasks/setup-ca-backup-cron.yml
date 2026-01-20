@@ -3,8 +3,8 @@
   template:
     src: ca-backup-check.sh.j2
     dest: "{{ backup_scripts_dir }}/ca-backup-check.sh"
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0755
   tags:
     - ca-backup-cron
@@ -13,8 +13,8 @@
   file:
     path: /var/lib/etcd-ca-backup
     state: directory
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0700
   tags:
     - ca-backup-cron
@@ -25,7 +25,7 @@
     minute: "{{ ca_backup_cron_minute }}"
     hour: "{{ ca_backup_cron_hour }}"
     job: "{{ backup_scripts_dir }}/ca-backup-check.sh >> {{ backup_log_dir }}/ca-backup.log 2>&1"
-    user: "{{ etcd_cert_user }}"
+    user: "{{ etcd_user.name }}"
     state: present
   tags:
     - ca-backup-cron
@@ -42,8 +42,8 @@
         missingok
         notifempty
       }
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0644
   tags:
     - ca-backup-cron

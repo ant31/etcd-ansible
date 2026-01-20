@@ -5,8 +5,8 @@ After=network.target
 
 [Service]
 Type=simple
-User={{ etcd_cert_user }}
-Group={{ etcd_cert_group }}
+User={{ etcd_user.name }}
+Group={{ etcd_user.name }}
 Environment=STEPPATH={{ step_path }}
 ExecStart={{ bin_dir }}/step-ca {{ step_ca_config }} --password-file {{ step_ca_secrets }}/password
 ExecReload=/bin/kill -HUP $MAINPID

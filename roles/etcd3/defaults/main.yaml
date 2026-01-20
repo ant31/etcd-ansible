@@ -103,8 +103,6 @@ etcd_events_cluster_enabled: false
 
 etcd_home: "/var/lib/etcd/"
 
-etcd_cert_group: etcd
-etcd_cert_user: etcd
 # Note: This does not set up DNS entries. It simply adds the following DNS
 # entries to the certificate
 etcd_cert_alt_names:

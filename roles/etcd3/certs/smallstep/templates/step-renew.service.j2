@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User={{ etcd_cert_user }}
-Group={{ etcd_cert_group }}
+User={{ etcd_user.name }}
+Group={{ etcd_user.name }}
 Environment=STEPPATH={{ etcd_cert_dir }}/.step
 ExecStart={{ bin_dir }}/step ca renew --force {{ cert_path }} {{ key_path }} --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt
 {% if exec_start_post %}

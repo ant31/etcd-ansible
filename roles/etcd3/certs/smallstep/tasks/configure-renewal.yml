@@ -63,8 +63,8 @@
 - name: Set certificate permissions
   file:
     path: "{{ item }}"
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0400
   loop:
     - "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
@@ -75,8 +75,8 @@
 - name: Set client certificate permissions
   file:
     path: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0400
 
 - name: Create symlinks for CA certificates

@@ -33,8 +33,8 @@
   file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0700
   loop:
     - /etc/step-ca/secrets
@@ -46,8 +46,8 @@
   copy:
     content: "{{ item.content | b64decode }}"
     dest: "{{ item.source }}"
-    owner: "{{ etcd_cert_user }}"
-    group: "{{ etcd_cert_group }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: "{{ '0400' if 'secrets' in item.source else '0644' }}"
   loop: "{{ source_ca_files.results }}"
   loop_control:
