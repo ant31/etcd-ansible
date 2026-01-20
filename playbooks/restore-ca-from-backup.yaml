@@ -7,20 +7,15 @@
   gather_facts: yes
   vars:
     backup_dir: /tmp
-    s3_bucket: "{{ step_ca_backup_s3_bucket | default('etcd-backups') }}"
-    s3_prefix: "{{ step_ca_backup_s3_prefix | default('step-ca') }}"
-    encryption_method: "{{ step_ca_backup_encryption_method | default('aws-kms') }}"
-    kms_key_id: "{{ step_ca_backup_kms_key_id | default('alias/etcd-ca-backup') }}"
-    backup_password: "{{ step_ca_backup_password | default('') }}"
     # Specify backup file to restore or use 'latest'
     restore_file: "{{ step_ca_restore_file | default('latest') }}"
   
   tasks:
     - name: Find latest backup if not specified
       aws_s3:
-        bucket: "{{ s3_bucket }}"
+        bucket: "{{ step_ca_backup_s3_bucket }}"
         mode: list
-        prefix: "{{ s3_prefix }}/"
+        prefix: "{{ step_ca_backup_s3_prefix }}/"
       register: s3_objects
       when: restore_file == 'latest'
       tags:
@@ -56,7 +51,7 @@
 
     - name: Download encrypted backup from S3
       aws_s3:
-        bucket: "{{ s3_bucket }}"
+        bucket: "{{ step_ca_backup_s3_bucket }}"
         object: "{{ backup_file_path }}"
         dest: "{{ backup_dir }}/{{ backup_file_path | basename }}"
         mode: get
@@ -81,7 +76,7 @@
         openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
           -in {{ backup_dir }}/{{ backup_file_path | basename }} \
           -out {{ backup_dir }}/step-ca-backup.tar.gz \
-          -pass pass:{{ backup_password }}
+          -pass pass:{{ step_ca_backup_password }}
       when: detected_encryption == 'symmetric'
       no_log: true
       tags:
@@ -193,9 +188,15 @@
     - name: Display restore status
       debug:
         msg: |
-          CA keys restored from s3://{{ s3_bucket }}/{{ backup_file_path }}
+          ✅ CA keys restored from s3://{{ step_ca_backup_s3_bucket }}/{{ backup_file_path }}
+          
           Encryption method: {{ detected_encryption }}
           step-ca is running and healthy
           Previous CA files backed up to: /etc/step-ca-backup-before-restore.tar.gz
+          
+          Next steps:
+          1. Verify step-ca: curl -k https://localhost:9000/health
+          2. Test certificate issuance: step ca certificate test /tmp/test.crt /tmp/test.key
+          3. Update inventory if failover: [etcd-cert-managers] → restored node
       tags:
         - restore

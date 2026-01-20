@@ -13,19 +13,12 @@
   vars:
     backup_dir: /tmp
     backup_file: "step-ca-backup-{{ ansible_date_time.date }}.tar.gz"
-    s3_bucket: "{{ step_ca_backup_s3_bucket | default('etcd-backups') }}"
-    s3_prefix: "{{ step_ca_backup_s3_prefix | default('step-ca') }}"
-    encryption_method: "{{ step_ca_backup_encryption_method | default('aws-kms') }}"
-    # AWS KMS key ID (must be set if using aws-kms method)
-    kms_key_id: "{{ step_ca_backup_kms_key_id | default('alias/etcd-ca-backup') }}"
-    # Symmetric encryption password (must be in ansible-vault if using symmetric method)
-    backup_password: "{{ step_ca_backup_password | default('') }}"
   
   tasks:
     - name: Validate encryption method
       assert:
         that:
-          - encryption_method in ['aws-kms', 'symmetric', 'aws-s3-sse']
+          - step_ca_backup_encryption_method in ['aws-kms', 'symmetric', 'aws-s3-sse']
         fail_msg: "Invalid encryption method. Choose: aws-kms, symmetric, or aws-s3-sse"
       tags:
         - backup
@@ -34,10 +27,10 @@
     - name: Validate KMS configuration
       assert:
         that:
-          - kms_key_id is defined
-          - kms_key_id | length > 0
+          - step_ca_backup_kms_key_id is defined
+          - step_ca_backup_kms_key_id | length > 0
         fail_msg: "KMS key ID must be set when using aws-kms encryption"
-      when: encryption_method == 'aws-kms'
+      when: step_ca_backup_encryption_method == 'aws-kms'
       tags:
         - backup
         - validate
@@ -45,10 +38,10 @@
     - name: Validate symmetric encryption password
       assert:
         that:
-          - backup_password is defined
-          - backup_password | length > 0
+          - step_ca_backup_password is defined
+          - step_ca_backup_password | length > 0
         fail_msg: "Backup password must be set in ansible-vault when using symmetric encryption"
-      when: encryption_method == 'symmetric'
+      when: step_ca_backup_encryption_method == 'symmetric'
       tags:
         - backup
         - validate
@@ -66,12 +59,12 @@
     - name: Encrypt backup with AWS KMS
       command: >
         aws kms encrypt
-        --key-id {{ kms_key_id }}
+        --key-id {{ step_ca_backup_kms_key_id }}
         --plaintext fileb://{{ backup_dir }}/{{ backup_file }}
         --output text
         --query CiphertextBlob
         | base64 -d > {{ backup_dir }}/{{ backup_file }}.kms
-      when: encryption_method == 'aws-kms'
+      when: step_ca_backup_encryption_method == 'aws-kms'
       tags:
         - backup
         - encrypt
@@ -81,8 +74,8 @@
         openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
           -in {{ backup_dir }}/{{ backup_file }} \
           -out {{ backup_dir }}/{{ backup_file }}.enc \
-          -pass pass:{{ backup_password }}
-      when: encryption_method == 'symmetric'
+          -pass pass:{{ step_ca_backup_password }}
+      when: step_ca_backup_encryption_method == 'symmetric'
       no_log: true
       tags:
         - backup
@@ -91,9 +84,9 @@
     - name: Set encrypted backup filename
       set_fact:
         encrypted_file: >-
-          {%- if encryption_method == 'aws-kms' -%}
+          {%- if step_ca_backup_encryption_method == 'aws-kms' -%}
           {{ backup_file }}.kms
-          {%- elif encryption_method == 'symmetric' -%}
+          {%- elif step_ca_backup_encryption_method == 'symmetric' -%}
           {{ backup_file }}.enc
           {%- else -%}
           {{ backup_file }}
@@ -103,30 +96,30 @@
 
     - name: Upload encrypted backup to S3 with KMS
       aws_s3:
-        bucket: "{{ s3_bucket }}"
-        object: "{{ s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
+        bucket: "{{ step_ca_backup_s3_bucket }}"
+        object: "{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
         src: "{{ backup_dir }}/{{ encrypted_file }}"
         mode: put
         encrypt: yes
         encryption_mode: "aws:kms"
-        encryption_kms_key_id: "{{ kms_key_id }}"
+        encryption_kms_key_id: "{{ step_ca_backup_kms_key_id }}"
       when: 
-        - step_ca_backup_s3_enabled | default(true)
-        - encryption_method in ['aws-kms', 'aws-s3-sse']
+        - step_ca_backup_s3_enabled
+        - step_ca_backup_encryption_method in ['aws-kms', 'aws-s3-sse']
       tags:
         - backup
         - upload
 
     - name: Upload encrypted backup to S3 (symmetric encryption)
       aws_s3:
-        bucket: "{{ s3_bucket }}"
-        object: "{{ s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
+        bucket: "{{ step_ca_backup_s3_bucket }}"
+        object: "{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
         src: "{{ backup_dir }}/{{ encrypted_file }}"
         mode: put
         encrypt: yes
       when:
-        - step_ca_backup_s3_enabled | default(true)
-        - encryption_method == 'symmetric'
+        - step_ca_backup_s3_enabled
+        - step_ca_backup_encryption_method == 'symmetric'
       tags:
         - backup
         - upload
@@ -146,13 +139,17 @@
     - name: Display backup location and method
       debug:
         msg: |
-          Backup uploaded to s3://{{ s3_bucket }}/{{ s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
-          Encryption method: {{ encryption_method }}
-          {% if encryption_method == 'aws-kms' %}
-          KMS Key: {{ kms_key_id }}
-          {% elif encryption_method == 'symmetric' %}
+          ✅ Backup uploaded to s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
+          
+          Encryption method: {{ step_ca_backup_encryption_method }}
+          {% if step_ca_backup_encryption_method == 'aws-kms' %}
+          KMS Key: {{ step_ca_backup_kms_key_id }}
+          {% elif step_ca_backup_encryption_method == 'symmetric' %}
           Decryption: Use password from ansible-vault
           {% endif %}
-      when: step_ca_backup_s3_enabled | default(true)
+          
+          To restore:
+            ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=TARGET_NODE --vault-password-file ~/.vault-pass
+      when: step_ca_backup_s3_enabled
       tags:
         - backup
