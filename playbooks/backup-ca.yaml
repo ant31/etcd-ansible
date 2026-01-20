@@ -1,0 +1,63 @@
+---
+# Backup step-ca CA keys to encrypted offsite storage
+# Usage: ansible-playbook -i inventory.ini playbooks/backup-ca.yaml
+
+- name: Backup step-ca CA keys
+  hosts: etcd-cert-managers[0]
+  gather_facts: yes
+  vars:
+    backup_dir: /tmp
+    backup_file: "step-ca-backup-{{ ansible_date_time.date }}.tar.gz"
+    gpg_recipient: "{{ step_ca_backup_gpg_recipient | default('admin@example.com') }}"
+    s3_bucket: "{{ step_ca_backup_s3_bucket | default('etcd-backups') }}"
+    s3_prefix: "{{ step_ca_backup_s3_prefix | default('step-ca') }}"
+  
+  tasks:
+    - name: Create CA backup archive
+      archive:
+        path:
+          - /etc/step-ca/secrets
+          - /etc/step-ca/config
+        dest: "{{ backup_dir }}/{{ backup_file }}"
+        format: gz
+      tags:
+        - backup
+
+    - name: Encrypt backup with GPG
+      command: |
+        gpg --encrypt --recipient {{ gpg_recipient }} \
+        --output {{ backup_dir }}/{{ backup_file }}.gpg \
+        {{ backup_dir }}/{{ backup_file }}
+      tags:
+        - backup
+        - encrypt
+
+    - name: Upload encrypted backup to S3
+      aws_s3:
+        bucket: "{{ s3_bucket }}"
+        object: "{{ s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ backup_file }}.gpg"
+        src: "{{ backup_dir }}/{{ backup_file }}.gpg"
+        mode: put
+        encrypt: yes
+      when: step_ca_backup_s3_enabled | default(true)
+      tags:
+        - backup
+        - upload
+
+    - name: Cleanup local backup files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ backup_dir }}/{{ backup_file }}"
+        - "{{ backup_dir }}/{{ backup_file }}.gpg"
+      tags:
+        - backup
+        - cleanup
+
+    - name: Display backup location
+      debug:
+        msg: "Backup uploaded to s3://{{ s3_bucket }}/{{ s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ backup_file }}.gpg"
+      when: step_ca_backup_s3_enabled | default(true)
+      tags:
+        - backup
