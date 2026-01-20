@@ -28,6 +28,7 @@
   with_items:
     - etcd
     - etcdctl
+    - etcdutl
 
 - name: Checksum etcd binary
   stat:

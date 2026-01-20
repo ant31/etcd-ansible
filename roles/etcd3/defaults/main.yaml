@@ -53,16 +53,16 @@ etcd_ports:
   client: 2379
   peer: 2380
 
-cfssl_version: 1.2
+cfssl_version: 1.6.5
 
 
 etcd_checksums:
-  v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
-  v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
-  v3.4.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
-  v3.5.13: 31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7
+  v3.5.13: "sha256:31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7"
+  v3.5.26: "sha256:0a682a91201dc8351d507210bc30b021a11e254eab806f03224b51e8fad29abb"
+  v3.6.7: "sha256:cf8af880c5a01ee5363cefa14a3e0cb7e5308dcf4ed17a6973099c9a7aee5a9a"
+  
 
-etcd_version: v3.5.13
+etcd_version: v3.5.26
 
 
 etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
@@ -79,13 +79,14 @@ etcd_downloads:
     mode: "0755"
     groups:
       - "{{etcd_cluster_group}}"
-
+  
 etcd_certs_downloads:
   cfssl:
     file: true
     enabled: true
     dest: "{{bin_dir}}/cfssl"
-    url: "https://pkg.cfssl.org/R{{cfssl_version}}/cfssl_linux-amd64"
+    sha256: "sha256:ff4d3a1387ea3e1ee74f4bb8e5ffe9cbab5bee43c710333c206d14199543ebdf"
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssl_{{cfssl_version}}_linux_amd64"
     owner: "root"
     mode: "0755"
     groups:
@@ -95,8 +96,9 @@ etcd_certs_downloads:
   cfssljson:
     file: true
     enabled: true
+    sha256: "sha256:09fbcb7a3b3d6394936ea61eabff1e8a59a8ac3b528deeb14cf66cdbbe9a534f"
     dest: "{{bin_dir}}/cfssljson"
-    url: "https://pkg.cfssl.org/R{{cfssl_version}}/cfssljson_linux-amd64"
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssljson_{{cfssl_version}}_linux_amd64"
     owner: "root"
     mode: "0755"
     groups:
@@ -106,8 +108,9 @@ etcd_certs_downloads:
   cfssl-certinfo:
     file: true
     enabled: true
+    checksum: "sha256:ebe7cd2d6ad33930fa0db292312ef0acf8ec0e359bc73d4ed8ae7290bd47c955"
     dest: "{{bin_dir}}/cfssl-certinfo"
-    url: "https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64"
+    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssl-certinfo_{{cfssl_version}}_linux_amd64"
     owner: "root"
     mode: "0755"
     groups:
@@ -126,8 +129,8 @@ etcd_events_cluster_enabled: false
 
 etcd_home: "/var/lib/etcd/"
 
-etcd_cert_group: root
-etcd_cert_user: root
+etcd_cert_group: etcd
+etcd_cert_user: etcd
 # Note: This does not set up DNS entries. It simply adds the following DNS
 # entries to the certificate
 etcd_cert_alt_names:

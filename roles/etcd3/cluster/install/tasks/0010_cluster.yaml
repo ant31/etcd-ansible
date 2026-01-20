@@ -64,16 +64,14 @@
   tags:
     - etcd-backups
 
-- name: CREATE | create etcd data dir
+- name: Create etcd data dir
   file:
     path: "{{etcd_data_dir}}"
     state: directory
     owner: "{{ etcd_user.name}}"
     group: "{{ etcd_user.name}}"
-  when:
-    - etcd_action in ["create", "deploy"]
 
-# @TODO In which conditions we want to replace the configuration?
+
 - name: ETCD | Create etcd env file
   template:
     src: etcd.env.j2
