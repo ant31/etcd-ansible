@@ -1,0 +1,103 @@
+site_name: etcd-ansible Documentation
+site_description: Production-grade etcd cluster deployment and management with automated certificate management
+site_author: etcd-ansible contributors
+repo_url: https://github.com/your-org/etcd-ansible
+repo_name: your-org/etcd-ansible
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Introduction: getting-started/introduction.md
+    - Quick Start: getting-started/quick-start.md
+    - Prerequisites: getting-started/prerequisites.md
+  - Installation:
+    - Preparing Inventory: installation/inventory.md
+    - AWS KMS Setup: installation/kms-setup.md
+    - Initial Deployment: installation/deployment.md
+    - Verification: installation/verification.md
+  - Operations:
+    - Cluster Management: operations/cluster-management.md
+    - Backup & Restore: operations/backup-restore.md
+    - Upgrade Cluster: operations/upgrade.md
+    - Scaling: operations/scaling.md
+    - Health Checks: operations/health-checks.md
+  - Certificate Management:
+    - Overview: certificates/overview.md
+    - Smallstep CA: certificates/smallstep.md
+    - Certificate Renewal: certificates/renewal.md
+    - Disaster Recovery: certificates/disaster-recovery.md
+  - Playbooks:
+    - Available Playbooks: playbooks/overview.md
+    - Creating Custom Playbooks: playbooks/custom.md
+    - Integration Examples: playbooks/integration.md
+  - Advanced:
+    - Multi-Cluster Setup: advanced/multi-cluster.md
+    - High Availability: advanced/ha-setup.md
+    - Performance Tuning: advanced/performance.md
+    - Custom Configurations: advanced/custom-config.md
+  - Troubleshooting:
+    - Common Issues: troubleshooting/common-issues.md
+    - Certificate Problems: troubleshooting/certificates.md
+    - Cluster Issues: troubleshooting/cluster.md
+    - Debug Commands: troubleshooting/debug-commands.md
+  - Reference:
+    - Variables: reference/variables.md
+    - Commands: reference/commands.md
+    - Architecture: reference/architecture.md
+    - FAQ: reference/faq.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/your-org/etcd-ansible
