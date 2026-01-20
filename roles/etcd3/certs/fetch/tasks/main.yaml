@@ -46,7 +46,7 @@
         true
         {% else %}
         false
-        {% endif %}
+        {% endif %} | bool
 
 - name: include cert generate role
   include_role:
