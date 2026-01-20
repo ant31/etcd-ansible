@@ -1,10 +1,4 @@
 ---
-- name: download etcd binaries
-  include_role:
-    name: etcd3/download
-  vars:
-    downloads: "{{ etcd_downloads }}"
-
 - name: Checksum etcd binary
   stat:
     path: "{{ bin_dir }}/etcd"

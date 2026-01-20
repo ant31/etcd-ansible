@@ -1,12 +1,9 @@
 ---
 # Backup a cluster
 - name: etcd3/backups
-  include_role:
+  import_role:
     name: etcd3/backups
     public: yes
-    apply:
-      tags:
-        - etcd-backups
   when:
     - inventory_hostname == groups[etcd_cluster_group|d('etcd')][0]
     - etcd_action | default('none') == "backup"
@@ -14,13 +11,9 @@
     - etcd-backups
 
 # install/upgrade a cluster
-- include_role:
+- import_role:
     name: etcd3/cluster/install
     public: yes
-    apply:
-      tags:
-        - etcd
-        - etcd-cluster
   when:
     - etcd_action | default('none') in ['upgrade', 'create', 'deploy']
   tags:
@@ -29,12 +22,9 @@
 
 # Teardown a cluster
 - name: etcd3/cluster/delete
-  include_role:
+  import_role:
     name: etcd3/cluster/delete
     public: yes
-    apply:
-      tags:
-        - etcd-delete
   when:
     - etcd_delete_cluster | default(false) | bool
   tags:
