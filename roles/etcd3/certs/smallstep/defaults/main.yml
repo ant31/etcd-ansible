@@ -28,3 +28,11 @@ step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 # Password for CA keys (should be stored in ansible-vault in production)
 step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
 step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
+
+# Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, aws-s3-sse
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key for encryption
+step_ca_backup_password: ""  # Password for symmetric encryption (store in ansible-vault)
+step_ca_backup_s3_bucket: "etcd-backups"
+step_ca_backup_s3_prefix: "step-ca"
+step_ca_backup_s3_enabled: true

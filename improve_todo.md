@@ -82,12 +82,17 @@
 - [ ] Display cluster metrics (size, revision, etc.)
 - [ ] Add option to output JSON for monitoring systems
 
-### 9. Secrets Management Best Practices
+### 9. Secrets Management Best Practices ✅ IMPROVED
 **Motivation**: Variables show plaintext credentials without Vault examples.
 **Impact**: Risk of credential exposure in version control.
-**What needs to happen**:
-- [ ] Add ansible-vault examples for sensitive variables
-- [ ] Document secrets management best practices
+**Status**: Partially completed - backup encryption improved
+**What was done**:
+- [x] Replace GPG with AWS KMS for CA backup encryption
+- [x] Add symmetric encryption option with ansible-vault
+- [x] Document backup encryption best practices
+- [x] Add restore playbook with encrypted backup support
+**What still needs to happen**:
+- [ ] Add ansible-vault examples for all sensitive variables
 - [ ] Add `.gitignore` patterns for secret files
 - [ ] Create example vault file structure
 - [ ] Document integration with external secret managers (HashiCorp Vault, etc.)

@@ -314,50 +314,103 @@ curl -k https://etcd-k8s-2:9000/health
 
 ### Automated Daily Backup
 
-Create cron job to backup CA keys daily:
+**Setup cron for automated backups:**
 
 ```bash
-# On cert-manager node or via Ansible
-0 2 * * * /usr/local/bin/backup-step-ca.sh
+# Add to crontab on Ansible controller or automation server
+# Using AWS KMS encryption
+0 2 * * * cd /opt/etcd-ansible && /usr/bin/ansible-playbook -i inventory.ini playbooks/backup-ca.yaml >> /var/log/step-ca-backup.log 2>&1
+
+# Or using symmetric encryption with vault password file
+0 2 * * * cd /opt/etcd-ansible && /usr/bin/ansible-playbook -i inventory.ini playbooks/backup-ca.yaml --vault-password-file /etc/ansible/.vault-pass >> /var/log/step-ca-backup.log 2>&1
 ```
 
+**Backup retention policy (run weekly):**
+
 ```bash
-#!/bin/bash
-# /usr/local/bin/backup-step-ca.sh
-DATE=$(date +%Y-%m-%d)
-tar czf /tmp/step-ca-backup-${DATE}.tar.gz /etc/step-ca/secrets /etc/step-ca/config
-gpg --encrypt --recipient admin@example.com /tmp/step-ca-backup-${DATE}.tar.gz
-aws s3 cp /tmp/step-ca-backup-${DATE}.tar.gz.gpg s3://backups/step-ca/
-rm -f /tmp/step-ca-backup-${DATE}.tar.gz*
+# Delete backups older than 90 days
+0 3 * * 0 aws s3 ls s3://etcd-backups/step-ca/ --recursive | awk '{print $4}' | while read file; do DAYS=$(( ($(date +%s) - $(date -d "$(echo $file | grep -oP '\d{4}-\d{2}-\d{2}')" +%s)) / 86400 )); if [ $DAYS -gt 90 ]; then aws s3 rm "s3://etcd-backups/$file"; fi; done
 ```
 
 ### Manual Backup
 
+**Option 1: AWS KMS (Recommended)**
+
 ```bash
-# On cert-manager node
-tar czf step-ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
-gpg --encrypt --recipient admin@example.com step-ca-backup.tar.gz
-aws s3 cp step-ca-backup.tar.gz.gpg s3://backups/step-ca/
+# Configure in group_vars/all/vault.yml (encrypted)
+step_ca_backup_encryption_method: aws-kms
+step_ca_backup_kms_key_id: alias/etcd-ca-backup
+step_ca_backup_s3_bucket: etcd-backups
+
+# Run backup
+ansible-playbook -i inventory.ini playbooks/backup-ca.yaml --vault-password-file ~/.vault-pass
+```
+
+**Option 2: Symmetric Encryption**
+
+```bash
+# Configure in group_vars/all/vault.yml (encrypted with ansible-vault)
+step_ca_backup_encryption_method: symmetric
+step_ca_backup_password: "your-very-secure-password-from-password-manager"
+step_ca_backup_s3_bucket: etcd-backups
+
+# Run backup
+ansible-playbook -i inventory.ini playbooks/backup-ca.yaml --vault-password-file ~/.vault-pass
+```
+
+**Option 3: Manual Shell Commands**
+
+```bash
+# With AWS KMS
+tar czf /tmp/ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
+aws kms encrypt --key-id alias/etcd-ca-backup \
+  --plaintext fileb:///tmp/ca-backup.tar.gz \
+  --output text --query CiphertextBlob | base64 -d > /tmp/ca-backup.tar.gz.kms
+aws s3 cp /tmp/ca-backup.tar.gz.kms s3://backups/step-ca/
+
+# With symmetric encryption
+tar czf /tmp/ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
+openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+  -in /tmp/ca-backup.tar.gz -out /tmp/ca-backup.tar.gz.enc \
+  -pass pass:YOUR_PASSWORD
+aws s3 cp /tmp/ca-backup.tar.gz.enc s3://backups/step-ca/
 ```
 
 ### Restore from Backup
 
+**Using Ansible (Recommended)**
+
 ```bash
-# Download backup
-aws s3 cp s3://backups/step-ca/step-ca-backup.tar.gz.gpg .
+# Restore from latest backup
+ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
+  -e target_node=etcd-k8s-1 \
+  --vault-password-file ~/.vault-pass
 
-# Decrypt and extract
-gpg --decrypt step-ca-backup.tar.gz.gpg | tar xzf - -C /
+# Restore specific backup
+ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
+  -e target_node=etcd-k8s-1 \
+  -e step_ca_restore_file=step-ca/2026/01/step-ca-backup-2026-01-20.tar.gz.kms \
+  --vault-password-file ~/.vault-pass
+```
 
-# Fix permissions
+**Manual Shell Commands**
+
+```bash
+# From AWS KMS encrypted backup
+aws s3 cp s3://backups/step-ca/ca-backup.tar.gz.kms /tmp/
+aws kms decrypt --ciphertext-blob fileb:///tmp/ca-backup.tar.gz.kms \
+  --output text --query Plaintext | base64 -d | tar xzf - -C /
 chmod 0400 /etc/step-ca/secrets/*
-chown -R root:root /etc/step-ca/
-
-# Restart step-ca
 systemctl restart step-ca
 
-# Verify
-curl -k https://localhost:9000/health
+# From symmetric encrypted backup
+aws s3 cp s3://backups/step-ca/ca-backup.tar.gz.enc /tmp/
+openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+  -in /tmp/ca-backup.tar.gz.enc -out /tmp/ca-backup.tar.gz \
+  -pass pass:YOUR_PASSWORD
+tar xzf /tmp/ca-backup.tar.gz -C /
+chmod 0400 /etc/step-ca/secrets/*
+systemctl restart step-ca
 ```
 
 ## Disaster Recovery Scenarios
