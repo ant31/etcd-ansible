@@ -1,28 +1,79 @@
 ---
 # Example vault file for sensitive variables
-# Copy this to group_vars/all/vault.yml and encrypt with:
-# ansible-vault encrypt group_vars/all/vault.yml
+# 
+# Setup:
+#   1. Copy this file: cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   2. Edit with your values: vi group_vars/all/vault.yml
+#   3. Encrypt: ansible-vault encrypt group_vars/all/vault.yml
+#   4. Use: ansible-playbook ... --vault-password-file ~/.vault-pass
+#
+# Store vault password in password manager, not in git!
 
-# Smallstep CA passwords
-step_ca_password: "CHANGE_ME_VERY_SECURE_CA_PASSWORD"
-step_provisioner_password: "CHANGE_ME_VERY_SECURE_PROVISIONER_PASSWORD"
+################################################################################
+# Smallstep CA Configuration
+################################################################################
 
-# CA Backup encryption configuration
-step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, aws-s3-sse
+# CA passwords - Generate strong random passwords
+# Example: openssl rand -base64 32
+step_ca_password: "CHANGE_ME_VERY_SECURE_CA_PASSWORD_MIN_32_CHARS"
+step_provisioner_password: "CHANGE_ME_VERY_SECURE_PROVISIONER_PASSWORD_MIN_32_CHARS"
 
-# AWS KMS configuration (if using aws-kms method)
-step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # or full ARN
+################################################################################
+# CA Backup Configuration
+################################################################################
+
+# Encryption method: aws-kms (recommended), symmetric, or aws-s3-sse
+step_ca_backup_encryption_method: "aws-kms"
+
+# AWS KMS key ID (create with: ansible-playbook playbooks/setup-kms.yaml)
+# Can be alias (alias/etcd-ca-backup) or full ARN
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
+
+# S3 bucket for CA backups (create bucket manually or via Terraform)
 step_ca_backup_s3_bucket: "your-org-etcd-backups"
+
+# S3 prefix/folder for organizing backups
 step_ca_backup_s3_prefix: "step-ca"
 
-# Symmetric encryption password (if using symmetric method)
-# Store this in a password manager and rotate regularly
-step_ca_backup_password: "CHANGE_ME_VERY_SECURE_BACKUP_PASSWORD_MIN_32_CHARS"
+# Symmetric encryption password (if using symmetric method instead of KMS)
+# Only needed if step_ca_backup_encryption_method: symmetric
+# step_ca_backup_password: "CHANGE_ME_VERY_SECURE_BACKUP_PASSWORD_MIN_32_CHARS"
 
-# AWS credentials for backup uploads (if not using IAM roles)
-# Prefer IAM instance profiles/roles over static credentials
-# step_ca_backup_aws_access_key: "AKIAIOSFODNN7EXAMPLE"
-# step_ca_backup_aws_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+# IAM role ARN for etcd nodes (for KMS key policy)
+# Example: arn:aws:iam::123456789012:role/etcd-nodes-role
+# step_ca_backup_kms_principal: "arn:aws:iam::YOUR_ACCOUNT:role/YOUR_ETCD_ROLE"
 
-# etcd cluster passwords/tokens (if any)
+################################################################################
+# etcd Cluster Configuration
+################################################################################
+
+# Unique cluster token (prevents accidental joining of wrong cluster)
+# Generate: uuidgen or openssl rand -hex 16
 etcd_cluster_token: "CHANGE_ME_UNIQUE_CLUSTER_TOKEN"
+
+# S3 backup configuration for etcd data snapshots (optional)
+# etcd_upload_backup:
+#   storage: s3
+#   bucket: "your-org-etcd-data-backups"
+#   region: "us-east-1"
+#   access_key: "AKIAIOSFODNN7EXAMPLE"  # Prefer IAM roles
+#   secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+#   encrypt: true
+
+################################################################################
+# Advanced Configuration (Optional)
+################################################################################
+
+# Override step-ca versions (use defaults unless you need specific versions)
+# step_version: "0.25.2"
+# step_ca_version: "0.25.2"
+
+# Override certificate lifetimes (default: 2 years)
+# step_cert_default_duration: "17520h"  # 2 years
+# step_cert_max_duration: "26280h"      # 3 years
+
+# Disable automatic CA backups to S3
+# step_ca_backup_s3_enabled: false
+
+# Change backup retention (default: 90 days)
+# step_ca_backup_retention_days: 180

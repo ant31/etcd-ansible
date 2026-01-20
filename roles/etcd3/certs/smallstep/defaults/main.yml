@@ -31,8 +31,14 @@ step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters
 
 # Backup encryption configuration
 step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, aws-s3-sse
-step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key for encryption
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
 step_ca_backup_password: ""  # Password for symmetric encryption (store in ansible-vault)
-step_ca_backup_s3_bucket: "etcd-backups"
-step_ca_backup_s3_prefix: "step-ca"
-step_ca_backup_s3_enabled: true
+step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
+step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
+step_ca_backup_s3_enabled: true  # Enable S3 uploads
+step_ca_backup_retention_days: 90  # Delete backups older than this
+
+# AWS KMS Key Policy - required IAM permissions for etcd nodes
+# Nodes need kms:Encrypt, kms:Decrypt, kms:DescribeKey on the KMS key
+# Example: arn:aws:iam::ACCOUNT_ID:role/etcd-nodes-role
+step_ca_backup_kms_principal: ""  # IAM role ARN for etcd nodes (optional, set in vault.yml)
