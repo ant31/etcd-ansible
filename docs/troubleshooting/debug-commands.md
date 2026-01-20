@@ -50,9 +50,9 @@ systemctl list-timers 'step-renew-*'
 
 ```bash
 # Test connectivity
-nc -zv etcd-k8s-1 2379
-nc -zv etcd-k8s-1 2380
-nc -zv etcd-k8s-1 9000
+nc -zv 10.0.1.10 2379
+nc -zv 10.0.1.10 2380
+nc -zv 10.0.1.10 9000
 
 # Check listening ports
 netstat -tlnp | grep etcd

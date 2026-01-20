@@ -18,7 +18,7 @@ sudo systemctl start step-ca
 
 2. Verify health:
 ```bash
-curl -k https://etcd-k8s-2:9000/health
+curl -k https://10.0.1.11:9000/health
 ```
 
 ### Scenario 2: CA Keys Lost

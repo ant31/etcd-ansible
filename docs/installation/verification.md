@@ -18,7 +18,7 @@ Comprehensive guide to verify your etcd cluster deployment.
 ```bash
 # From any etcd node
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -27,16 +27,16 @@ sudo etcdctl \
 
 Expected output:
 ```
-https://etcd-k8s-1:2379 is healthy: successfully committed proposal: took = 2.345ms
-https://etcd-k8s-2:2379 is healthy: successfully committed proposal: took = 2.456ms
-https://etcd-k8s-3:2379 is healthy: successfully committed proposal: took = 2.567ms
+https://10.0.1.10:2379 is healthy: successfully committed proposal: took = 2.345ms
+https://10.0.1.11:2379 is healthy: successfully committed proposal: took = 2.456ms
+https://10.0.1.12:2379 is healthy: successfully committed proposal: took = 2.567ms
 ```
 
 ### Check Cluster Members
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -54,7 +54,7 @@ fd422379fda50e48, started, etcd-default-3, https://10.0.1.12:2380, https://10.0.
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -89,7 +89,7 @@ Expected output:
 ### Check Health Endpoint
 
 ```bash
-curl -k https://etcd-k8s-1:9000/health
+curl -k https://10.0.1.10:9000/health
 ```
 
 Expected output:
@@ -266,7 +266,7 @@ aws s3 ls s3://your-org-etcd-backups/etcd-default/latest-snapshot.db.kms
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -278,7 +278,7 @@ sudo etcdctl \
 ```bash
 # Read from different node
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-2:2379 \
+  --endpoints=https://10.0.1.11:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -295,7 +295,7 @@ Hello, World!
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -306,7 +306,7 @@ sudo etcdctl \
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -319,7 +319,7 @@ sudo etcdctl \
 
 ```bash
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -339,7 +339,7 @@ PASS
 
 ```bash
 # Write benchmark
-sudo benchmark --endpoints=https://etcd-k8s-1:2379 \
+sudo benchmark --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \

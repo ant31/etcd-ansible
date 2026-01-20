@@ -153,7 +153,7 @@ ssh etcd-k8s-1
 
 # Check etcd cluster
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -162,9 +162,9 @@ sudo etcdctl \
 
 Expected output:
 ```
-https://etcd-k8s-1:2379 is healthy: successfully committed proposal
-https://etcd-k8s-2:2379 is healthy: successfully committed proposal
-https://etcd-k8s-3:2379 is healthy: successfully committed proposal
+https://10.0.1.10:2379 is healthy: successfully committed proposal
+https://10.0.1.11:2379 is healthy: successfully committed proposal
+https://10.0.1.12:2379 is healthy: successfully committed proposal
 ```
 
 ### Check step-ca status
@@ -217,7 +217,7 @@ Tue 2026-01-21 03:00:00 UTC  11h left      -     -       step-renew-etcd-k8s-1-c
 ```bash
 # Write a key
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -229,7 +229,7 @@ sudo etcdctl \
 ```bash
 # Read the key
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-2:2379 \
+  --endpoints=https://10.0.1.11:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \

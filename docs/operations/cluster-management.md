@@ -9,7 +9,7 @@ Day-2 operations for managing your etcd clusters.
 ```bash
 # Check cluster health
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -81,7 +81,7 @@ sudo journalctl -u etcd-default-1 --since "2026-01-20 10:00:00"
 ```bash
 # Get current revision
 rev=$(sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -89,7 +89,7 @@ rev=$(sudo etcdctl \
 
 # Compact
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379 \
+  --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -101,7 +101,7 @@ sudo etcdctl \
 ```bash
 # Defragment all endpoints
 sudo etcdctl \
-  --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \

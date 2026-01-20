@@ -41,7 +41,7 @@ Each node uses step CLI to request certificates:
 step ca certificate "etcd-k8s-1" \
   /etc/etcd/ssl/etcd-k8s-1-peer.crt \
   /etc/etcd/ssl/etcd-k8s-1-peer.key \
-  --ca-url=https://etcd-k8s-1:9000
+  --ca-url=https://10.0.1.10:9000
 ```
 
 ### 3. Automatic Renewal

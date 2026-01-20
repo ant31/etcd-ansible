@@ -12,10 +12,10 @@ step ca certificate failed: connection refused
 **Solution:**
 ```bash
 # Check step-ca health
-curl -k https://etcd-k8s-1:9000/health
+curl -k https://10.0.1.10:9000/health
 
 # Check network connectivity
-telnet etcd-k8s-1 9000
+telnet 10.0.1.10 9000
 
 # Verify step-ca is running
 sudo systemctl status step-ca

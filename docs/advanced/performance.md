@@ -48,7 +48,7 @@ etcd_compaction_retention: "8"  # Keep last 8 hours of history
 etcdctl check perf
 
 # Benchmark writes
-benchmark --endpoints=https://etcd-k8s-1:2379 put --total=10000
+benchmark --endpoints=https://10.0.1.10:2379 put --total=10000
 ```
 
 ## Related Documentation

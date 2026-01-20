@@ -172,7 +172,7 @@ ansible etcd -i inventory.ini -m shell -a "step certificate inspect /etc/etcd/ss
 
 # Verify etcd cluster
 ansible etcd[0] -i inventory.ini -m shell -a "
-  etcdctl --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  etcdctl --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
