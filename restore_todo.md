@@ -31,7 +31,9 @@ Create a new Ansible role `etcd3/restore` that can restore an etcd cluster from 
   - `etcd_restore_s3_url`
 - [ ] Define restore options:
   - `etcd_restore_force` (boolean - force restore even if cluster is healthy)
-  - `etcd_restore_skip_hash_check` (boolean)
+  - `etcd_restore_skip_hash_check` (boolean - skip integrity check for snapshots from data dir)
+  - `etcd_restore_bump_revision` (integer - add revisions to prevent going backwards)
+  - `etcd_restore_mark_compacted` (boolean - mark revisions as compacted for Kubernetes)
   - `etcd_restore_data_dir` (where to restore data)
   - `etcd_restore_name` (new cluster name if needed)
   - `etcd_restore_initial_cluster` (peer URLs)
@@ -40,10 +42,11 @@ Create a new Ansible role `etcd3/restore` that can restore an etcd cluster from 
 ### 4. Pre-restore Tasks (`tasks/pre_restore.yml`)
 - [ ] Validate that restore is requested (fail-safe check)
 - [ ] Check if snapshot file exists (local) or is accessible (S3)
-- [ ] Verify etcdctl binary is available
+- [ ] Verify etcdutl binary is available (etcd v3.6+)
 - [ ] Check current cluster health status
 - [ ] Prompt user for confirmation (with pause task)
 - [ ] Create backup of current state before restore (safety measure)
+- [ ] Warn about revision going backwards if not using --bump-revision
 
 ### 5. Download/Fetch Snapshot (`tasks/fetch_snapshot.yml`)
 - [ ] Create temporary directory for snapshot download
@@ -52,7 +55,7 @@ Create a new Ansible role `etcd3/restore` that can restore an etcd cluster from 
   - Use `aws_s3` module to download snapshot
 - [ ] Copy from local path if `etcd_restore_source == 'local'`
 - [ ] Download from URL if `etcd_restore_source == 'url'`
-- [ ] Verify snapshot integrity with `etcdctl snapshot status`
+- [ ] Verify snapshot integrity with `etcdutl snapshot status`
 
 ### 6. Stop Cluster (`tasks/stop_cluster.yml`)
 - [ ] Stop all etcd services across the cluster
@@ -67,17 +70,18 @@ Create a new Ansible role `etcd3/restore` that can restore an etcd cluster from 
 - [ ] Keep configuration files for reference
 
 ### 8. Restore Snapshot (`tasks/restore_snapshot.yml`)
-- [ ] Run `etcdctl snapshot restore` on first node with:
+- [ ] Run `etcdutl snapshot restore` on each node with:
   - `--data-dir` pointing to the etcd data directory
   - `--name` for the member name
   - `--initial-cluster` with all cluster members
   - `--initial-cluster-token` for the cluster
   - `--initial-advertise-peer-urls` for this member
+  - `--skip-hash-check` if snapshot copied from data directory
+  - `--bump-revision` (optional) to prevent revision going backwards
+  - `--mark-compacted` (optional) for Kubernetes to invalidate informer caches
+- [ ] Restore snapshot individually on each cluster node
 - [ ] Set correct ownership on restored data directory (etcd user)
 - [ ] Set correct permissions (mode 0700)
-- [ ] Copy/sync restored data to other cluster members
-  - Use `synchronize` module or `rsync`
-  - Or restore snapshot on each node individually
 
 ### 9. Update Configuration (`tasks/update_config.yml`)
 - [ ] Update etcd configuration files if needed
@@ -176,3 +180,11 @@ etcd_restore_local_path: /path/to/snapshot.db
 - Existing backup role: `roles/etcd3/backups/`
 - etcd documentation: https://etcd.io/docs/latest/op-guide/recovery/
 - Existing cluster management: `roles/etcd3/cluster/`
+
+## Important Notes for etcd v3.6+
+- **Use `etcdutl` for restore operations**, not `etcdctl snapshot restore`
+- **Restore must be run on each node individually** with the same snapshot
+- **Consider `--bump-revision`** when restoring to prevent revision regression
+- **Use `--mark-compacted`** in Kubernetes environments to invalidate informer caches
+- **Use `--skip-hash-check`** only for snapshots copied from member/snap/db (may lose unflushed data)
+- The etcdutl binary is already installed alongside etcd (etcdctl, etcdutl are included)
