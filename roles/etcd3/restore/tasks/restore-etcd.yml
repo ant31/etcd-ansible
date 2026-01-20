@@ -1,0 +1,143 @@
+---
+- name: Confirm etcd data restore
+  pause:
+    prompt: "You are about to restore etcd data. This will replace current cluster data. Continue? (yes/no)"
+  register: restore_confirm_input
+  when: restore_confirm
+  tags:
+    - restore-etcd
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not restore_confirm or restore_confirm_input.user_input == 'yes'
+    fail_msg: "Restore cancelled by user"
+  when: restore_confirm
+  tags:
+    - restore-etcd
+
+- name: Find latest etcd backup in S3
+  command: >
+    aws s3api list-objects-v2
+    --bucket {{ etcd_upload_backup.bucket }}
+    --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
+    --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
+    --output text
+  register: latest_etcd_backup
+  when: 
+    - restore_etcd_s3_file == 'latest'
+    - restore_etcd_local_file == ''
+  changed_when: false
+  delegate_to: localhost
+  tags:
+    - restore-etcd
+
+- name: Download etcd backup from S3
+  command: >
+    aws s3 cp
+    s3://{{ etcd_upload_backup.bucket }}/{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}
+    /tmp/etcd-restore.db.kms
+  when: restore_etcd_local_file == ''
+  tags:
+    - restore-etcd
+
+- name: Decrypt etcd backup with KMS
+  command: >
+    aws kms decrypt
+    --ciphertext-blob fileb:///tmp/etcd-restore.db.kms
+    --output text
+    --query Plaintext
+    | base64 -d > /tmp/etcd-restore.db
+  when: restore_etcd_local_file == ''
+  tags:
+    - restore-etcd
+
+- name: Use local snapshot file
+  copy:
+    src: "{{ restore_etcd_local_file }}"
+    dest: /tmp/etcd-restore.db
+    remote_src: yes
+  when: restore_etcd_local_file != ''
+  tags:
+    - restore-etcd
+
+- name: Stop etcd service
+  systemd:
+    name: "{{ etcd_name }}"
+    state: stopped
+  tags:
+    - restore-etcd
+
+- name: Check if etcd data directory exists
+  stat:
+    path: "{{ etcd_data_dir }}"
+  register: etcd_data_dir_stat
+  when: restore_backup_existing
+  tags:
+    - restore-etcd
+
+- name: Backup current etcd data
+  command: >
+    mv {{ etcd_data_dir }}
+    {{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
+  when: 
+    - restore_backup_existing
+    - etcd_data_dir_stat.stat.exists
+  tags:
+    - restore-etcd
+
+- name: Restore etcd snapshot
+  command: >
+    {{ bin_dir }}/etcdutl snapshot restore /tmp/etcd-restore.db
+    --name {{ etcd_name }}
+    --initial-cluster {{ etcd_peer_addresses }}
+    --initial-cluster-token {{ cluster_token | default(etcd_cluster_name) }}
+    --initial-advertise-peer-urls {{ etcd_peer_url }}
+    --data-dir {{ etcd_data_dir }}
+  environment:
+    ETCDCTL_API: "3"
+  tags:
+    - restore-etcd
+
+- name: Set etcd data directory ownership
+  file:
+    path: "{{ etcd_data_dir }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    recurse: yes
+  tags:
+    - restore-etcd
+
+- name: Start etcd service
+  systemd:
+    name: "{{ etcd_name }}"
+    state: started
+  tags:
+    - restore-etcd
+
+- name: Wait for etcd to be ready
+  command: >
+    {{ bin_dir }}/etcdctl
+    --endpoints={{ etcd_client_url }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    endpoint health
+  register: etcd_health
+  until: etcd_health.rc == 0
+  retries: 10
+  delay: 5
+  environment:
+    ETCDCTL_API: "3"
+  tags:
+    - restore-etcd
+
+- name: Cleanup temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/etcd-restore.db.kms
+    - /tmp/etcd-restore.db
+  tags:
+    - restore-etcd

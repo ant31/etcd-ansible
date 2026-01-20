@@ -1,0 +1,24 @@
+---
+- name: Validate restore configuration
+  assert:
+    that:
+      - restore_ca or restore_etcd_data
+      - restore_ca_from in ['s3', 'local', 'backup-node'] or not restore_ca
+    fail_msg: "Invalid restore configuration"
+  tags:
+    - restore
+    - validate
+
+- name: Restore CA
+  include_tasks: restore-ca.yml
+  when: restore_ca
+  tags:
+    - restore
+    - restore-ca
+
+- name: Restore etcd data
+  include_tasks: restore-etcd.yml
+  when: restore_etcd_data
+  tags:
+    - restore
+    - restore-etcd

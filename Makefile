@@ -1,4 +1,4 @@
-.PHONY: clean create-cluster upgrade-cluster delete-cluster test test-create test-health test-upgrade test-backup test-delete test-clean test-download help
+.PHONY: clean create-cluster upgrade-cluster delete-cluster test test-create test-health test-upgrade test-backup test-delete test-clean test-download docs docs-serve docs-build help
 
 # Production cluster management
 clean:
@@ -46,6 +46,25 @@ test-download:
 	@echo "Testing download functionality only..."
 	ansible-playbook -i inventory-test.ini test-download.yaml -b -v
 
+# Documentation targets
+docs-serve:
+	@echo "Starting documentation server..."
+	mkdocs serve
+
+docs-build:
+	@echo "Building documentation..."
+	mkdocs build
+
+docs-deploy:
+	@echo "Deploying documentation to GitHub Pages..."
+	mkdocs gh-deploy --force
+
+docs-clean:
+	@echo "Cleaning documentation build..."
+	rm -rf site/
+
+docs: docs-serve
+
 help:
 	@echo "Production targets:"
 	@echo "  make create-cluster  - Create production etcd cluster"
@@ -62,3 +81,10 @@ help:
 	@echo "  make test-delete     - Delete the test cluster"
 	@echo "  make test-clean      - Alias for test-delete"
 	@echo "  make test-download   - Test download functionality only"
+	@echo ""
+	@echo "Documentation targets:"
+	@echo "  make docs            - Serve documentation locally (alias for docs-serve)"
+	@echo "  make docs-serve      - Serve documentation at http://127.0.0.1:8000"
+	@echo "  make docs-build      - Build static documentation site"
+	@echo "  make docs-deploy     - Deploy to GitHub Pages"
+	@echo "  make docs-clean      - Clean documentation build artifacts"

@@ -1,0 +1,74 @@
+---
+- name: Find latest CA backup in S3
+  command: >
+    aws s3api list-objects-v2
+    --bucket {{ step_ca_backup_s3_bucket }}
+    --prefix {{ step_ca_backup_s3_prefix }}/
+    --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
+    --output text
+  register: latest_backup
+  when: restore_ca_s3_file == 'latest'
+  changed_when: false
+  tags:
+    - restore-ca
+
+- name: Set backup file path
+  set_fact:
+    ca_backup_s3_path: "{{ restore_ca_s3_file if restore_ca_s3_file != 'latest' else latest_backup.stdout }}"
+  tags:
+    - restore-ca
+
+- name: Download CA backup from S3
+  command: >
+    aws s3 cp
+    s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
+    /tmp/ca-restore.tar.gz.kms
+  tags:
+    - restore-ca
+
+- name: Decrypt CA backup with KMS
+  command: >
+    aws kms decrypt
+    --ciphertext-blob fileb:///tmp/ca-restore.tar.gz.kms
+    --output text
+    --query Plaintext
+    | base64 -d > /tmp/ca-restore.tar.gz
+  tags:
+    - restore-ca
+
+- name: Stop step-ca
+  systemd:
+    name: step-ca
+    state: stopped
+  ignore_errors: true
+  tags:
+    - restore-ca
+
+- name: Extract CA backup
+  unarchive:
+    src: /tmp/ca-restore.tar.gz
+    dest: /
+    remote_src: yes
+  tags:
+    - restore-ca
+
+- name: Set CA file permissions
+  file:
+    path: /etc/step-ca/secrets
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+    recurse: yes
+  tags:
+    - restore-ca
+
+- name: Cleanup temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/ca-restore.tar.gz.kms
+    - /tmp/ca-restore.tar.gz
+  tags:
+    - restore-ca

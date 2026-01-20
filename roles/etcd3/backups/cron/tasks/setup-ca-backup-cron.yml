@@ -1,0 +1,49 @@
+---
+- name: Install CA backup check script
+  template:
+    src: ca-backup-check.sh.j2
+    dest: "{{ backup_scripts_dir }}/ca-backup-check.sh"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0755
+  tags:
+    - ca-backup-cron
+
+- name: Create CA backup state directory
+  file:
+    path: /var/lib/etcd-ca-backup
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+  tags:
+    - ca-backup-cron
+
+- name: Setup CA backup cron job
+  cron:
+    name: "Check and backup CA if changed"
+    minute: "{{ ca_backup_cron_minute }}"
+    hour: "{{ ca_backup_cron_hour }}"
+    job: "{{ backup_scripts_dir }}/ca-backup-check.sh >> {{ backup_log_dir }}/ca-backup.log 2>&1"
+    user: "{{ etcd_user.name }}"
+    state: present
+  tags:
+    - ca-backup-cron
+
+- name: Setup CA backup log rotation
+  copy:
+    dest: /etc/logrotate.d/etcd-ca-backup
+    content: |
+      {{ backup_log_dir }}/ca-backup.log {
+        daily
+        rotate 30
+        compress
+        delaycompress
+        missingok
+        notifempty
+      }
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0644
+  tags:
+    - ca-backup-cron

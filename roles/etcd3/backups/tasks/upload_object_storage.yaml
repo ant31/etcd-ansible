@@ -1,10 +1,9 @@
 ---
 - name: Install boto3 and botocore
   pip:
-    name: "{{ item }}"
-  loop:
-    - boto3
-    - botocore
+    name:
+      - boto3
+      - botocore
   environment:
     PATH: "{{ ansible_env.PATH }}:{{ bin_dir }}"
 

@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=notify
-User=root
+User={{ etcd_user.name }}
+Group={{ etcd_user.name }}
 EnvironmentFile=/etc/etcd/{{etcd_name}}.env
 ExecStart={{ bin_dir }}/etcd --config-file=/etc/etcd/{{etcd_name}}-conf.yaml --experimental-initial-corrupt-check
 NotifyAccess=all

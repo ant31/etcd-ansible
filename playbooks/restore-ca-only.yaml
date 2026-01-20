@@ -1,0 +1,13 @@
+---
+# Restore CA only (no etcd data)
+# Usage: ansible-playbook -i inventory.ini playbooks/restore-ca-only.yaml -e target_node=etcd-k8s-1
+
+- name: Restore CA keys
+  hosts: "{{ target_node }}"
+  gather_facts: yes
+  roles:
+    - role: etcd3/restore
+      vars:
+        restore_ca: true
+        restore_etcd_data: false
+        restore_ca_from: "{{ restore_ca_from | default('s3') }}"

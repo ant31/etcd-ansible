@@ -130,6 +130,11 @@ step_provisioner_password: "your-secure-provisioner-password"
 # AWS S3 bucket for CA backups
 step_ca_backup_s3_bucket: "your-org-etcd-backups"
 
+# AWS S3 bucket for etcd data backups
+etcd_upload_backup:
+  storage: s3
+  bucket: "your-org-etcd-backups"
+
 # KMS key for encryption
 step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
 ```
@@ -167,7 +172,7 @@ ansible etcd -i inventory.ini -m shell -a "step certificate inspect /etc/etcd/ss
 
 # Verify etcd cluster
 ansible etcd[0] -i inventory.ini -m shell -a "
-  etcdctl --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  etcdctl --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \
@@ -419,19 +424,56 @@ See [CERTIFICATE_ARCHITECTURE.md](CERTIFICATE_ARCHITECTURE.md) for detailed secu
 
 ## Backup and Disaster Recovery
 
-### Automated CA Backups
+### Automated Backups
 
-CA keys are automatically replicated to backup cert-managers during deployment. Additionally, you can set up automated S3 backups:
+Automated backups are configured during cluster deployment. Two types of backups run automatically:
 
-```bash
-# Add to crontab (runs daily at 2 AM)
-0 2 * * * cd /opt/etcd-ansible && ansible-playbook -i inventory.ini playbooks/backup-ca.yaml --vault-password-file /etc/ansible/.vault-pass >> /var/log/step-ca-backup.log 2>&1
+**1. CA Backups (Change-based)**
+- Checks CA files every 5 minutes for changes
+- Only backs up when CA keys/config changes
+- Uploads encrypted backup to S3 with KMS
+- Keeps latest backup always available
+
+**2. Etcd Data Backups (Time-based)**
+- Runs every 30 minutes (configurable)
+- Creates encrypted snapshot of cluster data
+- Uploads to S3 with KMS encryption
+- Automatic retention cleanup (90 days default)
+
+**Configuration variables:**
+```yaml
+# In group_vars/all/vault.yml or inventory
+etcd_backup_cron_enabled: true
+etcd_backup_interval: "*/30"  # Every 30 minutes
+
+ca_backup_cron_enabled: true
+ca_backup_check_interval: "*/5"  # Check every 5 minutes
+
+# Optional: Deadman monitoring (get alerted if backup stops working)
+backup_healthcheck_enabled: true
+backup_healthcheck_url: "https://hc-ping.com/your-uuid"
+ca_backup_healthcheck_url: "https://hc-ping.com/your-ca-uuid"
+
+# Retention
+etcd_backup_retention_days: 90
+ca_backup_retention_days: 365
 ```
 
-Backup encryption options:
-- **AWS KMS** (recommended): `step_ca_backup_encryption_method: aws-kms`
-- **Symmetric**: `step_ca_backup_encryption_method: symmetric`
-- **S3 SSE-KMS**: `step_ca_backup_encryption_method: aws-s3-sse`
+**View backup logs:**
+```bash
+# CA backups
+tail -f /var/log/etcd-backups/ca-backup.log
+
+# Etcd data backups
+tail -f /var/log/etcd-backups/etcd-backup.log
+```
+
+**Disable automated backups:**
+```yaml
+# In inventory or group_vars
+etcd_backup_cron_enabled: false
+ca_backup_cron_enabled: false
+```
 
 ### Automated etcd Data Backups
 
@@ -480,14 +522,38 @@ ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
 
 #### Scenario 3: Restore etcd Data
 
+**Using Ansible playbook (recommended):**
+```bash
+# Restore from latest S3 backup
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml
+
+# Restore from specific backup
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_etcd_s3_file="etcd-cluster/2026/01/etcd-default-2026-01-20_14-30-00-snapshot.db.kms"
+
+# Restore from local file
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_etcd_local_file="/var/lib/etcd/backups/etcd-default-snapshot.db"
+
+# Skip confirmation prompt
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_confirm=false
+```
+
+**Manual restore process:**
 ```bash
 # List available backups
-ls -lh {{ etcd_home }}/backups/{{ etcd_cluster_name }}/
+aws s3 ls s3://etcd-backups/etcd-default/ --recursive
 
-# Stop etcd, restore, and restart (manual process)
+# Download and decrypt
+aws s3 cp s3://etcd-backups/etcd-default/latest-snapshot.db.kms /tmp/
+aws kms decrypt --ciphertext-blob fileb:///tmp/latest-snapshot.db.kms \
+  --output text --query Plaintext | base64 -d > /tmp/restore.db
+
+# Stop etcd, restore, restart
 systemctl stop etcd-default-1
-rm -rf {{ etcd_data_dir }}
-etcdutl snapshot restore /path/to/backup.db --data-dir {{ etcd_data_dir }}
+mv {{ etcd_data_dir }} {{ etcd_data_dir }}.backup
+etcdutl snapshot restore /tmp/restore.db --data-dir {{ etcd_data_dir }}
 chown -R etcd:etcd {{ etcd_data_dir }}
 systemctl start etcd-default-1
 ```

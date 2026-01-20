@@ -51,6 +51,14 @@
   when:
     - etcd_cluster_state == "existing"
 
+- name: Fail if cluster is unhealthy
+  fail:
+    msg: "Cluster is unhealthy. Fix the cluster or use -e etcd_force_deploy=true to proceed."
+  when:
+    - etcd_cluster_state == "existing"
+    - etcd_cluster_is_healthy.rc != 0
+    - not etcd_force_deploy | default(false) | bool
+
 - name: Create a backup on upgrade, deploy
   import_role:
     name: etcd3/backups
