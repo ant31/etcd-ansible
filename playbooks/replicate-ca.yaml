@@ -43,8 +43,8 @@
       file:
         path: "{{ item }}"
         state: directory
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0700
       loop:
         - /etc/step-ca/secrets
@@ -57,8 +57,8 @@
       copy:
         content: "{{ item.content | b64decode }}"
         dest: "{{ item.source }}"
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0400
       loop: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_keys'].results }}"
       loop_control:
@@ -71,8 +71,8 @@
       copy:
         content: "{{ item.content | b64decode }}"
         dest: "{{ item.source }}"
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0644
       loop: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_certs'].results }}"
       loop_control:
@@ -84,8 +84,8 @@
       copy:
         content: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_config'].content | b64decode }}"
         dest: /etc/step-ca/config/ca.json
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0644
       tags:
         - ca-restore

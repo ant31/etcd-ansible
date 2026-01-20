@@ -123,8 +123,8 @@
       file:
         path: "{{ item }}"
         state: directory
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0700
       loop:
         - /etc/step-ca
@@ -146,8 +146,8 @@
       file:
         path: /etc/step-ca/secrets
         state: directory
-        owner: root
-        group: root
+        owner: "{{ etcd_cert_user }}"
+        group: "{{ etcd_cert_group }}"
         mode: 0700
         recurse: yes
       tags:
@@ -157,7 +157,7 @@
       shell: |
         chmod 0400 /etc/step-ca/secrets/*_key
         chmod 0400 /etc/step-ca/secrets/password
-        chown -R root:root /etc/step-ca/
+        chown -R {{ etcd_cert_user }}:{{ etcd_cert_group }} /etc/step-ca/
       tags:
         - restore
 
