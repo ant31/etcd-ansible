@@ -108,7 +108,7 @@ etcd_certs_downloads:
   cfssl-certinfo:
     file: true
     enabled: true
-    checksum: "sha256:ebe7cd2d6ad33930fa0db292312ef0acf8ec0e359bc73d4ed8ae7290bd47c955"
+    sha256: "sha256:ebe7cd2d6ad33930fa0db292312ef0acf8ec0e359bc73d4ed8ae7290bd47c955"
     dest: "{{bin_dir}}/cfssl-certinfo"
     url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssl-certinfo_{{cfssl_version}}_linux_amd64"
     owner: "root"

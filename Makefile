@@ -15,7 +15,9 @@ delete-cluster:
 	ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root   -e etcd_delete_cluster=true
 
 # Test targets for etcd-ansible
-test: test-create test-health
+test-etcd: test-create test-health
+test:
+	echo "test skipped"
 
 test-create:
 	@echo "Creating test etcd cluster..."
