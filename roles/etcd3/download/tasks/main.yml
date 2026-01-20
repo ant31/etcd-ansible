@@ -20,7 +20,7 @@
   get_url:
     url: "{{ item.value.url }}"
     dest: "{{ item.value.dest }}"
-    checksum: "{{ item.value.sha256 if item.value.sha256 else omit }}"
+    checksum: "{{ item.value.sha256 if item.value.sha256 is defined and item.value.sha256 else omit }}"
     owner: "{{ item.value.owner | default(omit) }}"
     mode: "{{ item.value.mode | default(omit) }}"
     validate_certs: "{{ download_validate_certs }}"
@@ -44,7 +44,6 @@
     dest: "{{ item.value.dest | dirname }}"
     owner: "{{ item.value.owner | default(omit) }}"
     mode: "{{ item.value.mode | default(omit) }}"
-    copy: no
     remote_src: yes
   loop: "{{ downloads | dict2items }}"
   when:
