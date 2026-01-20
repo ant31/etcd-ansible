@@ -203,7 +203,7 @@ Allow clients to generate certificates on-demand when they have authenticated ac
 ### Must Have (Phase 1 - Do First)
 1. ✅ CSR-based certificate generation
 2. ✅ Simplified naming scheme
-3. ✅ Reduce certificate lifetime to 90 days
+3. ✅ Configurable certificate lifetime (default 2 years for manual planning)
 4. ✅ Certificate expiration monitoring
 5. ✅ Basic rotation playbook
 

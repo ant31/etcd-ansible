@@ -93,7 +93,7 @@ etcd_downloads:
 ## CERTS
 ##########3
 # Note: cert_expiry kept for backward compatibility but not used with Smallstep
-# Smallstep uses step_cert_default_duration (90 days) defined in smallstep role
+# Smallstep uses step_cert_default_duration (2 years) defined in smallstep role
 cert_expiry: 175200h
 
 
