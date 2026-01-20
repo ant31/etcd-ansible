@@ -1,0 +1,139 @@
+---
+- name: Create step-ca directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - "{{ step_path }}"
+    - "{{ step_path }}/config"
+    - "{{ step_ca_db }}"
+    - "{{ step_ca_certs }}"
+    - "{{ step_ca_secrets }}"
+
+- name: Download step-ca binary
+  get_url:
+    url: "https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    dest: "/tmp/step-ca_{{ step_ca_version }}.tar.gz"
+    checksum: "sha256:{{ step_ca_checksums[step_ca_version] | default(omit) }}"
+  tags:
+    - download
+
+- name: Extract step-ca binary
+  unarchive:
+    src: "/tmp/step-ca_{{ step_ca_version }}.tar.gz"
+    dest: "/tmp/"
+    remote_src: yes
+  tags:
+    - download
+
+- name: Install step-ca binary
+  copy:
+    src: "/tmp/step-ca_{{ step_ca_version }}/bin/step-ca"
+    dest: "{{ bin_dir }}/step-ca"
+    mode: 0755
+    remote_src: yes
+
+- name: Download step CLI
+  get_url:
+    url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+    dest: "/tmp/step_{{ step_version }}.tar.gz"
+    checksum: "sha256:{{ step_checksums[step_version] | default(omit) }}"
+  tags:
+    - download
+
+- name: Extract step CLI
+  unarchive:
+    src: "/tmp/step_{{ step_version }}.tar.gz"
+    dest: "/tmp/"
+    remote_src: yes
+  tags:
+    - download
+
+- name: Install step CLI
+  copy:
+    src: "/tmp/step_{{ step_version }}/bin/step"
+    dest: "{{ bin_dir }}/step"
+    mode: 0755
+    remote_src: yes
+
+- name: Check if CA already initialized
+  stat:
+    path: "{{ step_ca_config }}"
+  register: step_ca_config_stat
+
+- name: Initialize step-ca
+  shell: |
+    {{ bin_dir }}/step ca init \
+      --name="{{ step_ca_name }}" \
+      --dns="{{ step_ca_dns }}" \
+      --address=":{{ step_ca_port }}" \
+      --provisioner="{{ step_ca_provisioner }}" \
+      --password-file=<(echo "{{ step_ca_password }}") \
+      --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
+      --root="{{ step_ca_certs }}/root_ca.crt" \
+      --key="{{ step_ca_secrets }}/root_ca_key" \
+      --no-db=false
+  args:
+    executable: /bin/bash
+  when: not step_ca_config_stat.stat.exists
+  no_log: true
+
+- name: Configure step-ca certificate durations
+  shell: |
+    {{ bin_dir }}/step ca provisioner update {{ step_ca_provisioner }} \
+      --password-file=<(echo "{{ step_ca_password }}") \
+      --root="{{ step_ca_certs }}/root_ca.crt" \
+      --ca-url="{{ step_ca_url }}" \
+      --claims='{"minTLSCertDuration":"{{ step_cert_min_duration }}","maxTLSCertDuration":"{{ step_cert_max_duration }}","defaultTLSCertDuration":"{{ step_cert_default_duration }}"}'
+  args:
+    executable: /bin/bash
+  when: not step_ca_config_stat.stat.exists
+  no_log: true
+
+- name: Create step-ca systemd service
+  template:
+    src: step-ca.service.j2
+    dest: /etc/systemd/system/step-ca.service
+    mode: 0644
+  notify: restart step-ca
+
+- name: Create step-ca password file
+  copy:
+    content: "{{ step_ca_password }}"
+    dest: "{{ step_ca_secrets }}/password"
+    owner: root
+    group: root
+    mode: 0400
+  no_log: true
+
+- name: Enable and start step-ca service
+  systemd:
+    name: step-ca
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Wait for step-ca to be ready
+  uri:
+    url: "{{ step_ca_url }}/health"
+    validate_certs: no
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 3
+
+- name: Get root CA certificate
+  slurp:
+    src: "{{ step_ca_certs }}/root_ca.crt"
+  register: step_root_ca
+  
+- name: Store root CA as fact
+  set_fact:
+    step_ca_root_cert: "{{ step_root_ca.content | b64decode }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"

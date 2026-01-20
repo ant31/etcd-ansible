@@ -55,6 +55,15 @@ etcd_ports:
 
 cfssl_version: 1.6.5
 
+# Smallstep versions and checksums
+step_version: "0.25.2"
+step_ca_version: "0.25.2"
+
+step_checksums:
+  "0.25.2": "sha256:ee82b99f431e006318cc6e284d9f8d91c0515dc6a0023dc87de3ab6b1c2a8b8d"
+
+step_ca_checksums:
+  "0.25.2": "sha256:c0b4a1b0fa1fdc88a8e08e27c45b7b4cf8e5e2d97ae0e7f9c33fc8aef0e85eba"
 
 etcd_checksums:
   v3.5.13: "sha256:31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7"
@@ -180,14 +189,14 @@ etcd_user:
 
 etcd_cert_paths:
   server:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   client:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   peer:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/peer-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
+    ca: "{{ etcd_cert_dir }}/peer-ca.crt"

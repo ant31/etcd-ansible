@@ -1,7 +1,4 @@
 ---
-- debug:
-    var: etcd_upload_backup
-
 - name: Install boto3 and botocore
   pip:
     name: "{{ item }}"
@@ -10,19 +7,6 @@
     - botocore
   environment:
     PATH: "{{ ansible_env.PATH }}:{{ bin_dir }}"
-
-# - name: create GCS bucket
-#   gc_storage:
-#     bucket: "{{etcd_upload_backup.bucket}}"
-#     mode: create
-#     permission: private
-#     gs_access_key: "{{etcd_upload_backup.access_key}}"
-#     gs_secret_key: "{{etcd_upload_backup.secret_key}}"
-#     region: "{{etcd_upload_backup.region|d(omit)}}"
-#     s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
-#     metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
-#   when:
-#     - etcd_upload_backup.storage == "gcs"
 
 - name: create S3 bucket
   aws_s3:
@@ -37,22 +21,6 @@
     metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
   when:
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
-
-# - name: uploads items
-#   gc_storage:
-#     bucket: "{{etcd_upload_backup.bucket}}"
-#     object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{item | basename}}"
-#     src: "{{item}}"
-#     mode: put
-# #    permission: private
-#     gs_access_key: "{{etcd_upload_backup.access_key}}"
-#     gs_secret_key: "{{etcd_upload_backup.secret_key}}"
-#     region: "{{etcd_upload_backup.region|d(omit)}}"
-#   when:
-#     - etcd_upload_backup.storage == "gcs"
-#   loop:
-#     - "{{etcd_backup_file}}"
-#     - "{{etcd_backup_latest}}"
 
 - name: uploads items
   aws_s3:

@@ -4,7 +4,6 @@ dependencies:
     tags:
       - always
 
-# @TODO(ant31) not in is_atomic
   - name: adduser
     vars:
       user: "{{ etcd_user }}"

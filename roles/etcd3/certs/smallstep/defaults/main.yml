@@ -1,0 +1,30 @@
+---
+# Smallstep version
+step_version: "0.25.2"
+step_ca_version: "0.25.2"
+
+# Smallstep CA configuration
+step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"
+step_ca_dns: "{{ hostvars[groups[etcd_certmanagers_group][0]]['ansible_fqdn'] }}"
+step_ca_url: "https://{{ step_ca_dns }}:9000"
+step_ca_port: 9000
+step_ca_provisioner: "etcd-provisioner"
+
+# Paths
+step_path: "/etc/step-ca"
+step_ca_config: "{{ step_path }}/config/ca.json"
+step_ca_db: "{{ step_path }}/db"
+step_ca_certs: "{{ step_path }}/certs"
+step_ca_secrets: "{{ step_path }}/secrets"
+
+# Certificate settings
+step_cert_default_duration: "2160h"  # 90 days
+step_cert_max_duration: "8760h"      # 1 year
+step_cert_min_duration: "1h"
+
+# Renewal settings - renew when 2/3 of lifetime has passed
+step_cert_renew_period: "1440h"  # 60 days (2/3 of 90 days)
+
+# Password for CA keys (should be stored in ansible-vault in production)
+step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
+step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"

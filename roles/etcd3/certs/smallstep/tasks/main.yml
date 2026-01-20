@@ -1,0 +1,22 @@
+---
+- name: Include cert-manager tasks
+  include_tasks: install-ca.yml
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - step-ca
+    - step-ca-install
+
+- name: Include client tasks
+  include_tasks: install-client.yml
+  tags:
+    - step-cli
+    - step-ca-client
+
+- name: Include renewal configuration
+  include_tasks: configure-renewal.yml
+  when:
+    - step_ca_url is defined
+  tags:
+    - step-ca
+    - step-ca-renewal
