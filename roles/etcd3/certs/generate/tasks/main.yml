@@ -73,7 +73,6 @@
     etcd_cakey: "{{etcd_ca_profiles[cert.profile]}}-ca-key.pem"
     etcd_capem: "{{etcd_ca_profiles[cert.profile]}}-ca.pem"
     etcd_caconf: "{{etcd_ca_profiles[cert.profile]}}-ca-config.json"
-  delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
 
 - name: Prepare certs tarball
   archive:
