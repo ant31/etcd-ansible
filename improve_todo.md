@@ -1,289 +1,278 @@
 # Etcd-Ansible Improvement TODO
 
+## Status Legend
+- ✅ COMPLETED
+- 🚧 IN PROGRESS
+- 📋 APPROVED - Ready to implement
+- ⏳ TODO LATER - Deferred
+- ❌ WON'T FIX
+
 ## High Priority Issues
 
-### 1. Add `etcdutl` for Snapshot Verification (etcd v3.6+)
+### 1. Add `etcdutl` for Snapshot Verification (etcd v3.6+) 📋 APPROVED
 **Motivation**: etcd v3.6+ requires `etcdutl` for snapshot status checks instead of `etcdctl`.
 **Impact**: Backup verification may fail or use deprecated commands on newer etcd versions.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Update `roles/etcd3/backups/tasks/main.yaml` to use `etcdutl snapshot status` instead of `etcdctl snapshot status`
-- [ ] Add version-aware conditional to support both old and new methods
-- [ ] Update snapshot verification in restore TODO
+- [ ] Update `roles/etcd3/backups/tasks/main.yaml` to use `etcdutl snapshot status`
+- [ ] Update cron backup scripts to use etcdutl
+- [ ] Add snapshot verification after each backup
 
-### 2. Missing Test Infrastructure
+### 2. Missing Test Infrastructure ❌ WON'T FIX
 **Motivation**: No automated testing exists (make test fails).
 **Impact**: Changes can't be validated automatically, increasing risk of regressions.
-**What needs to happen**:
-- [ ] Add Makefile with test target
-- [ ] Implement molecule tests for roles
-- [ ] Add integration tests for common scenarios (install, upgrade, backup, restore)
-- [ ] Add CI/CD pipeline configuration (.github/workflows or .gitlab-ci.yml)
-- [ ] Create test inventory files with different cluster sizes
+**Status**: WON'T FIX - Test infrastructure would require significant effort
+**Rationale**: Manual testing with test-etcd.yaml and existing Makefile targets provide adequate validation for this project's scope
 
-### 3. Inconsistent Error Handling
+### 3. Inconsistent Error Handling ✅ COMPLETED
 **Motivation**: Mixed use of `ignore_errors`, `failed_when`, and proper error handling.
 **Impact**: Failures may be silently ignored or cause unexpected behavior.
-**Status**: ✅ IMPROVED
-**What needs to happen**:
+**Status**: COMPLETED - Error handling improved throughout
+**What was done**:
 - [x] Audit all tasks for error handling patterns
 - [x] Standardize on `failed_when` with explicit conditions
 - [x] Add proper rescue/always blocks for critical operations
-- [x] Document when `ignore_errors` is acceptable
 - [x] Add validation tasks before destructive operations
 
-### 4. Certificate Expiration Monitoring
+### 4. Certificate Expiration Monitoring ⏳ TODO LATER
 **Motivation**: No automated check for certificate expiration.
 **Impact**: Certificates can expire unexpectedly, causing cluster outages.
-**What needs to happen**:
-- [ ] Add task to check certificate expiration dates
-- [ ] Create warning when certificates expire within threshold (e.g., 30 days)
-- [ ] Add automated certificate rotation playbook
-- [ ] Document manual rotation procedure
-- [ ] Add certificate expiration to health check tasks
+**Status**: TODO LATER - Smallstep CA handles automatic renewal
+**Note**: Smallstep automatically renews at 2/3 lifetime (~487 days for 2-year certs). Health check playbook will include certificate status.
 
-### 5. Backup Retention Policy
+### 5. Backup Retention Policy ✅ COMPLETED
 **Motivation**: Backups accumulate indefinitely with no cleanup.
 **Impact**: Disk space exhaustion on backup storage.
-**What needs to happen**:
-- [ ] Add `etcd_backup_retention_days` variable
-- [ ] Implement cleanup task to remove old backups
-- [ ] Add retention policy for S3/object storage
-- [ ] Document backup rotation strategy
-- [ ] Add option to archive old backups before deletion
+**Status**: COMPLETED - Managed by S3 lifecycle policies
+**Implementation**:
+- ✅ Backup files include datetime in path (YYYY/MM/filename-YYYY-MM-DD_HH-MM-SS)
+- ✅ S3 lifecycle policies manage retention automatically
+- ✅ `etcd_backup_retention_days` and `ca_backup_retention_days` variables exist for local cleanup
+- ✅ Cron scripts include retention cleanup logic
 
 ## Medium Priority Issues
 
-### 6. Hard-coded Binary Paths
+### 6. Hard-coded Binary Paths ✅ COMPLETED
 **Motivation**: Paths like `/opt/bin` are hard-coded throughout.
 **Impact**: Difficult to customize for different environments.
-**What needs to happen**:
-- [ ] Ensure all binary paths use `{{bin_dir}}` variable
-- [ ] Add validation that binaries exist before use
-- [ ] Support multiple binary locations (PATH lookup)
-- [ ] Document binary installation requirements
+**Status**: COMPLETED - All paths use `{{ bin_dir }}` variable
+**Note**: All templates and tasks verified to use bin_dir variable consistently
 
-### 7. Complex Jinja2 Templates in Facts Role
+### 7. Complex Jinja2 Templates in Facts Role ⏳ TODO LATER
 **Motivation**: `roles/etcd3/facts/tasks/main.yaml` has very complex Jinja2.
 **Impact**: Difficult to understand, debug, and maintain.
-**What needs to happen**:
-- [ ] Break down complex set_fact into multiple simpler tasks
-- [ ] Add intermediate variables with descriptive names
-- [ ] Add comments explaining the logic
-- [ ] Consider using JSON files or lookup plugins
-- [ ] Add examples of expected output
+**Status**: TODO LATER - Works correctly, refactoring deferred
+**Note**: Current implementation is functional; will refactor when time permits
 
-### 8. No Health Check Playbook
+### 8. No Health Check Playbook 📋 APPROVED
 **Motivation**: No dedicated playbook to verify cluster health.
 **Impact**: Operators must manually check cluster status.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
 - [ ] Create `playbooks/etcd-health.yaml`
 - [ ] Check all endpoints with `etcdctl endpoint health`
 - [ ] Verify cluster member list
-- [ ] Check certificate validity
-- [ ] Display cluster metrics (size, revision, etc.)
-- [ ] Add option to output JSON for monitoring systems
+- [ ] Check certificate expiration
+- [ ] Display cluster metrics
+- [ ] Support JSON output for monitoring
 
-### 9. Secrets Management Best Practices ✅ IMPROVED
+### 9. Secrets Management Best Practices 📋 APPROVED
 **Motivation**: Variables show plaintext credentials without Vault examples.
 **Impact**: Risk of credential exposure in version control.
-**Status**: Partially completed - backup encryption improved
+**Status**: APPROVED - Completing implementation
 **What was done**:
 - [x] Replace GPG with AWS KMS for CA backup encryption
 - [x] Add symmetric encryption option with ansible-vault
 - [x] Document backup encryption best practices
 - [x] Add restore playbook with encrypted backup support
-**What still needs to happen**:
-- [ ] Add ansible-vault examples for all sensitive variables
+**What needs to happen NOW**:
 - [ ] Add `.gitignore` patterns for secret files
-- [ ] Create example vault file structure
-- [ ] Document integration with external secret managers (HashiCorp Vault, etc.)
+- [ ] Enhance vault.yml.example with better documentation
 
-### 10. Download Role Complexity
-**Motivation**: `roles/download_etcd/` has complex container logic.
+### 10. Download Role Complexity ✅ COMPLETED
+**Motivation**: `roles/download_etcd/` had complex container logic.
 **Impact**: Difficult to maintain, Docker-only support.
-**What needs to happen**:
-- [ ] Simplify download logic (only file downloads are used for etcd)
-- [ ] Remove unnecessary container download code
-- [ ] Add support for podman if container runtime needed
-- [ ] Add checksum verification for all downloads
-- [ ] Cache downloads to reduce external dependencies
+**Status**: COMPLETED - Simplified to etcd3/download
+**What was done**:
+- [x] Simplified download role to only handle file downloads
+- [x] Moved to `etcd3/download` role hierarchy for better organization
+- [x] Removed all container/Docker logic (download_container.yml, sync_container.yml, etc.)
+- [x] Removed unnecessary variables (download_run_once, download_localhost, etc.)
+- [x] Standardized checksum verification using get_url's built-in checksum parameter
+- [x] Reduced from ~400 lines across 6 files to ~60 lines in 3 files
 
-### 11. Systemd Service Customization
+### 11. Systemd Service Customization 📋 APPROVED
 **Motivation**: Service template has hard-coded values.
 **Impact**: Cannot customize for different environments (ionice, nice, etc.).
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
 - [ ] Add variables for systemd service customization:
   - `etcd_systemd_nice_level`
   - `etcd_systemd_ionice_class`
   - `etcd_systemd_memory_limit`
   - `etcd_systemd_cpu_limit`
-- [ ] Add support for systemd drop-in files
-- [ ] Document performance tuning options
+- [ ] Update etcd-host.service.j2 template
 
-### 12. Upgrade Safety Checks
+### 12. Upgrade Safety Checks 📋 APPROVED
 **Motivation**: Upgrades can be destructive without proper validation.
 **Impact**: Risk of cluster downtime or data loss during upgrades.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Add pre-upgrade validation tasks:
-  - Check cluster health
-  - Verify backup exists
-  - Check version compatibility
-  - Validate free disk space
-- [ ] Add option for dry-run mode
-- [ ] Implement gradual rollout (one node at a time with health checks)
-- [ ] Add rollback procedure documentation
+- [ ] Improve pre-upgrade validation tasks (health, backups)
+- [ ] Better error messages with actionable guidance
+- [ ] Verify serial rollout works correctly
+- [ ] Add validation for disk space and version compatibility
 
-## Low Priority / Nice to Have
+## Medium Priority Issues
 
-### 13. Monitoring Integration
+### 13. Monitoring Integration ⏳ TODO LATER
 **Motivation**: No built-in monitoring/alerting integration.
 **Impact**: Operators must manually set up monitoring.
-**What needs to happen**:
-- [ ] Add Prometheus metrics exporter configuration
-- [ ] Create Grafana dashboard templates
-- [ ] Add example alerting rules
-- [ ] Document integration with monitoring systems
-- [ ] Add health check endpoint for load balancers
+**Status**: TODO LATER - Health check playbook provides basic monitoring
+**Note**: Health check playbook supports JSON output for integration with monitoring systems
 
-### 14. Multi-Version Support Matrix
+### 14. Multi-Version Support Matrix ⏳ TODO LATER
 **Motivation**: Unclear which etcd versions are supported.
 **Impact**: Users may try unsupported versions.
-**What needs to happen**:
-- [ ] Document supported etcd versions
-- [ ] Add version compatibility checks
-- [ ] Update README with version matrix
-- [ ] Add deprecation warnings for old versions
-- [ ] Test with multiple etcd versions
+**Status**: TODO LATER - Document minimum versions in defaults
+**Note**: Will document tested versions: v3.5.13, v3.5.26, v3.6.7
 
-### 15. Ansible Best Practices
+### 15. Ansible Best Practices 📋 APPROVED
 **Motivation**: Some tasks don't follow Ansible best practices.
 **Impact**: Reduced maintainability and readability.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Use `ansible-lint` and fix warnings
-- [ ] Add `become` only where needed (not role-wide)
-- [ ] Use FQCN (Fully Qualified Collection Names)
-- [ ] Add proper tags to all tasks
-- [ ] Use `block` for grouped tasks
-- [ ] Add `check_mode` support where applicable
+- [ ] Add proper `changed_when` and `failed_when` to command/shell tasks
+- [ ] Use `block` for grouped tasks with rescue/always
+- [ ] Add descriptive task names
+- [ ] Improve error messages
+- [ ] Add tags consistently
 
-### 16. Documentation Improvements
+### 16. Documentation Improvements ⏳ TODO LATER
 **Motivation**: Missing inline documentation and troubleshooting guides.
 **Impact**: Difficult for new users to understand and debug.
-**What needs to happen**:
-- [ ] Add comments to complex tasks
-- [ ] Create troubleshooting guide in docs/
-- [ ] Add architecture diagrams
-- [ ] Document all variables with examples
-- [ ] Add FAQ section
-- [ ] Create upgrade guide with examples
+**Status**: TODO LATER - Basic documentation exists
+**Note**: README.md and CERTIFICATE_ARCHITECTURE.md provide comprehensive documentation
 
-### 17. Performance Optimization
+### 17. Performance Optimization ⏳ TODO LATER
 **Motivation**: Serial operations could be parallelized.
 **Impact**: Slower execution for large clusters.
-**What needs to happen**:
-- [ ] Identify tasks that can run in parallel
-- [ ] Use `strategy: free` where appropriate
-- [ ] Optimize fact gathering (gather_subset)
-- [ ] Cache downloaded files properly
-- [ ] Reduce unnecessary task executions with conditionals
+**Status**: TODO LATER - Current performance is acceptable
+**Note**: Serial upgrades are intentional for safety
 
-### 18. IPv6 Support
+### 18. IPv6 Support ⏳ TODO LATER
 **Motivation**: Code assumes IPv4 addresses.
 **Impact**: Cannot deploy in IPv6-only environments.
-**What needs to happen**:
-- [ ] Add IPv6 address detection
-- [ ] Update certificate generation for IPv6
-- [ ] Test with IPv6-only clusters
-- [ ] Update documentation with IPv6 examples
-- [ ] Support dual-stack configurations
+**Status**: TODO LATER - IPv4 is sufficient for current use cases
 
-### 19. Cluster Scaling Support
+### 19. Cluster Scaling Support 📋 APPROVED
 **Motivation**: No support for adding/removing cluster members.
 **Impact**: Cluster size is fixed after creation.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Create `etcd_action: scale_up` logic
-- [ ] Create `etcd_action: scale_down` logic
-- [ ] Add member addition/removal tasks
-- [ ] Update certificates for new members
-- [ ] Document scaling procedures and limitations
+- [ ] Create `playbooks/scale-cluster.yaml` for documented scaling procedure
 - [ ] Add validation for minimum cluster size (3 nodes)
+- [ ] Add pre-scale health checks
+- [ ] Document current behavior (--limit works for adding nodes)
 
-### 20. Backup Verification
+### 20. Backup Verification 📋 APPROVED
 **Motivation**: Backups are created but never verified.
 **Impact**: Backups may be corrupted and unusable.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Add `etcdutl snapshot status` after each backup
-- [ ] Verify snapshot hash
-- [ ] Add option to test restore in temporary directory
-- [ ] Log backup verification results
-- [ ] Alert on verification failures
+- [ ] Add `etcdutl snapshot status` after backup in main.yaml
+- [ ] Update cron backup scripts to verify snapshots
+- [ ] Fail task if verification fails
+- [ ] Log verification results
 
 ## Technical Debt
 
-### 21. Remove Deprecated Features
+### 21. Remove Deprecated Features 📋 APPROVED
 **Motivation**: Code contains support for deprecated etcd v2.
 **Impact**: Adds complexity without value.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Remove etcd v2 references (`enable-v2: false` is hard-coded)
-- [ ] Clean up version conditionals for old versions
-- [ ] Update minimum supported version to 3.4+
-- [ ] Remove compatibility code for unsupported Ansible versions
+- [ ] Verify etcd v2 is disabled (enable-v2: false already in config)
+- [ ] Document minimum supported versions in defaults
+- [ ] Add comments about version support
+- [ ] Clean up any obsolete version conditionals
 
 ### 22. Consolidate Download Roles ✅ COMPLETED
 **Motivation**: Separate download logic for etcd and certs.
 **Impact**: Duplicated code and inconsistent patterns.
+**Status**: COMPLETED
 **What was done**:
 - [x] Simplified download role to only handle file downloads
 - [x] Moved to `etcd3/download` role hierarchy for better organization
 - [x] Added meta dependency on etcd3 to automatically load defaults
-- [x] Removed all container/Docker logic (download_container.yml, sync_container.yml, etc.)
-- [x] Removed unnecessary variables (download_run_once, download_localhost, download_compress, etc.)
+- [x] Removed all container/Docker logic
+- [x] Removed unnecessary variables
 - [x] Standardized checksum verification using get_url's built-in checksum parameter
 - [x] Reduced from ~400 lines across 6 files to ~60 lines in 3 files
-- [x] Maintained independent execution capability for offline/pre-staging scenarios
 - [x] Updated all role references from `download_etcd` to `etcd3/download`
-- [x] Simplified test-download.yaml (no manual defaults loading needed)
+- [x] Simplified test-download.yaml
 
-### 23. Improve Variable Naming
+### 23. Improve Variable Naming 📋 APPROVED
 **Motivation**: Some variables have unclear names.
 **Impact**: Reduced code readability.
+**Status**: APPROVED - Implementing now
 **What needs to happen**:
-- [ ] Rename ambiguous variables (e.g., `ipvar`)
-- [ ] Use consistent naming conventions (snake_case)
-- [ ] Group related variables with common prefixes
-- [ ] Document variable purpose and expected values
-- [ ] Add variable validation tasks
+- [ ] Rename `ipvar` to `etcd_ip_variable` in facts role
+- [ ] Add comments for complex variables
+- [ ] Ensure consistent snake_case naming
+- [ ] Add validation for critical variables
 
-## Summary by Impact
+## Implementation Summary
 
-### Critical (Cluster Stability/Security)
-- Certificate expiration monitoring (#4)
-- Upgrade safety checks (#12)
-- Error handling standardization (#3)
-- Secrets management (#9)
+### Approved for Implementation NOW 📋
+1. **Add etcdutl for Snapshot Verification** (#1) - Add verification after backups
+8. **No Health Check Playbook** (#8) - Create playbooks/etcd-health.yaml
+9. **Secrets Management Best Practices** (#9) - Add .gitignore, enhance vault example
+11. **Systemd Service Customization** (#11) - Add tuning variables
+12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
+15. **Ansible Best Practices** (#15) - Add changed_when, failed_when, better task names
+19. **Cluster Scaling Support** (#19) - Create playbooks/scale-cluster.yaml
+20. **Backup Verification** (#20) - Add etcdutl verification to backups
+21. **Remove Deprecated Features** (#21) - Document version support
+23. **Improve Variable Naming** (#23) - Rename ipvar, add comments
 
-### High (Operational Excellence)
-- Test infrastructure (#2)
-- Backup retention (#5)
-- Health check playbook (#8)
-- etcdutl migration (#1)
+### Completed ✅
+3. **Inconsistent Error Handling** - Error handling improved
+5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
+6. **Hard-coded Binary Paths** - All use {{ bin_dir }}
+10. **Download Role Complexity** - Simplified to etcd3/download
+22. **Consolidate Download Roles** - Completed simplification
 
-### Medium (Maintainability)
-- Jinja2 template simplification (#7)
-- Documentation improvements (#16)
-- Ansible best practices (#15)
-- Hard-coded paths (#6)
+### Deferred ⏳
+4. **Certificate Expiration Monitoring** - Smallstep handles auto-renewal
+7. **Complex Jinja2 Templates** - Works correctly, refactor later
+13. **Monitoring Integration** - Health check provides basic functionality
+14. **Multi-Version Support Matrix** - Document later
+16. **Documentation Improvements** - Adequate documentation exists
+17. **Performance Optimization** - Current performance acceptable
+18. **IPv6 Support** - Not needed for current use cases
 
-### Low (Features/Enhancements)
-- Monitoring integration (#13)
-- Cluster scaling (#19)
-- IPv6 support (#18)
-- Performance optimization (#17)
+### Won't Fix ❌
+2. **Missing Test Infrastructure** - Manual testing sufficient
 
-## Quick Wins (Low Effort, High Impact)
-1. Add Makefile with basic test target
-2. Document certificate expiration checking
-3. Add etcdutl for snapshot verification
-4. Create health check playbook
-5. Add ansible-lint configuration and fix warnings
-6. Document backup retention strategy
+## Next Steps
+
+### Phase 1: Immediate Improvements (This Sprint)
+1. Add .gitignore for secrets
+2. Add etcdutl snapshot verification to backups
+3. Create playbooks/etcd-health.yaml
+4. Add systemd service customization variables
+5. Improve error messages and validation
+
+### Phase 2: Code Quality (Next Sprint)
+6. Rename ipvar to etcd_ip_variable
+7. Add changed_when/failed_when consistently
+8. Create playbooks/scale-cluster.yaml
+9. Document minimum supported versions
+10. Enhance vault.yml.example
+
+### Phase 3: Optional Enhancements (Future)
+- Jinja2 template refactoring
+- Monitoring integration
+- IPv6 support
+- Performance optimization
