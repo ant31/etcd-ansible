@@ -68,12 +68,21 @@
   tags:
     - restore-etcd
 
+- name: Check if etcd data directory exists
+  stat:
+    path: "{{ etcd_data_dir }}"
+  register: etcd_data_dir_stat
+  when: restore_backup_existing
+  tags:
+    - restore-etcd
+
 - name: Backup current etcd data
   command: >
     mv {{ etcd_data_dir }}
     {{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
-  when: restore_backup_existing
-  failed_when: false
+  when: 
+    - restore_backup_existing
+    - etcd_data_dir_stat.stat.exists
   tags:
     - restore-etcd
 

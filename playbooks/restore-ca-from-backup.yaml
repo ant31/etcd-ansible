@@ -96,9 +96,17 @@
       systemd:
         name: step-ca
         state: stopped
-      failed_when: false
+      ignore_errors: true
       tags:
         - restore
+
+    - name: Check if CA secrets exist
+      stat:
+        path: /etc/step-ca/secrets
+      register: ca_secrets_stat
+      tags:
+        - restore
+        - safety
 
     - name: Backup existing CA files (if they exist)
       archive:
@@ -106,7 +114,7 @@
           - /etc/step-ca/secrets
           - /etc/step-ca/config
         dest: /etc/step-ca-backup-before-restore.tar.gz
-      failed_when: false
+      when: ca_secrets_stat.stat.exists
       tags:
         - restore
         - safety

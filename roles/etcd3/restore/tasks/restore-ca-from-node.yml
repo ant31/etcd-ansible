@@ -25,7 +25,7 @@
   systemd:
     name: step-ca
     state: stopped
-  failed_when: false
+  ignore_errors: true
   tags:
     - restore-ca
 

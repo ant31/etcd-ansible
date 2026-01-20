@@ -95,7 +95,7 @@
         name: step-ca
         enabled: no
         state: stopped
-      failed_when: false
+      ignore_errors: true
       tags:
         - ca-restore
 
