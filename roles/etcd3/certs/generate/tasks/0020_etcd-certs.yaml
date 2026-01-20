@@ -1,9 +1,14 @@
 ---
 
+- name: Set etcd member name for cert generation
+  set_fact:
+    _cert_etcd_name: "{{ hostvars[cert.host]['etcd_member_name']|default(['etcd', etcd_cluster_name, hostvars[cert.host]['etcd_member_index']|d(loop.index)|string] | join('-')) }}"
+  delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
+
 - name: generate-certs config for *{{cert.profile}}/{{cert.host}}*
   template:
     src: "etcd-{{cert.profile}}.json"
-    dest: "{{etcd_cert_dir}}/{{cert.host}}/{{cert.host}}-{{cert.profile}}.json"
+    dest: "{{etcd_cert_dir}}/{{_cert_etcd_name}}-{{cert.profile}}.json"
   vars:
     cert_name: "{{cert.host}}"
     host: "{{cert.host}}"
@@ -12,21 +17,21 @@
 
 - name: "Check certs | check if a cert exists for *{{cert.profile}}/{{cert.host}}*"
   stat:
-    path: "{{ etcd_cert_dir }}/{{cert.host}}/{{item}}"
+    path: "{{ etcd_cert_dir }}/{{item}}"
   register: certs
   when:
     - certconf is not changed
   loop:
-    - "{{cert.host}}-{{cert.profile}}.csr"
-    - "{{cert.host}}-{{cert.profile}}.pem"
-    - "{{cert.host}}-{{cert.profile}}-key.pem"
+    - "{{_cert_etcd_name}}-{{cert.profile}}.csr"
+    - "{{_cert_etcd_name}}-{{cert.profile}}.crt"
+    - "{{_cert_etcd_name}}-{{cert.profile}}.key"
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
 
 - name: Verify cert validity
   command: |
     openssl verify
     -CAfile "{{etcd_cert_dir}}/{{etcd_capem}}"
-    "{{etcd_cert_dir}}//{{cert.host}}/{{cert.host}}-{{cert.profile}}.pem"
+    "{{etcd_cert_dir}}/{{_cert_etcd_name}}-{{cert.profile}}.crt"
   when:
     - certconf is not changed
     - certs.results | map(attribute='stat.exists')|unique|join(' ')|bool
@@ -42,20 +47,34 @@
     -ca={{ etcd_cert_dir }}/{{etcd_capem}}
     -ca-key={{ etcd_cert_dir }}/{{etcd_cakey}}
     -profile={{cert.profile}}
-    {{etcd_cert_dir}}/{{cert.host}}/{{cert.host}}-{{cert.profile}}.json
+    {{etcd_cert_dir}}/{{_cert_etcd_name}}-{{cert.profile}}.json
   register: certjson
   args:
-    chdir: "{{ etcd_cert_dir }}/{{cert.host}}"
+    chdir: "{{ etcd_cert_dir }}"
   when:
     - certvalid is failed or certvalid is skipped
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
 
 - name: Generate Certificate for *{{cert.profile}}/{{cert.host}}*
-  command: '{{bin_dir}}/cfssljson -bare {{cert.host}}-{{cert.profile}}'
+  shell: |
+    echo '{{certjson.stdout}}' | {{bin_dir}}/cfssljson -bare {{_cert_etcd_name}}-{{cert.profile}}
   register: certgen
   args:
-    chdir: "{{ etcd_cert_dir }}/{{cert.host}}"
-    stdin: "{{certjson.stdout | from_json |to_json}}"
+    chdir: "{{ etcd_cert_dir }}"
   when:
     - certjson is changed
+  delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
+
+- name: Rename certificate files to use .crt and .key extensions
+  shell: |
+    if [ -f "{{_cert_etcd_name}}-{{cert.profile}}.pem" ]; then
+      mv "{{_cert_etcd_name}}-{{cert.profile}}.pem" "{{_cert_etcd_name}}-{{cert.profile}}.crt"
+    fi
+    if [ -f "{{_cert_etcd_name}}-{{cert.profile}}-key.pem" ]; then
+      mv "{{_cert_etcd_name}}-{{cert.profile}}-key.pem" "{{_cert_etcd_name}}-{{cert.profile}}.key"
+    fi
+  args:
+    chdir: "{{ etcd_cert_dir }}"
+  when:
+    - certgen is changed
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"

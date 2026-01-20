@@ -10,14 +10,13 @@
     - etcd-ca
     - etcd-certs
 
-- name: Gen_certs | create etcd {{inventory_hostname}} certs dir
+- name: Gen_certs | create etcd cert dir
   file:
-    path: "{{ etcd_cert_dir }}/{{item}}"
+    path: "{{ etcd_cert_dir }}"
     group: "{{ etcd_cert_group }}"
     state: directory
     owner: "{{etcd_cert_user}}"
     mode: 0700
-  loop: "{{etcd_hosts|default(etcd_all_hosts) | unique + ['archives']}}"
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
 
 - import_role:
@@ -29,22 +28,19 @@
     - etcd-ca
     - etcd-certs
 
-- name: Copy server and client etcd-ca
-  copy:
-    remote_src: true
-    src: "{{ etcd_cert_dir }}/{{item.1}}-ca.pem"
-    dest: "{{ etcd_cert_dir }}/{{item.0}}"
-  loop: "{{etcd_hosts|default(etcd_all_hosts | unique)|product(['peer', 'client']) | list}}"
-  when:
-    - (item.1 == "peer" and item.0 in groups[etcd_cluster_group]) or (item.1 == "client" and item.0 in groups[etcd_clients_group])
-  ignore_errors: True
+- name: Verify CA files exist
+  stat:
+    path: "{{ etcd_cert_dir }}/{{item}}-ca.crt"
+  register: ca_check
+  loop:
+    - peer
+    - client
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
-  register: copyca
 
-- name: fail the play if the previous command did not succeed
+- name: fail the play if CA files don't exist
   fail:
-    msg: "Are the CA files generated? run the role etcd/certs/ca, see playbooks/etcd.yaml "
-  when: copyca is failed
+    msg: "CA files not found. Run the role etcd3/certs/ca first, see playbooks/etcd.yaml"
+  when: ca_check.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
 
 - name: configure the certs to generate (client, server or peer)
   set_fact:
@@ -72,19 +68,45 @@
     cert:
       host: "{{host_item.0}}"
       profile: "{{host_item.1}}"
-    etcd_cakey: "{{etcd_ca_profiles[cert.profile]}}-ca-key.pem"
-    etcd_capem: "{{etcd_ca_profiles[cert.profile]}}-ca.pem"
+    etcd_cakey: "{{etcd_ca_profiles[cert.profile]}}-ca.key"
+    etcd_capem: "{{etcd_ca_profiles[cert.profile]}}-ca.crt"
     etcd_caconf: "{{etcd_ca_profiles[cert.profile]}}-ca-config.json"
+
+- name: Create host-specific cert list
+  set_fact:
+    _host_cert_files: >-
+      {%- set files = [] -%}
+      {%- for host in etcd_hosts|default(etcd_all_hosts | unique) -%}
+      {%- set etcd_member_name = hostvars[host]['etcd_member_name']|default(['etcd', etcd_cluster_name, hostvars[host]['etcd_member_index']|d(loop.index)|string] | join('-')) -%}
+      {%- if host in groups[etcd_cluster_group] -%}
+      {%- set _ = files.append({'host': host, 'files': [
+          etcd_cert_dir + '/' + etcd_member_name + '-peer.crt',
+          etcd_cert_dir + '/' + etcd_member_name + '-peer.key',
+          etcd_cert_dir + '/' + etcd_member_name + '-server.crt',
+          etcd_cert_dir + '/' + etcd_member_name + '-server.key',
+          etcd_cert_dir + '/' + etcd_member_name + '-client.crt',
+          etcd_cert_dir + '/' + etcd_member_name + '-client.key',
+          etcd_cert_dir + '/peer-ca.crt',
+          etcd_cert_dir + '/client-ca.crt'
+        ]}) -%}
+      {%- elif host in groups[etcd_clients_group] -%}
+      {%- set _ = files.append({'host': host, 'files': [
+          etcd_cert_dir + '/' + etcd_member_name + '-client.crt',
+          etcd_cert_dir + '/' + etcd_member_name + '-client.key',
+          etcd_cert_dir + '/client-ca.crt'
+        ]}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ files }}
+  delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
+  run_once: true
 
 - name: Prepare certs tarball
   archive:
-    dest: "{{etcd_cert_dir}}/archives/client-{{host}}.tar.bz2"
+    dest: "{{etcd_cert_dir}}/{{item.host}}.tar.bz2"
     format: bz2
-    path:
-      - "{{ etcd_cert_dir }}/{{host}}"
-  loop: "{{etcd_hosts|default(etcd_all_hosts | unique)}}"
-  loop_control:
-    loop_var: host
+    path: "{{ item.files }}"
+  loop: "{{ _host_cert_files }}"
   register: etcd_cert_tarballs
   delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
   delegate_facts: true

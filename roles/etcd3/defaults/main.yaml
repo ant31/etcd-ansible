@@ -180,14 +180,14 @@ etcd_user:
 
 etcd_cert_paths:
   server:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   client:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   peer:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/peer-ca.pem"
+    cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
+    key: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
+    ca: "{{ etcd_cert_dir }}/peer-ca.crt"
