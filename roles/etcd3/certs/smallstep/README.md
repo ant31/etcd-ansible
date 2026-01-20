@@ -5,8 +5,8 @@ This role integrates Smallstep CA (step-ca) for automated certificate management
 ## Features
 
 - **Automated CA Setup**: Deploys step-ca on the cert-manager node
-- **Short-Lived Certificates**: Default 90-day certificate lifetime
-- **Automatic Renewal**: Systemd timers renew certificates at 2/3 of their lifetime (60 days)
+- **Long-Lived Certificates**: Default 2-year certificate lifetime for manual renewal planning
+- **Automatic Renewal**: Systemd timers renew certificates at 2/3 of their lifetime (~487 days)
 - **Zero-Downtime Renewal**: Certificates are renewed without restarting etcd
 - **Modern Security**: Industry-standard PKI with ACME protocol support
 - **No Manual Distribution**: Certificates are fetched directly from step-ca
@@ -124,12 +124,12 @@ step_ca_url: "https://{{ step_ca_dns }}:9000"
 step_ca_port: 9000
 
 # Certificate lifetimes
-step_cert_default_duration: "2160h"  # 90 days
-step_cert_max_duration: "8760h"      # 1 year
+step_cert_default_duration: "17520h"  # 2 years (730 days)
+step_cert_max_duration: "26280h"      # 3 years
 step_cert_min_duration: "1h"
 
 # Renewal period (when to renew)
-step_cert_renew_period: "1440h"  # 60 days (2/3 of 90 days)
+step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 ```
 
 ### Security Best Practices
@@ -163,7 +163,7 @@ Certificates are automatically renewed by systemd timers. Three timers are creat
 ### Renewal Schedule
 
 - **When**: Daily at 3:00 AM (with 1-hour random delay)
-- **Trigger**: Renews if certificate has less than 1/3 of lifetime remaining
+- **Trigger**: Renews if certificate has less than 1/3 of lifetime remaining (~243 days for 2-year certs)
 - **Post-Renewal**: Automatically reloads etcd service (for peer/server certs)
 
 ### Manual Renewal
@@ -303,7 +303,7 @@ systemctl restart step-ca
 
 1. **Automated Renewal**: Certificates renew automatically without manual intervention
 2. **Modern Architecture**: Built-in ACME support, webhooks, and integrations
-3. **Short-Lived Certs**: Default 90 days vs 20 years
+3. **Configurable Lifetime**: Default 2 years (configurable from 1 hour to 3 years)
 4. **Zero Trust**: Nodes fetch certificates on-demand instead of pre-distribution
 5. **Monitoring**: Built-in health checks and metrics
 6. **Extensible**: Easy to add ACME clients, OIDC providers, etc.

@@ -89,46 +89,11 @@ etcd_downloads:
     groups:
       - "{{etcd_cluster_group}}"
   
-etcd_certs_downloads:
-  cfssl:
-    file: true
-    enabled: true
-    dest: "{{bin_dir}}/cfssl"
-    sha256: "sha256:ff4d3a1387ea3e1ee74f4bb8e5ffe9cbab5bee43c710333c206d14199543ebdf"
-    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssl_{{cfssl_version}}_linux_amd64"
-    owner: "root"
-    mode: "0755"
-    groups:
-      - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
-  cfssljson:
-    file: true
-    enabled: true
-    sha256: "sha256:09fbcb7a3b3d6394936ea61eabff1e8a59a8ac3b528deeb14cf66cdbbe9a534f"
-    dest: "{{bin_dir}}/cfssljson"
-    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssljson_{{cfssl_version}}_linux_amd64"
-    owner: "root"
-    mode: "0755"
-    groups:
-      - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
-  cfssl-certinfo:
-    file: true
-    enabled: true
-    sha256: "sha256:ebe7cd2d6ad33930fa0db292312ef0acf8ec0e359bc73d4ed8ae7290bd47c955"
-    dest: "{{bin_dir}}/cfssl-certinfo"
-    url: "https://github.com/cloudflare/cfssl/releases/download/v{{cfssl_version}}/cfssl-certinfo_{{cfssl_version}}_linux_amd64"
-    owner: "root"
-    mode: "0755"
-    groups:
-      - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
 ###########
 ## CERTS
 ##########3
+# Note: cert_expiry kept for backward compatibility but not used with Smallstep
+# Smallstep uses step_cert_default_duration (2 years) defined in smallstep role
 cert_expiry: 175200h
 
 

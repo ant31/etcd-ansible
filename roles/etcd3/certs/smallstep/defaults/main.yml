@@ -18,12 +18,12 @@ step_ca_certs: "{{ step_path }}/certs"
 step_ca_secrets: "{{ step_path }}/secrets"
 
 # Certificate settings
-step_cert_default_duration: "2160h"  # 90 days
-step_cert_max_duration: "8760h"      # 1 year
+step_cert_default_duration: "17520h"  # 2 years (730 days)
+step_cert_max_duration: "26280h"      # 3 years
 step_cert_min_duration: "1h"
 
 # Renewal settings - renew when 2/3 of lifetime has passed
-step_cert_renew_period: "1440h"  # 60 days (2/3 of 90 days)
+step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 
 # Password for CA keys (should be stored in ansible-vault in production)
 step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"

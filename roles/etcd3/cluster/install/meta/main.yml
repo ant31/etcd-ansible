@@ -14,9 +14,10 @@ dependencies:
     tags:
       - always
 
-  - name: etcd3/certs
+  - name: etcd3/certs/smallstep
     tags:
       - etcd-certs
+      - step-ca
 
   - name: etcd3/download
     vars:
