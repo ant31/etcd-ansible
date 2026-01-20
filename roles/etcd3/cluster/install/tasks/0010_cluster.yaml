@@ -79,9 +79,6 @@
     backup: yes
   register: envchanged
 
-# This is sensitive reconfiguration, should be not be replaced unvolontary
-# Most of the time it requires to run few etcdctl command to reconfigure the cluster before
-# Those etcdctl commands are not managed nor automated by this role
 - name: ETCD | Create etcd config file
   template:
     src: etcd-conf.yaml.j2
