@@ -227,13 +227,16 @@
 **Motivation**: Separate download logic for etcd and certs.
 **Impact**: Duplicated code and inconsistent patterns.
 **What was done**:
-- [x] Simplified `download_etcd` role to only handle file downloads
+- [x] Simplified download role to only handle file downloads
+- [x] Moved to `etcd3/download` role hierarchy for better organization
+- [x] Added meta dependency on etcd3 to automatically load defaults
 - [x] Removed all container/Docker logic (download_container.yml, sync_container.yml, etc.)
 - [x] Removed unnecessary variables (download_run_once, download_localhost, download_compress, etc.)
 - [x] Standardized checksum verification using get_url's built-in checksum parameter
-- [x] Reduced role from ~400 lines across 6 files to ~60 lines in 2 files
+- [x] Reduced from ~400 lines across 6 files to ~60 lines in 3 files
 - [x] Maintained independent execution capability for offline/pre-staging scenarios
-- [x] Updated all role references to remove download_container parameter
+- [x] Updated all role references from `download_etcd` to `etcd3/download`
+- [x] Simplified test-download.yaml (no manual defaults loading needed)
 
 ### 23. Improve Variable Naming
 **Motivation**: Some variables have unclear names.

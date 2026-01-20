@@ -6,15 +6,9 @@
   hosts: etcd
   gather_facts: yes
   tasks:
-    - name: Load etcd3 defaults
-      include_role:
-        name: etcd3
-      tags:
-        - always
-
     - name: Download etcd binaries
       include_role:
-        name: download_etcd
+        name: etcd3/download
       vars:
         downloads: "{{ etcd_downloads }}"
       tags:
@@ -38,15 +32,9 @@
   hosts: etcd-cert-managers
   gather_facts: yes
   tasks:
-    - name: Load etcd3 defaults
-      include_role:
-        name: etcd3
-      tags:
-        - always
-
     - name: Download cfssl binaries
       include_role:
-        name: download_etcd
+        name: etcd3/download
       vars:
         downloads: "{{ etcd_certs_downloads }}"
       tags:
