@@ -1,7 +1,5 @@
 ---
 dependencies:
   - name: etcd3
-    tags:
-      - always
 
 allow_duplicates: true
