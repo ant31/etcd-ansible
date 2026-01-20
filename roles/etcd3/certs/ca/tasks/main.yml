@@ -1,9 +1,8 @@
 ---
 - import_role:
-    name: download_etcd
+    name: etcd3/download
   vars:
-    downloads: "{{etcd_certs_downloads}}"
-    download_container: false
+    downloads: "{{ etcd_certs_downloads }}"
   tags:
     - download
     - etcd-ca

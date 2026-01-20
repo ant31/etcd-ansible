@@ -48,7 +48,9 @@
 
 - name: configure the certs to generate (client, server or peer)
   set_fact:
-    _etcd_cert_hosts: >-
+    _etcd_cert_hosts: "{{ _etcd_cert_hosts_str | from_yaml }}"
+  vars:
+    _etcd_cert_hosts_str: >-
          [{% for item in etcd_hosts|default(etcd_all_hosts | unique)|product(['peer', 'client', 'server']) | list %}
          {% if (item.1 in ["peer", "server"] and item.0 in groups[etcd_cluster_group]) or  (item.1 == "client" and item.0 in groups[etcd_clients_group])%}
          {% if loop.last %}
@@ -73,7 +75,6 @@
     etcd_cakey: "{{etcd_ca_profiles[cert.profile]}}-ca-key.pem"
     etcd_capem: "{{etcd_ca_profiles[cert.profile]}}-ca.pem"
     etcd_caconf: "{{etcd_ca_profiles[cert.profile]}}-ca-config.json"
-  delegate_to: "{{hostvars[groups[etcd_certmanagers_group][0]].ansible_ssh_host}}"
 
 - name: Prepare certs tarball
   archive:

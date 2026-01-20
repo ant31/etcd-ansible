@@ -1,11 +1,4 @@
 ---
-- name: download etcd binaries
-  include_role:
-    name: download_etcd
-  vars:
-    downloads: "{{etcd_downloads}}"
-    download_container: false
-
 - name: Checksum etcd binary
   stat:
     path: "{{ bin_dir }}/etcd"
@@ -28,6 +21,7 @@
   with_items:
     - etcd
     - etcdctl
+    - etcdutl
 
 - name: Checksum etcd binary
   stat:

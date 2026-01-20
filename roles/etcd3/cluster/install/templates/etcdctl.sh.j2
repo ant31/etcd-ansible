@@ -1,0 +1,7 @@
+#!/bin/bash
+
+export endpoints={{etcd_access_addresses}}
+etcdctl --endpoints=$endpoints \
+  --cacert {{etcd_cert_paths.server.ca}} \
+  --cert {{etcd_cert_paths.server.cert}}
+  --key {{etcd_cert_paths.server.key}} "$@"

@@ -11,7 +11,6 @@ dependencies:
     when:
       - not (ansible_os_family in ['CoreOS', 'Container Linux by CoreOS'])
 
-
   - name: etcd3/facts
     tags:
       - always
@@ -19,3 +18,9 @@ dependencies:
   - name: etcd3/certs
     tags:
       - etcd-certs
+
+  - name: etcd3/download
+    vars:
+      downloads: "{{ etcd_downloads }}"
+    tags:
+      - download

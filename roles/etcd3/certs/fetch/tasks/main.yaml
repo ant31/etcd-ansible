@@ -37,16 +37,7 @@
 
 - name: set fact
   set_fact:
-    _etcd_generate_cert: >-
-        {% if (inventory_hostname not in groups[etcd_cluster_group]
-        or (inventory_hostname in groups[etcd_cluster_group] and etcd_action|default('none') in ['create', 'deploy'])
-        or etcd_sync_certs | default(false) | bool
-        or etcd_rotate_certs | default(false) | bool)
-        and not etcd_skip_certs|default(false) | bool %}
-        true
-        {% else %}
-        false
-        {% endif %}
+    _etcd_generate_cert: "{{ (inventory_hostname not in groups[etcd_cluster_group] or (inventory_hostname in groups[etcd_cluster_group] and etcd_action|default('none') in ['create', 'deploy']) or etcd_sync_certs | default(false) | bool or etcd_rotate_certs | default(false) | bool) and not etcd_skip_certs|default(false) | bool }}"
 
 - name: include cert generate role
   include_role:

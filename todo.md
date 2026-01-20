@@ -5,3 +5,12 @@
 - [ ] restore a backups
 - [ ] scale up
 - [ ] logs: https://github.com/kubernetes-incubator/kubespray/pull/3700/files
+
+- [ ] Add util too connect with all variable
+- [ ] download and install etcdutl too
+- [ ] use utcdutl to backup
+- [ ] add role to restore backup
+- [ ] update to latest 3.5 and latest 3.6
+- [ ] check settings
+- [ ] update other packages
+- [ ] Cert and conf and dataabse permission to root only
