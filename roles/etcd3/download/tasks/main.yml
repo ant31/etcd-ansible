@@ -11,7 +11,7 @@
     - not skip_downloads | default(false)
     - item.value.enabled
     - item.value.file
-    - group_names | intersect(item.value.groups) | length
+    - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
     - download-prep
@@ -33,7 +33,7 @@
     - not skip_downloads | default(false)
     - item.value.enabled
     - item.value.file
-    - group_names | intersect(item.value.groups) | length
+    - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
     - download-files
@@ -52,7 +52,7 @@
     - item.value.enabled
     - item.value.file
     - item.value.unarchive | default(False)
-    - group_names | intersect(item.value.groups) | length
+    - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
     - download-extract
