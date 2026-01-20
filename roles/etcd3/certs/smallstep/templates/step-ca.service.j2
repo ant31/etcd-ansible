@@ -1,0 +1,18 @@
+[Unit]
+Description=Smallstep Certificate Authority
+Documentation=https://smallstep.com/docs/step-ca
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=STEPPATH={{ step_path }}
+ExecStart={{ bin_dir }}/step-ca {{ step_ca_config }} --password-file {{ step_ca_secrets }}/password
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

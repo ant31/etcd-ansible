@@ -1,0 +1,49 @@
+---
+- name: Download step CLI on client nodes
+  get_url:
+    url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+    dest: "/tmp/step_{{ step_version }}.tar.gz"
+    checksum: "sha256:{{ step_checksums[step_version] | default(omit) }}"
+  tags:
+    - download
+
+- name: Extract step CLI on client nodes
+  unarchive:
+    src: "/tmp/step_{{ step_version }}.tar.gz"
+    dest: "/tmp/"
+    remote_src: yes
+  tags:
+    - download
+
+- name: Install step CLI on client nodes
+  copy:
+    src: "/tmp/step_{{ step_version }}/bin/step"
+    dest: "{{ bin_dir }}/step"
+    mode: 0755
+    remote_src: yes
+
+- name: Create step configuration directory
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ etcd_cert_user }}"
+    group: "{{ etcd_cert_group }}"
+    mode: 0700
+
+- name: Install root CA certificate
+  copy:
+    content: "{{ step_ca_root_cert }}"
+    dest: "{{ etcd_cert_dir }}/root_ca.crt"
+    owner: "{{ etcd_cert_user }}"
+    group: "{{ etcd_cert_group }}"
+    mode: 0644
+
+- name: Bootstrap step CLI
+  command: >
+    {{ bin_dir }}/step ca bootstrap
+    --ca-url {{ step_ca_url }}
+    --fingerprint $({{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt)
+    --install
+  environment:
+    STEPPATH: "{{ etcd_cert_dir }}/.step"
+  changed_when: false

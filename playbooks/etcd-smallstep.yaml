@@ -1,0 +1,28 @@
+---
+# Deploy etcd cluster with Smallstep CA
+# Usage: ansible-playbook -i inventory.ini playbooks/etcd-smallstep.yaml -e etcd_action=create
+
+- name: Setup Smallstep CA on cert-manager
+  hosts: etcd-cert-managers
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: etcd3
+    - role: etcd3/certs/smallstep
+
+- name: Setup Smallstep clients and generate certificates
+  hosts: etcd:etcd-clients
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: etcd3
+    - role: etcd3/certs/smallstep
+
+- name: Deploy etcd cluster
+  hosts: etcd
+  gather_facts: yes
+  become: yes
+  roles:
+    - role: etcd3/cluster
+  vars:
+    etcd_action: "{{ etcd_action | default('create') }}"

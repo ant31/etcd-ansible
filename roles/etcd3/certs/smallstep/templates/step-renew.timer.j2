@@ -1,0 +1,12 @@
+[Unit]
+Description=Renewal timer for {{ cert_name }} certificate
+Documentation=https://smallstep.com/docs/step-ca
+
+[Timer]
+# Renew certificate every 60 days (2/3 of 90 day lifetime)
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

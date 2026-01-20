@@ -214,7 +214,7 @@ Allow clients to generate certificates on-demand when they have authenticated ac
 9. ✅ Audit logging
 
 ### Nice to Have (Phase 2/3 - Future)
-10. ⏳ step-ca or Vault integration
+10. 🚧 step-ca integration (IN PROGRESS)
 11. ⏳ On-demand client cert generation
 12. ⏳ HSM support
 13. ⏳ Certificate transparency logging
