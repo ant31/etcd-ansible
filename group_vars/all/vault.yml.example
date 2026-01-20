@@ -1,0 +1,28 @@
+---
+# Example vault file for sensitive variables
+# Copy this to group_vars/all/vault.yml and encrypt with:
+# ansible-vault encrypt group_vars/all/vault.yml
+
+# Smallstep CA passwords
+step_ca_password: "CHANGE_ME_VERY_SECURE_CA_PASSWORD"
+step_provisioner_password: "CHANGE_ME_VERY_SECURE_PROVISIONER_PASSWORD"
+
+# CA Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, aws-s3-sse
+
+# AWS KMS configuration (if using aws-kms method)
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # or full ARN
+step_ca_backup_s3_bucket: "your-org-etcd-backups"
+step_ca_backup_s3_prefix: "step-ca"
+
+# Symmetric encryption password (if using symmetric method)
+# Store this in a password manager and rotate regularly
+step_ca_backup_password: "CHANGE_ME_VERY_SECURE_BACKUP_PASSWORD_MIN_32_CHARS"
+
+# AWS credentials for backup uploads (if not using IAM roles)
+# Prefer IAM instance profiles/roles over static credentials
+# step_ca_backup_aws_access_key: "AKIAIOSFODNN7EXAMPLE"
+# step_ca_backup_aws_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+# etcd cluster passwords/tokens (if any)
+etcd_cluster_token: "CHANGE_ME_UNIQUE_CLUSTER_TOKEN"

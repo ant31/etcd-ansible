@@ -411,70 +411,139 @@ ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=restore
 
 #### Automated Backup Strategy
 
-**Daily Backup to S3:**
+**Daily Backup to S3 with AWS KMS:**
 
-```yaml
-# playbooks/backup-ca-daily.yaml
-- hosts: etcd-cert-managers[0]  # Primary only
-  tasks:
-    - name: Create CA backup
-      archive:
-        path:
-          - /etc/step-ca/secrets
-          - /etc/step-ca/config
-        dest: /tmp/step-ca-backup-{{ ansible_date_time.date }}.tar.gz
-
-    - name: Encrypt backup
-      command: |
-        gpg --encrypt --recipient admin@example.com \
-        /tmp/step-ca-backup-{{ ansible_date_time.date }}.tar.gz
-
-    - name: Upload to S3
-      aws_s3:
-        bucket: etcd-backups
-        object: "step-ca/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/ca-backup-{{ ansible_date_time.date }}.tar.gz.gpg"
-        src: "/tmp/step-ca-backup-{{ ansible_date_time.date }}.tar.gz.gpg"
-        encrypt: yes
-
-    - name: Cleanup local backup
-      file:
-        path: "{{ item }}"
-        state: absent
-      loop:
-        - "/tmp/step-ca-backup-{{ ansible_date_time.date }}.tar.gz"
-        - "/tmp/step-ca-backup-{{ ansible_date_time.date }}.tar.gz.gpg"
-```
+Backup playbook already configured at `playbooks/backup-ca.yaml`.
 
 **Add to cron:**
 ```bash
-# Run daily at 2 AM
-0 2 * * * cd /path/to/etcd-ansible && ansible-playbook -i inventory.ini playbooks/backup-ca-daily.yaml
+# Run daily at 2 AM with KMS encryption
+0 2 * * * cd /path/to/etcd-ansible && ansible-playbook -i inventory.ini playbooks/backup-ca.yaml -e step_ca_backup_encryption_method=aws-kms
+
+# Or with symmetric encryption (password in ansible-vault)
+0 2 * * * cd /path/to/etcd-ansible && ansible-playbook -i inventory.ini playbooks/backup-ca.yaml -e step_ca_backup_encryption_method=symmetric --vault-password-file /etc/ansible/vault-pass
+```
+
+**AWS KMS Key Setup (one-time):**
+
+```bash
+# Create KMS key for CA backups
+aws kms create-key \
+  --description "Encryption key for etcd CA backups" \
+  --key-policy file://kms-policy.json
+
+# Create alias
+aws kms create-alias \
+  --alias-name alias/etcd-ca-backup \
+  --target-key-id <KEY_ID_FROM_ABOVE>
+
+# Grant access to backup/restore roles
+aws kms create-grant \
+  --key-id alias/etcd-ca-backup \
+  --grantee-principal arn:aws:iam::ACCOUNT:role/etcd-backup-role \
+  --operations Encrypt Decrypt
+```
+
+**KMS Policy Example (kms-policy.json):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Enable IAM policies",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::ACCOUNT_ID:root"
+      },
+      "Action": "kms:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "Allow backup service to encrypt",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::ACCOUNT_ID:role/etcd-nodes"
+      },
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:DescribeKey"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
 ```
 
 #### Manual Backup
 
+**Method 1: AWS KMS (Recommended for Organizations)**
+
 ```bash
-# On any cert-manager node
-tar czf step-ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
+# On cert-manager node - Backup with AWS KMS encryption
+tar czf /tmp/step-ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
 
-# Encrypt backup
-gpg --encrypt --recipient admin@example.com step-ca-backup.tar.gz
+# Encrypt with AWS KMS
+aws kms encrypt \
+  --key-id alias/etcd-ca-backup \
+  --plaintext fileb:///tmp/step-ca-backup.tar.gz \
+  --output text --query CiphertextBlob \
+  | base64 -d > /tmp/step-ca-backup.tar.gz.kms
 
-# Store securely (e.g., S3)
-aws s3 cp step-ca-backup.tar.gz.gpg s3://backups/step-ca/
+# Upload to S3 with server-side encryption
+aws s3 cp /tmp/step-ca-backup.tar.gz.kms \
+  s3://etcd-backups/step-ca/$(date +%Y/%m)/step-ca-backup-$(date +%Y-%m-%d).tar.gz.kms \
+  --sse aws:kms \
+  --sse-kms-key-id alias/etcd-ca-backup
+
+# Cleanup
+rm /tmp/step-ca-backup.tar.gz*
 ```
+
+**Method 2: Symmetric Encryption (Password-based)**
+
+```bash
+# On cert-manager node - Backup with AES-256 encryption
+tar czf /tmp/step-ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
+
+# Encrypt with password (store password in password manager)
+openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+  -in /tmp/step-ca-backup.tar.gz \
+  -out /tmp/step-ca-backup.tar.gz.enc \
+  -pass pass:YOUR_SECURE_PASSWORD
+
+# Upload to S3
+aws s3 cp /tmp/step-ca-backup.tar.gz.enc \
+  s3://etcd-backups/step-ca/$(date +%Y/%m)/step-ca-backup-$(date +%Y-%m-%d).tar.gz.enc
+
+# Cleanup
+rm /tmp/step-ca-backup.tar.gz*
+```
+
+**Why Not GPG?**
+- ❌ GPG keys tied to individual employees
+- ❌ Employee leaves = backup becomes inaccessible
+- ❌ Requires key redistribution and re-encryption
+- ✅ Use organizational secrets (KMS, password manager) instead
 
 #### Restore CA Keys
 
+**Method 1: From AWS KMS Encrypted Backup**
+
 ```bash
 # Download backup
-aws s3 cp s3://backups/step-ca/step-ca-backup.tar.gz.gpg .
+aws s3 cp s3://etcd-backups/step-ca/2026/01/step-ca-backup-2026-01-20.tar.gz.kms \
+  /tmp/step-ca-backup.tar.gz.kms
 
-# Decrypt
-gpg --decrypt step-ca-backup.tar.gz.gpg > step-ca-backup.tar.gz
+# Decrypt with AWS KMS (uses IAM permissions)
+aws kms decrypt \
+  --ciphertext-blob fileb:///tmp/step-ca-backup.tar.gz.kms \
+  --output text --query Plaintext \
+  | base64 -d > /tmp/step-ca-backup.tar.gz
 
 # Extract
-tar xzf step-ca-backup.tar.gz -C /
+tar xzf /tmp/step-ca-backup.tar.gz -C /
 
 # Fix permissions
 chmod 0400 /etc/step-ca/secrets/*
@@ -482,6 +551,49 @@ chown -R root:root /etc/step-ca/
 
 # Restart step-ca
 systemctl restart step-ca
+
+# Cleanup
+rm /tmp/step-ca-backup.tar.gz*
+```
+
+**Method 2: From Symmetric Encrypted Backup**
+
+```bash
+# Download backup
+aws s3 cp s3://etcd-backups/step-ca/2026/01/step-ca-backup-2026-01-20.tar.gz.enc \
+  /tmp/step-ca-backup.tar.gz.enc
+
+# Decrypt with password (from password manager)
+openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+  -in /tmp/step-ca-backup.tar.gz.enc \
+  -out /tmp/step-ca-backup.tar.gz \
+  -pass pass:YOUR_SECURE_PASSWORD
+
+# Extract
+tar xzf /tmp/step-ca-backup.tar.gz -C /
+
+# Fix permissions
+chmod 0400 /etc/step-ca/secrets/*
+chown -R root:root /etc/step-ca/
+
+# Restart step-ca
+systemctl restart step-ca
+
+# Cleanup
+rm /tmp/step-ca-backup.tar.gz*
+```
+
+**Using Ansible Playbook (Automated)**
+
+```bash
+# Restore from latest backup
+ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
+  -e target_node=etcd-k8s-1
+
+# Restore specific backup file
+ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
+  -e target_node=etcd-k8s-1 \
+  -e step_ca_restore_file=step-ca/2026/01/step-ca-backup-2026-01-20.tar.gz.kms
 ```
 
 ### Health Monitoring

@@ -1,0 +1,201 @@
+---
+# Restore step-ca CA keys from encrypted S3 backup
+# Usage: ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=etcd-k8s-1
+
+- name: Restore CA keys from S3 backup
+  hosts: "{{ target_node }}"
+  gather_facts: yes
+  vars:
+    backup_dir: /tmp
+    s3_bucket: "{{ step_ca_backup_s3_bucket | default('etcd-backups') }}"
+    s3_prefix: "{{ step_ca_backup_s3_prefix | default('step-ca') }}"
+    encryption_method: "{{ step_ca_backup_encryption_method | default('aws-kms') }}"
+    kms_key_id: "{{ step_ca_backup_kms_key_id | default('alias/etcd-ca-backup') }}"
+    backup_password: "{{ step_ca_backup_password | default('') }}"
+    # Specify backup file to restore or use 'latest'
+    restore_file: "{{ step_ca_restore_file | default('latest') }}"
+  
+  tasks:
+    - name: Find latest backup if not specified
+      aws_s3:
+        bucket: "{{ s3_bucket }}"
+        mode: list
+        prefix: "{{ s3_prefix }}/"
+      register: s3_objects
+      when: restore_file == 'latest'
+      tags:
+        - restore
+        - download
+
+    - name: Set backup file to latest
+      set_fact:
+        backup_file_path: "{{ s3_objects.s3_keys | sort | last }}"
+      when: restore_file == 'latest'
+      tags:
+        - restore
+
+    - name: Set backup file to specified file
+      set_fact:
+        backup_file_path: "{{ restore_file }}"
+      when: restore_file != 'latest'
+      tags:
+        - restore
+
+    - name: Determine encryption from filename
+      set_fact:
+        detected_encryption: >-
+          {%- if backup_file_path.endswith('.kms') -%}
+          aws-kms
+          {%- elif backup_file_path.endswith('.enc') -%}
+          symmetric
+          {%- else -%}
+          none
+          {%- endif -%}
+      tags:
+        - restore
+
+    - name: Download encrypted backup from S3
+      aws_s3:
+        bucket: "{{ s3_bucket }}"
+        object: "{{ backup_file_path }}"
+        dest: "{{ backup_dir }}/{{ backup_file_path | basename }}"
+        mode: get
+      tags:
+        - restore
+        - download
+
+    - name: Decrypt backup with AWS KMS
+      command: >
+        aws kms decrypt
+        --ciphertext-blob fileb://{{ backup_dir }}/{{ backup_file_path | basename }}
+        --output text
+        --query Plaintext
+        | base64 -d > {{ backup_dir }}/step-ca-backup.tar.gz
+      when: detected_encryption == 'aws-kms'
+      tags:
+        - restore
+        - decrypt
+
+    - name: Decrypt backup with symmetric encryption
+      shell: |
+        openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+          -in {{ backup_dir }}/{{ backup_file_path | basename }} \
+          -out {{ backup_dir }}/step-ca-backup.tar.gz \
+          -pass pass:{{ backup_password }}
+      when: detected_encryption == 'symmetric'
+      no_log: true
+      tags:
+        - restore
+        - decrypt
+
+    - name: Copy unencrypted file if no encryption
+      copy:
+        src: "{{ backup_dir }}/{{ backup_file_path | basename }}"
+        dest: "{{ backup_dir }}/step-ca-backup.tar.gz"
+        remote_src: yes
+      when: detected_encryption == 'none'
+      tags:
+        - restore
+
+    - name: Stop step-ca service
+      systemd:
+        name: step-ca
+        state: stopped
+      failed_when: false
+      tags:
+        - restore
+
+    - name: Backup existing CA files (if they exist)
+      archive:
+        path:
+          - /etc/step-ca/secrets
+          - /etc/step-ca/config
+        dest: /etc/step-ca-backup-before-restore.tar.gz
+      failed_when: false
+      tags:
+        - restore
+        - safety
+
+    - name: Ensure step-ca directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      loop:
+        - /etc/step-ca
+        - /etc/step-ca/secrets
+        - /etc/step-ca/certs
+        - /etc/step-ca/config
+      tags:
+        - restore
+
+    - name: Extract CA backup
+      unarchive:
+        src: "{{ backup_dir }}/step-ca-backup.tar.gz"
+        dest: /
+        remote_src: yes
+      tags:
+        - restore
+
+    - name: Set correct permissions on CA secrets
+      file:
+        path: /etc/step-ca/secrets
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+        recurse: yes
+      tags:
+        - restore
+
+    - name: Set permissions on CA private keys
+      shell: |
+        chmod 0400 /etc/step-ca/secrets/*_key
+        chmod 0400 /etc/step-ca/secrets/password
+        chown -R root:root /etc/step-ca/
+      tags:
+        - restore
+
+    - name: Start step-ca service
+      systemd:
+        name: step-ca
+        state: started
+        enabled: yes
+      tags:
+        - restore
+
+    - name: Wait for step-ca to be ready
+      uri:
+        url: "https://localhost:9000/health"
+        validate_certs: no
+        status_code: 200
+      register: result
+      until: result.status == 200
+      retries: 10
+      delay: 3
+      tags:
+        - restore
+        - verify
+
+    - name: Cleanup temporary files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ backup_dir }}/{{ backup_file_path | basename }}"
+        - "{{ backup_dir }}/step-ca-backup.tar.gz"
+      tags:
+        - restore
+        - cleanup
+
+    - name: Display restore status
+      debug:
+        msg: |
+          CA keys restored from s3://{{ s3_bucket }}/{{ backup_file_path }}
+          Encryption method: {{ detected_encryption }}
+          step-ca is running and healthy
+          Previous CA files backed up to: /etc/step-ca-backup-before-restore.tar.gz
+      tags:
+        - restore
