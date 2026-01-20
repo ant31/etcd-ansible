@@ -1,15 +1,13 @@
 ---
-- name: Install boto3 and botocore in venv
+- name: Install boto3 and botocore
   pip:
     name:
       - boto3
       - botocore
-    virtualenv: "/opt/etcd-backup-venv"
-    virtualenv_command: "/usr/bin/python3 -m venv"
+  environment:
+    PATH: "{{ ansible_env.PATH }}:{{ bin_dir }}"
 
 - name: create S3 bucket
-  vars:
-    ansible_python_interpreter: /opt/etcd-backup-venv/bin/python
   aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
     mode: create
@@ -24,8 +22,6 @@
     - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
 
 - name: uploads items
-  vars:
-    ansible_python_interpreter: /opt/etcd-backup-venv/bin/python
   aws_s3:
     bucket: "{{etcd_upload_backup.bucket}}"
     object: "{{item.object}}"
