@@ -22,11 +22,36 @@ step_cert_default_duration: "17520h"  # 2 years
 
 ## Backup Variables
 
+### Schedule & Retention
+
 ```yaml
 etcd_backup_cron_enabled: true
 etcd_backup_interval: "*/30"
 ca_backup_cron_enabled: true
 etcd_backup_retention_days: 90
+ca_backup_retention_days: 365
+```
+
+### S3 Configuration (etcd Data)
+
+Required for automated S3 backups of etcd data.
+
+```yaml
+etcd_upload_backup:
+  storage: s3
+  bucket: "your-bucket-name"
+  access_key: "AWS_ACCESS_KEY"  # Optional if using IAM roles
+  secret_key: "AWS_SECRET_KEY"  # Optional if using IAM roles
+  region: "us-east-1"
+  prefix: ""                    # Optional object prefix
+```
+
+### Monitoring
+
+```yaml
+backup_healthcheck_enabled: false
+backup_healthcheck_url: ""      # URL to ping on success
+ca_backup_healthcheck_url: ""
 ```
 
 ## Network Variables
@@ -35,6 +60,19 @@ etcd_backup_retention_days: 90
 etcd_ports:
   client: 2379
   peer: 2380
+```
+
+### Certificate SANs
+
+Add extra Subject Alternative Names to certificates.
+
+```yaml
+etcd_cert_alt_names:
+  - "etcd.internal"
+  - "etcd.cluster.local"
+
+etcd_cert_alt_ips:
+  - "10.0.1.100"  # Load balancer IP
 ```
 
 ## Performance Variables

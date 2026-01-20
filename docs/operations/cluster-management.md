@@ -40,13 +40,24 @@ sudo etcdctl \
 
 ## Service Management
 
+### Rolling Restart
+
+Perform a rolling restart of the cluster (one node at a time) to apply OS updates or configuration changes without downtime.
+
+```bash
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=deploy \
+  -e etcd_force_restart=true \
+  --vault-password-file ~/.vault-pass -b
+```
+
 ### Restart etcd Service
 
 ```bash
 # On specific node
 sudo systemctl restart etcd-default-1
 
-# Using Ansible (all nodes)
+# Using Ansible (all nodes - CAUTION: Simultaneous restart causes downtime)
 ansible etcd -i inventory.ini -m systemd -a "name=etcd-default-1 state=restarted" -b
 ```
 

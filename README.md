@@ -130,6 +130,11 @@ step_provisioner_password: "your-secure-provisioner-password"
 # AWS S3 bucket for CA backups
 step_ca_backup_s3_bucket: "your-org-etcd-backups"
 
+# AWS S3 bucket for etcd data backups
+etcd_upload_backup:
+  storage: s3
+  bucket: "your-org-etcd-backups"
+
 # KMS key for encryption
 step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
 ```

@@ -40,6 +40,21 @@ benchmark --endpoints=https://etcd-k8s-1:2379 \
   put --total=10000 --key-size=8 --val-size=256
 ```
 
+## Backup Monitoring
+
+### Deadman Switch (Heartbeat)
+
+The automated backup scripts support a "deadman switch" monitoring URL (e.g., Healthchecks.io, Dead Man's Snitch). If the backup fails to run or complete, the monitoring service will alert you.
+
+**Configuration:**
+
+```yaml
+# In group_vars/all/vars.yml
+backup_healthcheck_enabled: true
+backup_healthcheck_url: "https://hc-ping.com/your-uuid-for-etcd-data"
+ca_backup_healthcheck_url: "https://hc-ping.com/your-uuid-for-ca"
+```
+
 ## Certificate Health
 
 ### Check Expiration

@@ -21,6 +21,24 @@ Automated backups are configured during cluster deployment.
 - Uploaded to S3
 - Retention: 90 days (configurable)
 
+**Configuration Required:**
+
+You must configure the `etcd_upload_backup` variable for S3 uploads to work:
+
+```yaml
+# group_vars/all/vars.yml
+etcd_upload_backup:
+  storage: s3
+  bucket: "your-org-etcd-backups"
+  # Optional if using IAM roles:
+  # access_key: "..."
+  # secret_key: "..."
+```
+
+### Backup Verification
+
+Automated backups run `etcdutl snapshot status` to verify integrity before upload. Check logs to confirm verification passed.
+
 ### View Backup Logs
 
 ```bash

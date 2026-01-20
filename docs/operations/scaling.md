@@ -25,14 +25,16 @@ ansible-playbook -i inventory.ini etcd.yaml \
 
 ## Removing Nodes
 
+> **Note:** Currently, node removal requires manual steps. There is no automated playbook for this action yet.
+
 ### 1. Remove Member from Cluster
 
 ```bash
 # Get member ID
-etcdctl member list
+sudo etcdctl member list
 
 # Remove member
-etcdctl member remove <MEMBER_ID>
+sudo etcdctl member remove <MEMBER_ID>
 ```
 
 ### 2. Stop Service on Node
