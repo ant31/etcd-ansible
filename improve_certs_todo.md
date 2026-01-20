@@ -1,6 +1,24 @@
 # Certificate Management Improvement TODO
 
-## Current State Analysis
+**⚠️ IMPORTANT: Certificate management has been migrated to Smallstep CA** (commits f03de18, 43ec860, 466dd5b)
+
+**Current Implementation:**
+- ✅ Smallstep CA (step-ca) for certificate issuance
+- ✅ Automatic certificate renewal via systemd timers
+- ✅ 2-year certificate lifetime (configurable)
+- ✅ Private keys generated locally on each node (never transmitted)
+- ✅ Zero-downtime certificate rotation
+
+**Documentation:**
+- Architecture: `csr_workflow_clarification.md` (renamed from old CSR doc)
+- User guide: `roles/etcd3/certs/smallstep/README.md`
+- Configuration: `roles/etcd3/certs/smallstep/defaults/main.yml`
+
+This document below contains historical analysis and future enhancement proposals.
+
+---
+
+## Historical Analysis (Pre-Smallstep)
 
 ### Problems with Current Implementation
 1. **Centralized Private Key Generation** - All private keys are generated on cert-manager host, violating security best practices
@@ -20,12 +38,24 @@
 - ❌ No monitoring/alerting
 - ❌ Manual distribution process
 
-## Proposed Solutions
+## ✅ IMPLEMENTED SOLUTION: Smallstep CA
 
-### Phase 1: CSR-Based Model (Industry Standard) ⭐ RECOMMENDED
+**Status**: COMPLETE (as of commit 466dd5b)
+**Implementation**: Smallstep CA (step-ca) with automatic renewal
+**Security**: Industry-standard PKI, private keys never transmitted
+
+The old "Phase 1: CSR-Based Model" described below was replaced with Smallstep.
+See `csr_workflow_clarification.md` for current architecture.
+
+---
+
+## OLD PROPOSAL (Not Implemented - Replaced by Smallstep)
+
+### Phase 1: CSR-Based Model (Industry Standard) - SUPERSEDED
 **Timeline**: 2-3 weeks
 **Complexity**: Medium
 **Security Impact**: HIGH
+**Status**: ❌ NOT IMPLEMENTED - Replaced with Smallstep
 
 #### Concept
 Each host generates its own private key locally, creates a Certificate Signing Request (CSR), sends CSR to CA, receives signed certificate back.
@@ -213,12 +243,19 @@ Allow clients to generate certificates on-demand when they have authenticated ac
 8. ✅ Certificate pinning
 9. ✅ Audit logging
 
-### Nice to Have (Phase 2/3 - Future)
-10. 🚧 step-ca integration (IN PROGRESS)
-11. ⏳ On-demand client cert generation
-12. ⏳ HSM support
+### Completed (Smallstep Integration)
+10. ✅ step-ca integration (COMPLETED - commit f03de18, 43ec860, 466dd5b)
+    - step-ca runs on cert-manager node
+    - Automatic certificate issuance via step CLI
+    - 2-year certificate lifetime (configurable)
+    - Automatic renewal via systemd timers
+    - Zero-downtime certificate rotation
+
+### Nice to Have (Future Enhancements)
+11. ⏳ On-demand client cert generation via API
+12. ⏳ HSM support for CA keys
 13. ⏳ Certificate transparency logging
-14. ⏳ Prometheus metrics
+14. ⏳ Prometheus metrics export
 
 ---
 
