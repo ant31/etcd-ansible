@@ -1,6 +1,14 @@
 # Quick Start Guide
 
-Get your first etcd cluster running in 15 minutes!
+Deploy your first etcd cluster using this Ansible repository in 15 minutes.
+
+## What You'll Do
+
+1. Clone this git repository
+2. Create inventory defining 3 required groups
+3. Configure secrets in ansible-vault
+4. Run main playbook: `ansible-playbook etcd.yaml -e etcd_action=create`
+5. Automation deploys everything automatically
 
 ## Prerequisites Check
 
@@ -21,23 +29,38 @@ cd etcd-ansible
 
 ## Step 2: Create Inventory
 
+**🔴 CRITICAL:** You MUST define these 3 groups in your inventory:
+
 Create `inventory.ini`:
 
 ```bash
 cp inventory-example.ini inventory.ini
 ```
 
-Edit with your server IPs:
+Edit with your server IPs and define **all 3 required groups**:
 
 ```ini
+# GROUP 1: Nodes running etcd cluster (REQUIRED)
 [etcd]
 etcd-k8s-1 ansible_host=10.0.1.10
 etcd-k8s-2 ansible_host=10.0.1.11
 etcd-k8s-3 ansible_host=10.0.1.12
 
+# GROUP 2: Nodes that run step-ca and hold CA keys (REQUIRED)
+# These MUST be from the [etcd] group above
 [etcd-cert-managers]
-etcd-k8s-1  # This node runs step-ca
+etcd-k8s-1  # Primary: step-ca runs here
+etcd-k8s-2  # Backup: CA keys replicated here
+
+# GROUP 3: Nodes needing client certs (OPTIONAL - can be empty)
+[etcd-clients]
+# kube-apiserver-1 ansible_host=10.0.2.10
 ```
+
+**What happens to each group:**
+- `[etcd]` → `roles/etcd3/cluster/install/` deploys etcd service on these
+- `[etcd-cert-managers]` → `roles/etcd3/certs/smallstep/tasks/install-ca.yml` runs on first, replicates to others
+- `[etcd-clients]` → `roles/etcd3/certs/smallstep/tasks/install-client.yml` gives them client certs
 
 ## Step 3: Setup AWS KMS (Optional but Recommended)
 

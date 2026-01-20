@@ -1,72 +1,174 @@
-# Introduction to etcd-ansible
+# Introduction to This Repository
 
 ## What is etcd-ansible?
 
-etcd-ansible is a comprehensive Ansible automation solution for deploying and managing production-grade etcd clusters. It provides end-to-end automation for certificate management, backup/restore operations, and cluster lifecycle management.
+This is an **Ansible repository** that automates deploying and managing etcd clusters. It contains Ansible roles, playbooks, and configurations to handle the entire lifecycle of etcd clusters with Smallstep CA certificate management.
 
-## Why Use etcd-ansible?
+## Repository Contents
 
-### Traditional Challenges
-
-Deploying and managing etcd clusters traditionally involves:
-
-- ❌ Manual certificate generation and distribution
-- ❌ Complex certificate renewal processes
-- ❌ No automated backup strategies
-- ❌ Difficult disaster recovery procedures
-- ❌ Manual cluster scaling
-- ❌ Error-prone configuration management
-
-### etcd-ansible Solution
-
-With etcd-ansible, you get:
-
-- ✅ **Automated Certificate Management**: Smallstep CA handles all certificate operations
-- ✅ **Zero-Downtime Renewals**: Certificates automatically renew before expiration
-- ✅ **Integrated Backups**: Automated encrypted backups to S3 with AWS KMS
-- ✅ **Easy Disaster Recovery**: Simple playbooks for CA and data restoration
-- ✅ **Cluster Scaling**: Add or remove nodes with single commands
-- ✅ **Production Ready**: Tested and hardened for production use
-
-## Key Components
-
-### 1. Smallstep CA Integration
-
-- Modern certificate authority running on designated cert-manager nodes
-- Automatic certificate issuance via REST API
-- Built-in certificate renewal via systemd timers
-- 2-year certificate lifetime (configurable)
-
-### 2. Ansible Roles
+### Ansible Roles Structure
 
 ```
 roles/etcd3/
-├── cluster/           # Cluster lifecycle management
-├── certs/smallstep/   # Smallstep CA integration
-├── facts/             # Cluster facts and variables
-├── backups/           # Backup automation
-├── backups/cron/      # Automated backup scheduling
-├── restore/           # Disaster recovery
-└── download/          # Binary downloads
+├── cluster/              # Main cluster lifecycle role
+│   ├── install/          # Deploys etcd via meta dependencies
+│   ├── delete/           # Removes cluster
+│   ├── meta/main.yml     # Role dependencies
+│   └── tasks/main.yaml   # Orchestrates create/upgrade/backup/delete
+├── certs/smallstep/      # Smallstep CA automation
+│   ├── tasks/
+│   │   ├── install-ca.yml         # Setup step-ca on cert-manager
+│   │   ├── install-client.yml     # Install step CLI on nodes
+│   │   └── configure-renewal.yml  # Create renewal timers
+│   ├── templates/
+│   │   ├── step-ca.service.j2     # step-ca systemd service
+│   │   ├── step-renew.service.j2  # Certificate renewal service
+│   │   └── step-renew.timer.j2    # Renewal timer config
+│   └── defaults/main.yml          # Certificate configuration
+├── facts/                # Generates etcd cluster facts
+│   └── tasks/main.yaml   # Creates etcd_members, etcd_access_addresses
+├── backups/              # Snapshot creation
+│   └── tasks/main.yaml   # Creates etcd snapshots
+├── backups/cron/         # Automated backup scheduling
+│   ├── tasks/
+│   │   ├── setup-ca-backup-cron.yml
+│   │   └── setup-etcd-backup-cron.yml
+│   └── templates/
+│       ├── ca-backup-check.sh.j2
+│       └── etcd-backup.sh.j2
+├── restore/              # Disaster recovery
+│   └── tasks/
+│       ├── restore-ca.yml
+│       └── restore-etcd.yml
+└── download/             # Binary downloads
+    └── tasks/main.yml    # Downloads etcd, step-ca, step CLI
 ```
 
-### 3. Playbooks
+### Playbooks
 
-Pre-built playbooks for common operations:
+```
+playbooks/
+├── backup-ca.yaml              # Backup CA keys (encrypted)
+├── restore-ca.yaml             # Restore from backup node
+├── restore-ca-from-backup.yaml # Restore from S3
+├── restore-etcd-cluster.yaml   # Restore etcd data
+├── replicate-ca.yaml           # Replicate CA to backups
+└── setup-kms.yaml              # Create AWS KMS key
 
-- `etcd.yaml` - Main cluster deployment
-- `backup-ca.yaml` - CA key backup
-- `restore-ca.yaml` - CA key restoration
-- `restore-etcd-cluster.yaml` - Data restoration
-- `replicate-ca.yaml` - CA key replication for HA
+etcd.yaml                       # Main entry point playbook
+```
 
-### 4. Security Features
+## How This Repository Works
 
-- **Private Keys Never Transmitted**: Generated locally on each node
-- **AWS KMS Encryption**: CA backups encrypted with AWS KMS
-- **Role-Based Access**: IAM-based access control
-- **Audit Trail**: Complete CloudTrail logging of all operations
-- **Automated Rotation**: Certificates renew automatically
+### Required Inventory Groups
+
+**YOU MUST DEFINE THESE THREE GROUPS:**
+
+#### 1. `[etcd]` - Cluster Member Nodes
+```ini
+[etcd]
+etcd-k8s-1 ansible_host=10.0.1.10
+etcd-k8s-2 ansible_host=10.0.1.11
+etcd-k8s-3 ansible_host=10.0.1.12
+```
+Nodes where etcd service will run. Odd number required (3, 5, 7).
+
+#### 2. `[etcd-cert-managers]` - CA Key Holders
+```ini
+[etcd-cert-managers]
+etcd-k8s-1  # step-ca runs here
+etcd-k8s-2  # backup (CA keys replicated)
+```
+**CRITICAL:** Nodes that hold CA private keys and run step-ca.
+- MUST be subset of `[etcd]` group
+- First node: step-ca service runs here
+- Others: CA keys replicated for failover
+
+#### 3. `[etcd-clients]` - Client Certificate Recipients (Optional)
+```ini
+[etcd-clients]
+kube-apiserver-1 ansible_host=10.0.2.10
+```
+Nodes that need client certs but don't run etcd.
+
+### Ansible Role Dependencies
+
+The `roles/etcd3/cluster/install/meta/main.yml` defines what runs:
+
+```yaml
+dependencies:
+  - etcd3                    # Loads defaults
+  - adduser                  # Creates etcd user
+  - etcd3/facts              # Generates cluster variables
+  - etcd3/certs/smallstep    # ← INSTALLS STEP-CA & CERTS
+  - etcd3/download           # Downloads binaries
+  - etcd3/backups/cron       # Configures automated backups
+```
+
+When you run `etcd.yaml`, it imports `etcd3/cluster` which triggers all these dependencies.
+
+### How Variables Flow
+
+1. **Defaults** defined in `roles/etcd3/defaults/main.yaml`
+2. **Secrets** encrypted in `group_vars/all/vault.yml`
+3. **Facts** generated by `roles/etcd3/facts/` (etcd_members, etcd_access_addresses)
+4. **Templates** use these vars:
+   - `roles/etcd3/cluster/install/templates/etcd-conf.yaml.j2`
+   - `roles/etcd3/certs/smallstep/templates/step-ca.service.j2`
+   - `roles/etcd3/backups/cron/templates/etcd-backup.sh.j2`
+
+### How Playbooks Work
+
+**`etcd.yaml` (main playbook):**
+```yaml
+- hosts: etcd                    # ← Uses [etcd] inventory group
+  tasks:
+    - import_role:
+        name: etcd3/cluster      # ← Triggers everything
+      vars:
+        etcd_cluster_name: k8s
+```
+
+**`playbooks/restore-etcd-cluster.yaml`:**
+```yaml
+- hosts: etcd                    # ← Targets all etcd nodes
+  roles:
+    - etcd3/restore              # ← Uses restore role
+      vars:
+        restore_etcd_data: true
+```
+
+## Ansible Variables You Control
+
+### Action Variable (controls what happens)
+```bash
+# Deploy new cluster
+-e etcd_action=create
+
+# Upgrade existing cluster
+-e etcd_action=upgrade
+
+# Backup cluster
+-e etcd_action=backup
+
+# Delete cluster
+-e etcd_delete_cluster=true
+```
+
+### Essential Variables
+- `etcd_cluster_name` - Cluster identifier (default: "default")
+- `etcd_version` - Which etcd version to install
+- `etcd_certmanagers_group` - Inventory group name (default: "etcd-cert-managers")
+
+### Certificate Variables (in `roles/etcd3/certs/smallstep/defaults/main.yml`)
+- `step_ca_port: 9000` - Port for step-ca service
+- `step_cert_default_duration: "17520h"` - Certificate lifetime (2 years)
+- `step_ca_password` - CA password (store in vault.yml)
+
+### Backup Variables (in `roles/etcd3/backups/cron/defaults/main.yml`)
+- `etcd_backup_cron_enabled: true` - Enable automated backups
+- `etcd_backup_interval: "*/30"` - Backup frequency
+- `backup_healthcheck_url` - Monitoring endpoint
 
 ## Architecture Overview
 

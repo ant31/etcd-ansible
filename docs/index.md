@@ -1,43 +1,145 @@
-# etcd-ansible Documentation
+# etcd-ansible Repository Documentation
 
-Welcome to the comprehensive documentation for **etcd-ansible** - a production-ready Ansible automation for deploying and managing etcd clusters with automated certificate management using Smallstep CA.
+Complete documentation for **this Ansible repository** that automates etcd cluster deployment with Smallstep CA certificate management.
 
-## Overview
+## What This Repository Does
 
-etcd-ansible provides a complete automation solution for:
+This Ansible repository automates:
 
-- **Automated Certificate Management** - Smallstep CA with automatic 2-year certificate renewal
-- **High Availability** - Multi-node clusters with automated CA key replication
-- **Secure by Default** - Industry-standard PKI, private keys never transmitted
-- **Zero-Downtime Operations** - Rolling upgrades and certificate renewal
-- **Disaster Recovery** - AWS KMS encrypted backups with automated restore
-- **Production Ready** - Battle-tested in production environments
+- **Deploying etcd clusters** - Via roles in `roles/etcd3/cluster/`
+- **Managing certificates with Smallstep CA** - Via `roles/etcd3/certs/smallstep/`
+- **Automated backups** - Via `roles/etcd3/backups/` and `roles/etcd3/backups/cron/`
+- **Disaster recovery** - Via `roles/etcd3/restore/` and playbooks in `playbooks/`
+- **Binary downloads** - Via `roles/etcd3/download/`
 
-## Key Features
+## Repository Structure
 
-### 🔐 Security First
-- Private keys generated locally on each node (never transmitted)
-- AWS KMS encryption for CA backups
-- Automatic certificate rotation
-- Industry-standard PKI with Smallstep CA
+```
+etcd-ansible/
+├── roles/
+│   ├── etcd3/                      # Main etcd automation
+│   │   ├── cluster/                # Cluster lifecycle (install/delete)
+│   │   │   ├── install/            # Deploy etcd cluster
+│   │   │   └── delete/             # Remove cluster
+│   │   ├── certs/smallstep/        # Smallstep CA integration
+│   │   ├── facts/                  # Generate cluster facts for templates
+│   │   ├── backups/                # Snapshot creation
+│   │   ├── backups/cron/           # Automated backup scheduling
+│   │   ├── restore/                # Restore from backups
+│   │   └── download/               # Download etcd/step-ca binaries
+│   └── adduser/                    # Create etcd system user
+├── playbooks/                      # Ready-to-use playbooks
+│   ├── backup-ca.yaml              # Backup CA keys to S3
+│   ├── restore-ca.yaml             # Restore CA from backup node
+│   ├── restore-ca-from-backup.yaml # Restore CA from S3
+│   ├── restore-etcd-cluster.yaml   # Restore etcd data
+│   ├── replicate-ca.yaml           # Replicate CA to backup nodes
+│   └── setup-kms.yaml              # Setup AWS KMS key
+├── etcd.yaml                       # Main playbook (cluster operations)
+├── inventory.ini                   # Your cluster inventory
+├── group_vars/all/vault.yml        # Encrypted secrets (ansible-vault)
+└── Makefile                        # Convenient make targets
+```
 
-### 🚀 Easy to Deploy
-- Single command cluster deployment
-- Automated certificate issuance
-- Integrated backup configuration
-- Comprehensive verification
+## Required Ansible Inventory Groups
 
-### 🔄 Operational Excellence
-- Zero-downtime upgrades
-- Automated backups with retention
-- Health check monitoring
-- Easy cluster scaling
+### 🔴 CRITICAL: Three Required Groups
 
-### 📚 Well Documented
-- Step-by-step guides
-- Real-world examples
-- Troubleshooting guides
-- Complete reference documentation
+Your inventory **MUST** define these three groups:
+
+#### 1. `[etcd]` - Cluster Member Nodes
+```ini
+[etcd]
+etcd-k8s-1 ansible_host=10.0.1.10
+etcd-k8s-2 ansible_host=10.0.1.11
+etcd-k8s-3 ansible_host=10.0.1.12
+```
+Nodes that run the etcd cluster service.
+
+#### 2. `[etcd-cert-managers]` - Step-CA Nodes
+```ini
+[etcd-cert-managers]
+etcd-k8s-1  # Primary: step-ca runs here
+etcd-k8s-2  # Backup: CA keys replicated, step-ca stopped
+```
+**CRITICAL:** These nodes run step-ca and hold CA private keys.
+- Must be subset of `[etcd]` group
+- First node runs step-ca service
+- Additional nodes get CA keys for failover
+
+#### 3. `[etcd-clients]` - Client Certificate Nodes (Optional)
+```ini
+[etcd-clients]
+kube-apiserver-1 ansible_host=10.0.2.10
+```
+Nodes that need client certificates but don't run etcd.
+
+## How The Automation Works
+
+### 1. Run Main Playbook
+
+```bash
+ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
+```
+
+This triggers:
+- `roles/etcd3/cluster/` → Orchestrates deployment
+- `roles/etcd3/cluster/install/` → Deploys etcd via meta dependencies:
+  - `roles/adduser/` → Creates etcd user
+  - `roles/etcd3/facts/` → Generates cluster facts
+  - `roles/etcd3/certs/smallstep/` → **Sets up step-ca and issues certificates**
+  - `roles/etcd3/download/` → Downloads binaries
+  - `roles/etcd3/backups/cron/` → Configures automated backups
+  - Then installs etcd cluster
+
+### 2. Certificate Role (`roles/etcd3/certs/smallstep/`)
+
+**On nodes in `[etcd-cert-managers]`:**
+- Installs step-ca binary
+- Initializes CA (creates root/intermediate certs)
+- Starts step-ca service on port 9000
+- Replicates CA keys to backup cert-managers
+
+**On all nodes:**
+- Installs step CLI
+- Requests certificates from step-ca
+- Creates systemd renewal timers
+- Private keys generated locally (never transmitted)
+
+### 3. Backup Automation (`roles/etcd3/backups/cron/`)
+
+Automatically configured during deployment:
+- **CA backups**: When files change (every 5 min check)
+- **etcd snapshots**: Every 30 minutes
+- Encrypted with AWS KMS
+- Uploaded to S3
+
+### 4. Facts Role (`roles/etcd3/facts/`)
+
+Generates variables for use in templates:
+- `etcd_access_addresses` - Comma-separated endpoints
+- `etcd_peer_addresses` - Peer URLs for cluster formation
+- `etcd_cert_paths` - Paths to certificate files
+- `etcd_members` - Dict of all cluster nodes
+
+## Key Ansible Variables
+
+### Cluster Control
+- `etcd_action: create|upgrade|backup` - What operation to perform
+- `etcd_delete_cluster: true` - Delete the cluster
+- `etcd_cluster_name: default` - Cluster identifier
+- `etcd_version: v3.5.26` - etcd version to install
+
+### Required Secrets (in `group_vars/all/vault.yml`)
+- `step_ca_password` - CA password
+- `step_provisioner_password` - Provisioner password
+- `step_ca_backup_s3_bucket` - S3 bucket name
+- `step_ca_backup_kms_key_id` - KMS key for encryption
+
+### Optional Configuration
+- `etcd_backup_cron_enabled: true` - Enable automated backups
+- `ca_backup_cron_enabled: true` - Enable CA backups
+- `backup_healthcheck_url` - Deadman monitoring URL
 
 ## Quick Links
 

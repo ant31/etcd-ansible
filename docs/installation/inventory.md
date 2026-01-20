@@ -1,10 +1,12 @@
-# Preparing Inventory
+# Inventory Configuration
 
-The inventory file defines your etcd cluster topology and which nodes perform specific roles.
+This document explains how to configure your Ansible inventory for this repository.
 
-## Required Groups
+## 🔴 CRITICAL: Three Required Inventory Groups
 
-### `[etcd]` - Cluster Member Nodes
+Your `inventory.ini` **MUST** define exactly these three groups for the automation to work:
+
+### 1. `[etcd]` - etcd Cluster Members
 
 Nodes that run the etcd service and participate in the cluster.
 
@@ -15,42 +17,79 @@ etcd-k8s-2 ansible_host=10.0.1.11
 etcd-k8s-3 ansible_host=10.0.1.12
 ```
 
+**What the role does:**
+- Reads this group to determine cluster members
+- Creates `etcd_members` dict in `roles/etcd3/facts/`
+- Deploys etcd service on these nodes
+
 **Requirements:**
-- Odd number of nodes (3, 5, 7) for quorum
-- All nodes should have reliable network connectivity
-- Low latency between nodes (< 10ms recommended)
+- ODD number (3, 5, 7) for quorum
+- Variable `etcd_cluster_group` must equal this group name (default: "etcd")
 
-### `[etcd-cert-managers]` - Certificate Authority Nodes
+### 2. `[etcd-cert-managers]` - CA Private Key Holders
 
-Nodes that run step-ca and hold CA private keys.
+**🔴 MOST CRITICAL GROUP** - Defines which nodes hold CA private keys:
 
 ```ini
 [etcd-cert-managers]
-etcd-k8s-1  # Primary cert-manager (step-ca running)
-etcd-k8s-2  # Backup cert-manager (CA keys replicated, step-ca stopped)
+etcd-k8s-1  # step-ca runs here (primary)
+etcd-k8s-2  # CA keys replicated (backup for failover)
 ```
 
-**Best Practices:**
-- **Development**: Use 1 cert-manager (first etcd node)
-- **Production**: Use 2+ cert-managers for redundancy
-- **High Availability**: Primary runs step-ca, backups have replicated keys
+**What the role does:**
+- `roles/etcd3/certs/smallstep/tasks/install-ca.yml` runs on **first node**:
+  - Installs step-ca binary
+  - Runs `step ca init` to create CA
+  - Starts step-ca service on port 9000
+  - Stores CA keys in `/etc/step-ca/secrets/`
+- Replicates CA keys to **other nodes** in this group (for HA)
+- Other nodes have step-ca installed but STOPPED
 
-### `[etcd-clients]` - Client Nodes (Optional)
+**Requirements:**
+- MUST be subset of `[etcd]` group
+- Variable `etcd_certmanagers_group` must equal this group name (default: "etcd-cert-managers")
+- At least 1 node required
+- 2+ nodes recommended for production
 
-Nodes that need client certificates to connect to etcd but don't run etcd themselves.
+### 3. `[etcd-clients]` - Client Certificate Recipients
+
+Nodes that need client certificates but don't run etcd:
 
 ```ini
 [etcd-clients]
 kube-apiserver-1 ansible_host=10.0.2.10
-kube-apiserver-2 ansible_host=10.0.2.11
 app-server-1 ansible_host=10.0.2.20
 ```
 
-**Use Cases:**
-- Kubernetes API servers connecting to etcd
-- Application servers that read/write to etcd
-- Monitoring systems
-- Backup/restore tools
+**What the role does:**
+- `roles/etcd3/certs/smallstep/tasks/install-client.yml` runs on these
+- Installs step CLI
+- Requests client certificate from step-ca
+- Creates renewal timer
+
+**Requirements:**
+- Variable `etcd_clients_group` must equal this group name (default: "etcd-clients")
+- Can be empty if no client-only nodes needed
+
+## How Roles Read Inventory Groups
+
+`roles/etcd3/defaults/main.yaml` defines:
+```yaml
+etcd_cluster_group: etcd                 # ← [etcd] group
+etcd_clients_group: etcd-clients         # ← [etcd-clients] group
+etcd_certmanagers_group: etcd-cert-managers  # ← [etcd-cert-managers] group
+```
+
+Roles use these variables:
+```yaml
+# In roles/etcd3/facts/tasks/main.yaml
+groups[etcd_cluster_group]           # Gets nodes from [etcd]
+
+# In roles/etcd3/certs/smallstep/tasks/install-ca.yml
+inventory_hostname in groups[etcd_certmanagers_group]  # Checks if node is cert-manager
+```
+
+**If you rename groups in inventory, update these variables!**
 
 ## Example Inventories
 
