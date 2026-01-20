@@ -1,0 +1,118 @@
+---
+# Test playbook for etcd cluster deployment
+# Usage:
+#   Create cluster: ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=create -b
+#   Upgrade cluster: ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=upgrade -b
+#   Backup cluster: ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=backup -b
+#   Delete cluster: ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_delete_cluster=true -b
+
+# Install the etcd cluster
+- hosts: etcd
+  strategy: linear
+  any_errors_fatal: true
+  vars:
+    etcd_cluster_name: test-cluster
+    etcd_ports:
+      client: 2379
+      peer: 2380
+  tasks:
+    - name: Manage etcd cluster
+      import_role:
+        name: etcd3/cluster
+      tags:
+        - etcd
+
+# Install the etcd client certificates to all hosts using etcd
+- hosts: etcd-clients
+  strategy: linear
+  tasks:
+    - name: Create client certificates
+      import_role:
+        name: etcd3/certs
+      tags:
+        - etcd-certs
+
+# Verify cluster health after deployment
+- hosts: etcd[0]
+  gather_facts: no
+  tasks:
+    - name: Wait for etcd to be ready
+      wait_for:
+        port: 2379
+        host: "{{ ansible_ssh_host }}"
+        timeout: 60
+      when: etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+      tags:
+        - etcd-verify
+
+    - name: Check etcd cluster health
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: health_check
+      changed_when: false
+      when: etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+      tags:
+        - etcd-verify
+
+    - name: Display health check results
+      debug:
+        var: health_check.stdout_lines
+      when:
+        - etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+        - health_check is defined
+      tags:
+        - etcd-verify
+
+    - name: Check etcd member list
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        member list -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: member_list
+      changed_when: false
+      when: etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+      tags:
+        - etcd-verify
+
+    - name: Display member list
+      debug:
+        var: member_list.stdout_lines
+      when:
+        - etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+        - member_list is defined
+      tags:
+        - etcd-verify
+
+    - name: Check etcd endpoint status
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint status -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: endpoint_status
+      changed_when: false
+      when: etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+      tags:
+        - etcd-verify
+
+    - name: Display endpoint status
+      debug:
+        var: endpoint_status.stdout_lines
+      when:
+        - etcd_action | default('none') in ['create', 'upgrade', 'deploy']
+        - endpoint_status is defined
+      tags:
+        - etcd-verify
