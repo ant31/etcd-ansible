@@ -1,0 +1,57 @@
+---
+- name: Validate source node
+  assert:
+    that:
+      - restore_ca_source_node in groups[etcd_certmanagers_group]
+    fail_msg: "Source node must be in etcd-cert-managers group"
+  tags:
+    - restore-ca
+
+- name: Fetch CA keys from source node
+  slurp:
+    src: "{{ item }}"
+  register: source_ca_files
+  delegate_to: "{{ restore_ca_source_node }}"
+  loop:
+    - /etc/step-ca/secrets/root_ca_key
+    - /etc/step-ca/secrets/intermediate_ca_key
+    - /etc/step-ca/secrets/password
+    - /etc/step-ca/config/ca.json
+  no_log: true
+  tags:
+    - restore-ca
+
+- name: Stop step-ca
+  systemd:
+    name: step-ca
+    state: stopped
+  failed_when: false
+  tags:
+    - restore-ca
+
+- name: Ensure CA directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - /etc/step-ca/secrets
+    - /etc/step-ca/config
+  tags:
+    - restore-ca
+
+- name: Restore CA files
+  copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ item.source }}"
+    owner: root
+    group: root
+    mode: "{{ '0400' if 'secrets' in item.source else '0644' }}"
+  loop: "{{ source_ca_files.results }}"
+  loop_control:
+    label: "{{ item.source }}"
+  no_log: true
+  tags:
+    - restore-ca

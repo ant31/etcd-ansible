@@ -1,0 +1,25 @@
+---
+# Backup scheduling
+etcd_backup_cron_enabled: true
+etcd_backup_interval: "*/30"  # Every 30 minutes (format: */N for every N minutes, or cron format)
+etcd_backup_cron_minute: "*/30"
+etcd_backup_cron_hour: "*"
+
+# CA backup - only when changed
+ca_backup_cron_enabled: true
+ca_backup_check_interval: "*/5"  # Check every 5 minutes if CA changed
+ca_backup_cron_minute: "*/5"
+ca_backup_cron_hour: "*"
+
+# Deadman monitoring (optional)
+backup_healthcheck_enabled: false
+backup_healthcheck_url: ""  # e.g., https://hc-ping.com/your-uuid or https://deadmanssnitch.com/your-snitch
+ca_backup_healthcheck_url: ""
+
+# Backup retention
+etcd_backup_retention_days: 90
+ca_backup_retention_days: 365
+
+# Paths
+backup_scripts_dir: "/opt/etcd-backup-scripts"
+backup_log_dir: "/var/log/etcd-backups"

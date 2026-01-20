@@ -1,0 +1,31 @@
+---
+- name: Create backup directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  loop:
+    - "{{ backup_scripts_dir }}"
+    - "{{ backup_log_dir }}"
+  tags:
+    - backup-cron
+
+- name: Setup CA backup cron
+  include_tasks: setup-ca-backup-cron.yml
+  when: 
+    - ca_backup_cron_enabled
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - backup-cron
+    - ca-backup-cron
+
+- name: Setup etcd data backup cron
+  include_tasks: setup-etcd-backup-cron.yml
+  when:
+    - etcd_backup_cron_enabled
+    - inventory_hostname in groups[etcd_cluster_group]
+  tags:
+    - backup-cron
+    - etcd-backup-cron

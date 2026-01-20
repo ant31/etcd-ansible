@@ -1,0 +1,18 @@
+---
+# Restore etcd cluster from backup
+# Usage: ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml
+#
+# Options:
+#   -e restore_ca=true                    # Also restore CA
+#   -e restore_etcd_s3_file=path/to/file  # Specific backup file
+#   -e restore_confirm=false              # Skip confirmation prompt
+
+- name: Restore etcd cluster
+  hosts: etcd
+  gather_facts: yes
+  serial: 1
+  roles:
+    - role: etcd3/restore
+      vars:
+        restore_etcd_data: true
+        restore_ca: "{{ restore_ca | default(false) }}"

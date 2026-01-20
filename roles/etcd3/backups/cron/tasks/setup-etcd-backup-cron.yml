@@ -1,0 +1,41 @@
+---
+- name: Install etcd backup script
+  template:
+    src: etcd-backup.sh.j2
+    dest: "{{ backup_scripts_dir }}/etcd-backup.sh"
+    owner: root
+    group: root
+    mode: 0755
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup cron job
+  cron:
+    name: "Backup etcd cluster data"
+    minute: "{{ etcd_backup_cron_minute }}"
+    hour: "{{ etcd_backup_cron_hour }}"
+    job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    user: root
+    state: present
+  when: inventory_hostname == groups[etcd_cluster_group][0]  # Only run on first node
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup log rotation
+  copy:
+    dest: /etc/logrotate.d/etcd-backup
+    content: |
+      {{ backup_log_dir }}/etcd-backup.log {
+        daily
+        rotate 30
+        compress
+        delaycompress
+        missingok
+        notifempty
+      }
+    owner: root
+    group: root
+    mode: 0644
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+  tags:
+    - etcd-backup-cron
