@@ -268,36 +268,131 @@ etcdctl --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd
   endpoint health
 ```
 
+## High Availability Setup
+
+### Configure Multiple Cert-Managers
+
+```ini
+# inventory.ini
+[etcd-cert-managers]
+etcd-k8s-1  # Primary - step-ca will run here
+etcd-k8s-2  # Backup - CA keys replicated, step-ca installed but stopped
+```
+
+Deploy with CA key replication:
+
+```bash
+# Initial deployment
+ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
+
+# This automatically:
+# 1. Installs step-ca on etcd-k8s-1 (starts service)
+# 2. Installs step-ca on etcd-k8s-2 (service stopped)
+# 3. Replicates CA keys to etcd-k8s-2
+```
+
+### Manual Failover Procedure
+
+If primary cert-manager fails:
+
+```bash
+# 1. Verify primary is down
+curl -k https://etcd-k8s-1:9000/health
+
+# 2. Activate step-ca on backup
+ssh etcd-k8s-2
+systemctl start step-ca
+
+# 3. Update step_ca_url in inventory
+# Change step_ca_dns to etcd-k8s-2
+
+# 4. Verify failover
+curl -k https://etcd-k8s-2:9000/health
+```
+
 ## Backup and Recovery
 
-### Backup CA Keys
+### Automated Daily Backup
+
+Create cron job to backup CA keys daily:
+
+```bash
+# On cert-manager node or via Ansible
+0 2 * * * /usr/local/bin/backup-step-ca.sh
+```
+
+```bash
+#!/bin/bash
+# /usr/local/bin/backup-step-ca.sh
+DATE=$(date +%Y-%m-%d)
+tar czf /tmp/step-ca-backup-${DATE}.tar.gz /etc/step-ca/secrets /etc/step-ca/config
+gpg --encrypt --recipient admin@example.com /tmp/step-ca-backup-${DATE}.tar.gz
+aws s3 cp /tmp/step-ca-backup-${DATE}.tar.gz.gpg s3://backups/step-ca/
+rm -f /tmp/step-ca-backup-${DATE}.tar.gz*
+```
+
+### Manual Backup
 
 ```bash
 # On cert-manager node
 tar czf step-ca-backup.tar.gz /etc/step-ca/secrets /etc/step-ca/config
-
-# Encrypt backup
 gpg --encrypt --recipient admin@example.com step-ca-backup.tar.gz
-
-# Upload to S3
 aws s3 cp step-ca-backup.tar.gz.gpg s3://backups/step-ca/
 ```
 
-### Restore CA
+### Restore from Backup
 
 ```bash
 # Download backup
 aws s3 cp s3://backups/step-ca/step-ca-backup.tar.gz.gpg .
 
-# Decrypt
-gpg --decrypt step-ca-backup.tar.gz.gpg > step-ca-backup.tar.gz
+# Decrypt and extract
+gpg --decrypt step-ca-backup.tar.gz.gpg | tar xzf - -C /
 
-# Extract
-tar xzf step-ca-backup.tar.gz -C /
+# Fix permissions
+chmod 0400 /etc/step-ca/secrets/*
+chown -R root:root /etc/step-ca/
 
 # Restart step-ca
 systemctl restart step-ca
+
+# Verify
+curl -k https://localhost:9000/health
 ```
+
+## Disaster Recovery Scenarios
+
+### Scenario 1: Primary Cert-Manager Node Fails
+
+**RTO:** 5-10 minutes  
+**Impact:** Certificate issuance blocked (renewal will retry automatically)
+
+**Recovery:**
+1. Activate step-ca on backup node (see Manual Failover above)
+2. Update DNS/inventory to point to backup
+3. Verify health
+
+### Scenario 2: CA Keys Corrupted/Lost
+
+**RTO:** 10-30 minutes  
+**Impact:** Cannot issue new certificates
+
+**Recovery:**
+1. Stop step-ca: `systemctl stop step-ca`
+2. Restore from backup (see above) or copy from backup cert-manager
+3. Verify files and permissions
+4. Start step-ca: `systemctl start step-ca`
+
+### Scenario 3: Complete Cluster Disaster
+
+**RTO:** 1-2 hours  
+**Impact:** Full cluster rebuild needed
+
+**Recovery:**
+1. Restore CA keys from encrypted backup
+2. Redeploy etcd cluster
+3. Restore etcd data (separate backup)
+4. Verify all nodes can request certificates
 
 ## Benefits over cfssl
 

@@ -252,10 +252,14 @@ Allow clients to generate certificates on-demand when they have authenticated ac
     - Zero-downtime certificate rotation
 
 ### Nice to Have (Future Enhancements)
-11. ⏳ On-demand client cert generation via API
-12. ⏳ HSM support for CA keys
-13. ⏳ Certificate transparency logging
-14. ⏳ Prometheus metrics export
+11. ⏳ Automated step-ca failover (instead of manual)
+    - Implement health checking
+    - Auto-promote backup to primary
+    - Update step_ca_url across all nodes
+12. ⏳ On-demand client cert generation via API
+13. ⏳ HSM support for CA keys
+14. ⏳ Certificate transparency logging
+15. ⏳ Prometheus metrics export
 
 ---
 

@@ -1,0 +1,106 @@
+---
+# Replicate CA keys to backup cert-manager nodes
+# Usage: ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
+
+- name: Replicate step-ca CA keys to backup nodes
+  hosts: etcd-cert-managers[0]
+  gather_facts: no
+  tasks:
+    - name: Read CA private keys from primary
+      slurp:
+        src: "{{ item }}"
+      register: ca_keys
+      loop:
+        - /etc/step-ca/secrets/root_ca_key
+        - /etc/step-ca/secrets/intermediate_ca_key
+        - /etc/step-ca/secrets/password
+      no_log: true
+      tags:
+        - ca-backup
+
+    - name: Read CA certificates
+      slurp:
+        src: "{{ item }}"
+      register: ca_certs
+      loop:
+        - /etc/step-ca/certs/root_ca.crt
+        - /etc/step-ca/certs/intermediate_ca.crt
+      tags:
+        - ca-backup
+
+    - name: Read CA config
+      slurp:
+        src: /etc/step-ca/config/ca.json
+      register: ca_config
+      tags:
+        - ca-backup
+
+- name: Install CA keys on backup cert-managers
+  hosts: etcd-cert-managers[1:]
+  gather_facts: no
+  tasks:
+    - name: Ensure step-ca directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: 0700
+      loop:
+        - /etc/step-ca/secrets
+        - /etc/step-ca/certs
+        - /etc/step-ca/config
+      tags:
+        - ca-restore
+
+    - name: Install CA private keys on backup nodes
+      copy:
+        content: "{{ item.content | b64decode }}"
+        dest: "{{ item.source }}"
+        owner: root
+        group: root
+        mode: 0400
+      loop: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_keys'].results }}"
+      loop_control:
+        label: "{{ item.source }}"
+      no_log: true
+      tags:
+        - ca-restore
+
+    - name: Install CA certificates on backup nodes
+      copy:
+        content: "{{ item.content | b64decode }}"
+        dest: "{{ item.source }}"
+        owner: root
+        group: root
+        mode: 0644
+      loop: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_certs'].results }}"
+      loop_control:
+        label: "{{ item.source }}"
+      tags:
+        - ca-restore
+
+    - name: Install CA config on backup nodes
+      copy:
+        content: "{{ hostvars[groups['etcd-cert-managers'][0]]['ca_config'].content | b64decode }}"
+        dest: /etc/step-ca/config/ca.json
+        owner: root
+        group: root
+        mode: 0644
+      tags:
+        - ca-restore
+
+    - name: Ensure step-ca service exists but is stopped
+      systemd:
+        name: step-ca
+        enabled: no
+        state: stopped
+      failed_when: false
+      tags:
+        - ca-restore
+
+    - name: Display backup node status
+      debug:
+        msg: "CA keys replicated to {{ inventory_hostname }} - step-ca installed but STOPPED (ready for failover)"
+      tags:
+        - ca-restore
