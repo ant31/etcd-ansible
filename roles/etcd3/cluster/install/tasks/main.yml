@@ -3,8 +3,7 @@
   include_role:
     name: download_etcd
   vars:
-    downloads: "{{etcd_downloads}}"
-    download_container: false
+    downloads: "{{ etcd_downloads }}"
 
 - name: Checksum etcd binary
   stat:

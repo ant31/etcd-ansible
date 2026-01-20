@@ -223,14 +223,17 @@
 - [ ] Update minimum supported version to 3.4+
 - [ ] Remove compatibility code for unsupported Ansible versions
 
-### 22. Consolidate Download Roles
+### 22. Consolidate Download Roles ✅ COMPLETED
 **Motivation**: Separate download logic for etcd and certs.
 **Impact**: Duplicated code and inconsistent patterns.
-**What needs to happen**:
-- [ ] Merge `download_etcd` into main etcd role
-- [ ] Simplify download logic (remove container support if unused)
-- [ ] Standardize checksum verification
-- [ ] Use Ansible galaxy for dependency management if appropriate
+**What was done**:
+- [x] Simplified `download_etcd` role to only handle file downloads
+- [x] Removed all container/Docker logic (download_container.yml, sync_container.yml, etc.)
+- [x] Removed unnecessary variables (download_run_once, download_localhost, download_compress, etc.)
+- [x] Standardized checksum verification using get_url's built-in checksum parameter
+- [x] Reduced role from ~400 lines across 6 files to ~60 lines in 2 files
+- [x] Maintained independent execution capability for offline/pre-staging scenarios
+- [x] Updated all role references to remove download_container parameter
 
 ### 23. Improve Variable Naming
 **Motivation**: Some variables have unclear names.
