@@ -5,6 +5,8 @@
 - name: Test etcd binary downloads
   hosts: etcd
   gather_facts: yes
+  roles:
+    - role: etcd3
   tasks:
     - name: Download etcd binaries
       include_role:
@@ -31,6 +33,8 @@
 - name: Test cfssl binary downloads
   hosts: etcd-cert-managers
   gather_facts: yes
+  roles:
+    - role: etcd3
   tasks:
     - name: Download cfssl binaries
       include_role:
