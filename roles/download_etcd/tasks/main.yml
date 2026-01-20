@@ -12,6 +12,9 @@
     - item.value.enabled
     - item.value.file
     - group_names | intersect(item.value.groups) | length
+  tags:
+    - download
+    - download-prep
 
 - name: download | Download files
   get_url:
@@ -31,6 +34,9 @@
     - item.value.enabled
     - item.value.file
     - group_names | intersect(item.value.groups) | length
+  tags:
+    - download
+    - download-files
 
 - name: download | Extract archives
   unarchive:
@@ -47,3 +53,6 @@
     - item.value.file
     - item.value.unarchive | default(False)
     - group_names | intersect(item.value.groups) | length
+  tags:
+    - download
+    - download-extract
