@@ -33,7 +33,7 @@ etcdctl check perf
 ### Benchmark
 
 ```bash
-benchmark --endpoints=https://etcd-k8s-1:2379 \
+benchmark --endpoints=https://10.0.1.10:2379 \
   --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
   --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
   --cacert=/etc/etcd/ssl/root_ca.crt \

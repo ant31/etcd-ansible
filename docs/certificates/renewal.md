@@ -57,7 +57,7 @@ ansible etcd -i inventory.ini -m systemd \
 
 ```bash
 # Check step-ca health
-curl -k https://etcd-k8s-1:9000/health
+curl -k https://10.0.1.10:9000/health
 
 # Check renewal service logs
 sudo journalctl -u step-renew-etcd-k8s-1-peer.service
