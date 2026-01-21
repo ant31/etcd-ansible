@@ -54,14 +54,53 @@
   when:
     - etcd_cluster_is_healthy is succeeded or etcd_force_backup|d(false)|bool
 
+- name: Verify snapshot integrity with etcdutl
+  command: >-
+    {{bin_dir}}/etcdutl snapshot status "{{etcd_backup_file}}"
+    --write-out=table
+  register: snapshot_verification
+  failed_when: snapshot_verification.rc != 0
+  when:
+    - etcd_snapshot is succeeded
+  tags:
+    - verify-backup
+
+- name: Display snapshot verification results
+  debug:
+    var: snapshot_verification.stdout_lines
+  when:
+    - snapshot_verification is succeeded
+  tags:
+    - verify-backup
+
 - name: backup from 'member/snap/db' file
   copy:
     remote_src: true
     src: "{{etcd_data_dir}}/member/snap/db"
     dest: "{{etcd_backup_file}}"
+  register: offline_backup
   when:
     - etcd_backup_offline | d(false) | bool
     - etcd_cluster_is_healthy is failed
+
+- name: Verify offline snapshot integrity with etcdutl
+  command: >-
+    {{bin_dir}}/etcdutl snapshot status "{{etcd_backup_file}}"
+    --write-out=table
+  register: offline_snapshot_verification
+  failed_when: offline_snapshot_verification.rc != 0
+  when:
+    - offline_backup is succeeded
+  tags:
+    - verify-backup
+
+- name: Display offline snapshot verification results
+  debug:
+    var: offline_snapshot_verification.stdout_lines
+  when:
+    - offline_snapshot_verification is succeeded
+  tags:
+    - verify-backup
 
 - name: Copy latest snapshot
   copy:

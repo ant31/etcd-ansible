@@ -9,14 +9,15 @@
 
 ## High Priority Issues
 
-### 1. Add `etcdutl` for Snapshot Verification (etcd v3.6+) 📋 APPROVED
+### 1. Add `etcdutl` for Snapshot Verification (etcd v3.6+) ✅ COMPLETED
 **Motivation**: etcd v3.6+ requires `etcdutl` for snapshot status checks instead of `etcdctl`.
 **Impact**: Backup verification may fail or use deprecated commands on newer etcd versions.
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Update `roles/etcd3/backups/tasks/main.yaml` to use `etcdutl snapshot status`
-- [ ] Update cron backup scripts to use etcdutl
-- [ ] Add snapshot verification after each backup
+**Status**: COMPLETED
+**What was done**:
+- [x] Updated `roles/etcd3/backups/tasks/main.yaml` to use `etcdutl snapshot status`
+- [x] Cron backup scripts already use etcdutl (verified)
+- [x] Added snapshot verification after each backup (both online and offline)
+- [x] Verification failures now fail the backup task to prevent uploading corrupted snapshots
 
 ### 2. Missing Test Infrastructure ❌ WON'T FIX
 **Motivation**: No automated testing exists (make test fails).
@@ -225,7 +226,6 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-1. **Add etcdutl for Snapshot Verification** (#1) - Add verification after backups
 8. **No Health Check Playbook** (#8) - Create playbooks/etcd-health.yaml
 9. **Secrets Management Best Practices** (#9) - Add .gitignore, enhance vault example
 11. **Systemd Service Customization** (#11) - Add tuning variables
@@ -237,6 +237,7 @@
 23. **Improve Variable Naming** (#23) - Rename ipvar, add comments
 
 ### Completed ✅
+1. **Add etcdutl for Snapshot Verification** - Verification added to all backup tasks
 3. **Inconsistent Error Handling** - Error handling improved
 5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
 6. **Hard-coded Binary Paths** - All use {{ bin_dir }}
