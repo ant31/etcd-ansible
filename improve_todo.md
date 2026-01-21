@@ -65,17 +65,21 @@
 **Status**: TODO LATER - Works correctly, refactoring deferred
 **Note**: Current implementation is functional; will refactor when time permits
 
-### 8. No Health Check Playbook 📋 APPROVED
+### 8. No Health Check Playbook ✅ COMPLETED
 **Motivation**: No dedicated playbook to verify cluster health.
 **Impact**: Operators must manually check cluster status.
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Create `playbooks/etcd-health.yaml`
-- [ ] Check all endpoints with `etcdctl endpoint health`
-- [ ] Verify cluster member list
-- [ ] Check certificate expiration
-- [ ] Display cluster metrics
-- [ ] Support JSON output for monitoring
+**Status**: COMPLETED
+**What was done**:
+- [x] Created `playbooks/etcd-health.yaml`
+- [x] Checks all endpoints with `etcdctl endpoint health`
+- [x] Verifies cluster member list and endpoint status
+- [x] Checks certificate expiration (peer, server, client) with warning thresholds
+- [x] Displays cluster metrics (database size with quota warnings)
+- [x] Checks step-ca health on cert-managers
+- [x] Checks renewal timer status
+- [x] Supports JSON output for monitoring integration
+- [x] Provides actionable recommendations for issues
+- [x] Supports tags for selective checks
 
 ### 9. Secrets Management Best Practices 📋 APPROVED
 **Motivation**: Variables show plaintext credentials without Vault examples.
@@ -226,7 +230,6 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-8. **No Health Check Playbook** (#8) - Create playbooks/etcd-health.yaml
 9. **Secrets Management Best Practices** (#9) - Add .gitignore, enhance vault example
 11. **Systemd Service Customization** (#11) - Add tuning variables
 12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
@@ -241,6 +244,7 @@
 3. **Inconsistent Error Handling** - Error handling improved
 5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
 6. **Hard-coded Binary Paths** - All use {{ bin_dir }}
+8. **No Health Check Playbook** - Comprehensive health check with JSON output support
 10. **Download Role Complexity** - Simplified to etcd3/download
 22. **Consolidate Download Roles** - Completed simplification
 

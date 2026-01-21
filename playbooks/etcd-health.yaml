@@ -1,0 +1,361 @@
+---
+# Health check playbook for etcd cluster
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+#   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
+#
+# Options:
+#   -e output_format=json  : Output in JSON format for monitoring tools
+#   --tags health          : Check only cluster health
+#   --tags certs           : Check only certificate expiration
+#   --tags step-ca         : Check only step-ca status
+
+- name: Gather etcd cluster facts
+  hosts: etcd
+  gather_facts: yes
+  roles:
+    - etcd3/facts
+  tags:
+    - always
+
+- name: Check etcd cluster health
+  hosts: etcd[0]
+  gather_facts: no
+  vars:
+    output_format: "{{ output_format | default('text') }}"
+  tasks:
+    - name: Check etcd endpoint health
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: endpoint_health
+      changed_when: false
+      failed_when: false
+      tags:
+        - health
+
+    - name: Check cluster member list
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        member list -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: member_list
+      changed_when: false
+      failed_when: false
+      tags:
+        - health
+
+    - name: Check endpoint status
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint status -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: endpoint_status
+      changed_when: false
+      failed_when: false
+      tags:
+        - health
+
+    - name: Get database metrics (JSON)
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint status -w json
+      environment:
+        ETCDCTL_API: "3"
+      register: endpoint_status_json
+      changed_when: false
+      failed_when: false
+      tags:
+        - health
+        - metrics
+
+    - name: Parse database size
+      set_fact:
+        db_sizes: "{{ endpoint_status_json.stdout | from_json | map(attribute='Status.dbSize') | list }}"
+        total_db_size_mb: "{{ ((endpoint_status_json.stdout | from_json | map(attribute='Status.dbSize') | map('int') | sum) / 1024 / 1024) | round(2) }}"
+      when: endpoint_status_json.rc == 0
+      tags:
+        - metrics
+
+    - name: Display health check results (text)
+      debug:
+        msg: |
+          
+          ════════════════════════════════════════════════════════════════
+          ETCD CLUSTER HEALTH CHECK - {{ etcd_cluster_name }}
+          ════════════════════════════════════════════════════════════════
+          
+          ┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐
+          {% if endpoint_health.rc == 0 %}
+          {{ endpoint_health.stdout }}
+          {% else %}
+          ❌ FAILED:
+          {{ endpoint_health.stderr }}
+          {% endif %}
+          └────────────────────────────────────────────────────────────┘
+          
+          ┌─ CLUSTER MEMBERS ─────────────────────────────────────────┐
+          {{ member_list.stdout }}
+          └────────────────────────────────────────────────────────────┘
+          
+          ┌─ ENDPOINT STATUS ─────────────────────────────────────────┐
+          {{ endpoint_status.stdout }}
+          └────────────────────────────────────────────────────────────┘
+          
+          {% if total_db_size_mb is defined %}
+          ┌─ DATABASE METRICS ────────────────────────────────────────┐
+          Total DB Size: {{ total_db_size_mb }} MB
+          {% if total_db_size_mb | float > 8000 %}
+          ⚠️  WARNING: Database size approaching quota limit!
+          {% endif %}
+          └────────────────────────────────────────────────────────────┘
+          {% endif %}
+          
+          ┌─ OVERALL STATUS ──────────────────────────────────────────┐
+          {% if endpoint_health.rc == 0 %}
+          ✅ Cluster is HEALTHY
+          {% else %}
+          ❌ Cluster has ISSUES - check endpoint health above
+          Recommendation: Run 'journalctl -u etcd-* -n 100' on affected nodes
+          {% endif %}
+          └────────────────────────────────────────────────────────────┘
+          
+      when: output_format == 'text'
+      tags:
+        - health
+
+    - name: Build JSON health report
+      set_fact:
+        health_report:
+          cluster_name: "{{ etcd_cluster_name }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          healthy: "{{ endpoint_health.rc == 0 }}"
+          endpoint_health:
+            stdout: "{{ endpoint_health.stdout }}"
+            stderr: "{{ endpoint_health.stderr }}"
+            rc: "{{ endpoint_health.rc }}"
+          member_list: "{{ member_list.stdout }}"
+          endpoint_status: "{{ endpoint_status.stdout }}"
+          database_size_mb: "{{ total_db_size_mb | default(0) }}"
+      when: output_format == 'json'
+      tags:
+        - health
+
+    - name: Display health report (JSON)
+      debug:
+        var: health_report
+      when: output_format == 'json'
+      tags:
+        - health
+
+- name: Check certificate expiration on all nodes
+  hosts: etcd
+  gather_facts: no
+  vars:
+    output_format: "{{ output_format | default('text') }}"
+  tasks:
+    - name: Check peer certificate expiration
+      shell: >
+        {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt
+        --format json | jq -r '.validity.end'
+      register: peer_cert_expiry
+      changed_when: false
+      failed_when: false
+      tags:
+        - certs
+
+    - name: Check server certificate expiration
+      shell: >
+        {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/{{ etcd_name }}-server.crt
+        --format json | jq -r '.validity.end'
+      register: server_cert_expiry
+      changed_when: false
+      failed_when: false
+      tags:
+        - certs
+
+    - name: Check client certificate expiration
+      shell: >
+        {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/{{ etcd_name }}-client.crt
+        --format json | jq -r '.validity.end'
+      register: client_cert_expiry
+      changed_when: false
+      failed_when: false
+      tags:
+        - certs
+
+    - name: Calculate days until peer cert expiration
+      shell: >
+        echo $(( ( $(date -d "{{ peer_cert_expiry.stdout }}" +%s) - $(date +%s) ) / 86400 ))
+      register: peer_days_left
+      changed_when: false
+      when: peer_cert_expiry.rc == 0
+      tags:
+        - certs
+
+    - name: Check renewal timer status
+      command: systemctl list-timers 'step-renew-*' --no-pager --no-legend
+      register: renewal_timers
+      changed_when: false
+      failed_when: false
+      tags:
+        - certs
+
+    - name: Count active renewal timers
+      shell: systemctl list-timers 'step-renew-*' --no-pager --no-legend | wc -l
+      register: active_timers_count
+      changed_when: false
+      failed_when: false
+      tags:
+        - certs
+
+    - name: Display certificate status (text)
+      debug:
+        msg: |
+          
+          ┌─ CERTIFICATE STATUS - {{ inventory_hostname }} ──────────┐
+          {% if peer_cert_expiry.rc == 0 %}
+          Peer certificate expires:   {{ peer_cert_expiry.stdout }}
+          Days until expiration:      {{ peer_days_left.stdout }}
+          {% if peer_days_left.stdout | int < 30 %}
+          ⚠️  WARNING: Certificate expires in less than 30 days!
+          {% elif peer_days_left.stdout | int < 90 %}
+          ⚠️  NOTICE: Certificate expires in less than 90 days
+          {% else %}
+          ✅ Certificate valid for {{ peer_days_left.stdout }} days
+          {% endif %}
+          {% else %}
+          ❌ Failed to read certificate
+          {% endif %}
+          
+          Server cert expires:        {{ server_cert_expiry.stdout if server_cert_expiry.rc == 0 else 'UNKNOWN' }}
+          Client cert expires:        {{ client_cert_expiry.stdout if client_cert_expiry.rc == 0 else 'UNKNOWN' }}
+          
+          Active renewal timers:      {{ active_timers_count.stdout }}
+          {% if active_timers_count.stdout | int != 3 %}
+          ⚠️  WARNING: Expected 3 renewal timers, found {{ active_timers_count.stdout }}
+          {% else %}
+          ✅ All renewal timers active
+          {% endif %}
+          └────────────────────────────────────────────────────────────┘
+      when: output_format == 'text'
+      tags:
+        - certs
+
+- name: Check step-ca health on cert-managers
+  hosts: etcd-cert-managers
+  gather_facts: no
+  vars:
+    output_format: "{{ output_format | default('text') }}"
+  tasks:
+    - name: Check step-ca service status
+      command: systemctl is-active step-ca
+      register: step_ca_active
+      changed_when: false
+      failed_when: false
+      tags:
+        - step-ca
+
+    - name: Check step-ca health endpoint
+      uri:
+        url: "https://localhost:9000/health"
+        validate_certs: no
+        status_code: 200
+        return_content: yes
+      register: step_ca_health
+      failed_when: false
+      tags:
+        - step-ca
+
+    - name: Check CA certificate expiration
+      shell: >
+        {{ bin_dir }}/step certificate inspect /etc/step-ca/certs/root_ca.crt
+        --format json | jq -r '.validity.end'
+      register: root_ca_expiry
+      changed_when: false
+      failed_when: false
+      when: step_ca_active.stdout == 'active'
+      tags:
+        - step-ca
+
+    - name: Calculate days until root CA expiration
+      shell: >
+        echo $(( ( $(date -d "{{ root_ca_expiry.stdout }}" +%s) - $(date +%s) ) / 86400 ))
+      register: root_ca_days_left
+      changed_when: false
+      when: root_ca_expiry is defined and root_ca_expiry.rc == 0
+      tags:
+        - step-ca
+
+    - name: Display step-ca status (text)
+      debug:
+        msg: |
+          
+          ┌─ STEP-CA STATUS - {{ inventory_hostname }} ──────────────┐
+          Service status:      {{ step_ca_active.stdout | upper }}
+          Health endpoint:     {{ 'HEALTHY (' + step_ca_health.json.status + ')' if step_ca_health.status == 200 else 'UNHEALTHY' }}
+          {% if root_ca_expiry is defined and root_ca_expiry.rc == 0 %}
+          Root CA expires:     {{ root_ca_expiry.stdout }}
+          Days until expiry:   {{ root_ca_days_left.stdout }}
+          {% if root_ca_days_left.stdout | int < 365 %}
+          ⚠️  WARNING: Root CA expires in less than 1 year!
+          {% else %}
+          ✅ Root CA valid
+          {% endif %}
+          {% endif %}
+          
+          {% if step_ca_active.stdout == 'active' and step_ca_health.status == 200 %}
+          ✅ step-ca is healthy
+          {% else %}
+          ❌ step-ca has issues
+          Recommendation: Check 'journalctl -u step-ca -n 50'
+          {% endif %}
+          └────────────────────────────────────────────────────────────┘
+      when: output_format == 'text'
+      tags:
+        - step-ca
+
+- name: Display summary and recommendations
+  hosts: localhost
+  gather_facts: no
+  vars:
+    output_format: "{{ output_format | default('text') }}"
+  tasks:
+    - name: Display summary
+      debug:
+        msg: |
+          
+          ════════════════════════════════════════════════════════════════
+          HEALTH CHECK COMPLETE
+          ════════════════════════════════════════════════════════════════
+          
+          For machine-readable output:
+            ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
+          
+          To check specific components:
+            --tags health      : Cluster health only
+            --tags certs       : Certificate status only  
+            --tags step-ca     : step-ca status only
+            --tags metrics     : Database metrics only
+          
+          For detailed troubleshooting:
+            Cluster logs:  ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b
+            step-ca logs:  ansible etcd-cert-managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b
+          
+      when: output_format == 'text'
