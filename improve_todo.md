@@ -125,15 +125,18 @@
 - [x] All variables defined in roles/etcd3/defaults/main.yaml
 - [x] Optional tuning variables only applied when defined
 
-### 12. Upgrade Safety Checks 📋 APPROVED
+### 12. Upgrade Safety Checks ✅ COMPLETED
 **Motivation**: Upgrades can be destructive without proper validation.
 **Impact**: Risk of cluster downtime or data loss during upgrades.
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Improve pre-upgrade validation tasks (health, backups)
-- [ ] Better error messages with actionable guidance
-- [ ] Verify serial rollout works correctly
-- [ ] Add validation for disk space and version compatibility
+**Status**: COMPLETED
+**What was done**:
+- [x] Added disk space validation (minimum 10GB free)
+- [x] Added version compatibility check (prevents downgrades)
+- [x] Enhanced error messages with actionable troubleshooting steps
+- [x] Added health check after each node restart during upgrades
+- [x] Improved task naming and logging for better visibility
+- [x] Serial rollout documented (use serial=1 at play level)
+- [x] Better validation messages for create vs upgrade vs deploy actions
 
 ## Medium Priority Issues
 
@@ -237,7 +240,6 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
 15. **Ansible Best Practices** (#15) - Add changed_when, failed_when, better task names
 19. **Cluster Scaling Support** (#19) - Create playbooks/scale-cluster.yaml
 20. **Backup Verification** (#20) - Add etcdutl verification to backups
@@ -252,7 +254,8 @@
 8. **No Health Check Playbook** - Comprehensive health check with JSON output (commit b5b143f)
 9. **Secrets Management Best Practices** - AWS KMS encryption, .gitignore, vault.yml.example (commit f104428)
 10. **Download Role Complexity** - Simplified to etcd3/download
-11. **Systemd Service Customization** - Tuning variables for timeout, limits, nice, ionice, memory, CPU
+11. **Systemd Service Customization** - Tuning variables for timeout, limits, nice, ionice, memory, CPU (commit c852aa3)
+12. **Upgrade Safety Checks** - Disk space, version validation, better error messages
 22. **Consolidate Download Roles** - Completed simplification
 **User/Group Consolidation** - Removed etcd_cert_user/group, use etcd_user.name (commits 56ff6f3, 8795e8b)
 

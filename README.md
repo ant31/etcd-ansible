@@ -298,21 +298,34 @@ ansible-playbook -i inventory.ini etcd.yaml \
 
 ### Upgrade Cluster
 
-Upgrade etcd version with rolling restart:
+**Recommended: Use the dedicated upgrade playbook**
+
+```bash
+ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml \
+  -e etcd_version=v3.5.26 \
+  --vault-password-file ~/.vault-pass \
+  -b
+```
+
+**Safety features:**
+- ✅ Pre-upgrade validation (cluster health, disk space, version compatibility)
+- ✅ Automatic backup before upgrade
+- ✅ Serial rollout (one node at a time)
+- ✅ Health check after each node restart
+- ✅ Prevents version downgrades
+- ✅ Detailed error messages with troubleshooting steps
+
+**Alternative: Using main playbook**
 
 ```bash
 ansible-playbook -i inventory.ini etcd.yaml \
   -e etcd_action=upgrade \
   -e etcd_version=v3.5.26 \
   --vault-password-file ~/.vault-pass \
-  -b --become-user=root
+  -b
 ```
 
-**Safety features:**
-- Automatic backup before upgrade
-- Health check before proceeding
-- One node at a time (serial: 1)
-- Verifies cluster health after each node
+**Note:** When using the main playbook, add `serial: 1` to the etcd play for proper rolling upgrades.
 
 ### Delete Cluster
 

@@ -1,0 +1,147 @@
+---
+# Safe etcd cluster upgrade with serial rollout
+# Usage: ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml -e etcd_version=v3.5.26
+#
+# Features:
+#   - Validates current cluster health before starting
+#   - Checks disk space and version compatibility
+#   - Creates backup before upgrade
+#   - Upgrades one node at a time (serial: 1)
+#   - Health check after each node
+#   - Automatically handles binary updates and restarts
+#
+# Options:
+#   -e etcd_version=vX.Y.Z     : Required - target etcd version
+#   -e etcd_force_deploy=true  : Skip health check (DANGEROUS)
+#   -e etcd_backup=false       : Skip pre-upgrade backup (NOT RECOMMENDED)
+
+- name: Pre-upgrade validation
+  hosts: etcd[0]
+  gather_facts: yes
+  tasks:
+    - name: Validate etcd_version is specified
+      assert:
+        that:
+          - etcd_version is defined
+          - etcd_version | length > 0
+        fail_msg: |
+          ❌ etcd_version not specified
+          
+          Usage: ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml -e etcd_version=vX.Y.Z
+          
+          Available versions: v3.5.13, v3.5.26, v3.6.7
+          Check latest: https://github.com/etcd-io/etcd/releases
+      tags:
+        - validate
+
+    - name: Check cluster health before upgrade
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: pre_upgrade_health
+      changed_when: false
+      tags:
+        - validate
+
+    - name: Display pre-upgrade cluster status
+      debug:
+        msg: |
+          ✅ Pre-upgrade validation passed
+          
+          Cluster: {{ etcd_cluster_name }}
+          Target version: {{ etcd_version }}
+          Nodes: {{ groups['etcd'] | length }}
+          
+          Upgrade will proceed one node at a time.
+          Health check will run after each node restart.
+          
+          Estimated time: {{ (groups['etcd'] | length * 5) }} minutes
+      tags:
+        - validate
+
+- name: Upgrade etcd cluster (serial rollout)
+  hosts: etcd
+  serial: 1  # CRITICAL: One node at a time
+  gather_facts: yes
+  vars:
+    etcd_action: upgrade
+  roles:
+    - role: etcd3/cluster
+  tags:
+    - upgrade
+
+- name: Post-upgrade verification
+  hosts: etcd[0]
+  gather_facts: no
+  tasks:
+    - name: Verify cluster health after upgrade
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: post_upgrade_health
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Check cluster member list
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        member list -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: member_list
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Check etcd version on all nodes
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint status -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: endpoint_status
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Display upgrade results
+      debug:
+        msg: |
+          ════════════════════════════════════════════════════════════════
+          UPGRADE COMPLETE - {{ etcd_cluster_name }}
+          ════════════════════════════════════════════════════════════════
+          
+          ✅ All nodes upgraded to {{ etcd_version }}
+          
+          Cluster Health:
+          {{ post_upgrade_health.stdout }}
+          
+          Member List:
+          {{ member_list.stdout }}
+          
+          Endpoint Status:
+          {{ endpoint_status.stdout }}
+          
+          Next steps:
+          1. Verify applications can still connect
+          2. Monitor logs: ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 20' -b
+          3. Run health check: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+      tags:
+        - verify
