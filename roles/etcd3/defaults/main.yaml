@@ -150,6 +150,17 @@ etcd_user:
     system: yes
     shell: /bin/nologin
 
+# Systemd service tuning
+etcd_systemd_timeout_start_sec: "60s"
+etcd_systemd_restart_sec: "15s"
+etcd_systemd_limit_nofile: 40000
+# Optional performance tuning (undefined by default)
+# etcd_systemd_nice_level: 0  # -20 (highest) to 19 (lowest)
+# etcd_systemd_ionice_class: 2  # 0=none, 1=realtime, 2=best-effort, 3=idle
+# etcd_systemd_ionice_priority: 0  # 0 (highest) to 7 (lowest)
+# etcd_systemd_memory_limit: "2G"
+# etcd_systemd_cpu_quota: "200%"  # Percentage of CPU (200% = 2 cores)
+
 etcd_cert_paths:
   server:
     cert: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"

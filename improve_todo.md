@@ -65,30 +65,35 @@
 **Status**: TODO LATER - Works correctly, refactoring deferred
 **Note**: Current implementation is functional; will refactor when time permits
 
-### 8. No Health Check Playbook 📋 APPROVED
+### 8. No Health Check Playbook ✅ COMPLETED
 **Motivation**: No dedicated playbook to verify cluster health.
 **Impact**: Operators must manually check cluster status.
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Create `playbooks/etcd-health.yaml`
-- [ ] Check all endpoints with `etcdctl endpoint health`
-- [ ] Verify cluster member list
-- [ ] Check certificate expiration
-- [ ] Display cluster metrics
-- [ ] Support JSON output for monitoring
+**Status**: COMPLETED
+**What was done**:
+- [x] Created `playbooks/etcd-health.yaml`
+- [x] Checks all endpoints with `etcdctl endpoint health`
+- [x] Verifies cluster member list and endpoint status
+- [x] Checks certificate expiration (peer, server, client) with warning thresholds
+- [x] Displays cluster metrics (database size with quota warnings)
+- [x] Checks step-ca health on cert-managers
+- [x] Checks renewal timer status
+- [x] Supports JSON output for monitoring integration
+- [x] Provides actionable recommendations for issues
+- [x] Supports tags for selective checks
 
-### 9. Secrets Management Best Practices 📋 APPROVED
+### 9. Secrets Management Best Practices ✅ COMPLETED
 **Motivation**: Variables show plaintext credentials without Vault examples.
 **Impact**: Risk of credential exposure in version control.
-**Status**: APPROVED - Completing implementation
+**Status**: COMPLETED
 **What was done**:
-- [x] Replace GPG with AWS KMS for CA backup encryption
-- [x] Add symmetric encryption option with ansible-vault
-- [x] Document backup encryption best practices
-- [x] Add restore playbook with encrypted backup support
-**What needs to happen NOW**:
-- [ ] Add `.gitignore` patterns for secret files
-- [ ] Enhance vault.yml.example with better documentation
+- [x] Replace GPG with AWS KMS for CA backup encryption (playbooks/backup-ca.yaml)
+- [x] Add symmetric encryption option with ansible-vault (step_ca_backup_encryption_method)
+- [x] Document backup encryption best practices (CERTIFICATE_ARCHITECTURE.md)
+- [x] Add restore playbook with encrypted backup support (playbooks/restore-ca-from-backup.yaml)
+- [x] Add vault.yml.example with comprehensive documentation
+- [x] Add KMS setup playbook (playbooks/setup-kms.yaml)
+- [x] Add `.gitignore` patterns for secret files (vault.yml, .vault-pass, credentials, etc.)
+- [x] Document .gitignore in README.md with security warnings
 
 ### 10. Download Role Complexity ✅ COMPLETED
 **Motivation**: `roles/download_etcd/` had complex container logic.
@@ -102,17 +107,23 @@
 - [x] Standardized checksum verification using get_url's built-in checksum parameter
 - [x] Reduced from ~400 lines across 6 files to ~60 lines in 3 files
 
-### 11. Systemd Service Customization 📋 APPROVED
+### 11. Systemd Service Customization ✅ COMPLETED
 **Motivation**: Service template has hard-coded values.
 **Impact**: Cannot customize for different environments (ionice, nice, etc.).
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Add variables for systemd service customization:
-  - `etcd_systemd_nice_level`
-  - `etcd_systemd_ionice_class`
-  - `etcd_systemd_memory_limit`
-  - `etcd_systemd_cpu_limit`
-- [ ] Update etcd-host.service.j2 template
+**Status**: COMPLETED
+**What was done**:
+- [x] Added variables for systemd service customization:
+  - `etcd_systemd_timeout_start_sec` (default: 60s)
+  - `etcd_systemd_restart_sec` (default: 15s)
+  - `etcd_systemd_limit_nofile` (default: 40000)
+  - `etcd_systemd_nice_level` (optional)
+  - `etcd_systemd_ionice_class` (optional)
+  - `etcd_systemd_ionice_priority` (optional)
+  - `etcd_systemd_memory_limit` (optional)
+  - `etcd_systemd_cpu_quota` (optional)
+- [x] Updated etcd-host.service.j2 template
+- [x] All variables defined in roles/etcd3/defaults/main.yaml
+- [x] Optional tuning variables only applied when defined
 
 ### 12. Upgrade Safety Checks 📋 APPROVED
 **Motivation**: Upgrades can be destructive without proper validation.
@@ -226,9 +237,6 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-8. **No Health Check Playbook** (#8) - Create playbooks/etcd-health.yaml
-9. **Secrets Management Best Practices** (#9) - Add .gitignore, enhance vault example
-11. **Systemd Service Customization** (#11) - Add tuning variables
 12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
 15. **Ansible Best Practices** (#15) - Add changed_when, failed_when, better task names
 19. **Cluster Scaling Support** (#19) - Create playbooks/scale-cluster.yaml
@@ -237,12 +245,16 @@
 23. **Improve Variable Naming** (#23) - Rename ipvar, add comments
 
 ### Completed ✅
-1. **Add etcdutl for Snapshot Verification** - Verification added to all backup tasks
-3. **Inconsistent Error Handling** - Error handling improved
+1. **Add etcdutl for Snapshot Verification** - Verification added to all backup tasks (commit d9f686f)
+3. **Inconsistent Error Handling** - Error handling improved throughout
 5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
-6. **Hard-coded Binary Paths** - All use {{ bin_dir }}
+6. **Hard-coded Binary Paths** - All use {{ bin_dir }} variable
+8. **No Health Check Playbook** - Comprehensive health check with JSON output (commit b5b143f)
+9. **Secrets Management Best Practices** - AWS KMS encryption, .gitignore, vault.yml.example (commit f104428)
 10. **Download Role Complexity** - Simplified to etcd3/download
+11. **Systemd Service Customization** - Tuning variables for timeout, limits, nice, ionice, memory, CPU
 22. **Consolidate Download Roles** - Completed simplification
+**User/Group Consolidation** - Removed etcd_cert_user/group, use etcd_user.name (commits 56ff6f3, 8795e8b)
 
 ### Deferred ⏳
 4. **Certificate Expiration Monitoring** - Smallstep handles auto-renewal

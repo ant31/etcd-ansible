@@ -108,6 +108,12 @@ etcd-k8s-2  # Backup cert-manager (CA keys replicated)
 
 ### 3. Configure Secrets
 
+**IMPORTANT:** This repository includes a `.gitignore` file that prevents accidental commit of secrets. The following files are ignored:
+- `group_vars/all/vault.yml` (your actual vault file)
+- `.vault-pass` (vault password file)
+- `inventory.ini` (your actual inventory)
+- SSL certificates and keys in the root directory
+
 Create encrypted vault file for sensitive variables:
 
 ```bash
@@ -119,6 +125,10 @@ vi group_vars/all/vault.yml
 
 # Encrypt with ansible-vault
 ansible-vault encrypt group_vars/all/vault.yml
+
+# Store vault password securely (this file is gitignored)
+echo "your-vault-password" > .vault-pass
+chmod 600 .vault-pass
 ```
 
 Required secrets in `group_vars/all/vault.yml`:
@@ -706,7 +716,51 @@ spec:
 
 ## Monitoring and Health Checks
 
-### Cluster Health
+### Automated Health Check Playbook
+
+Run comprehensive health checks on your cluster:
+
+```bash
+# Full health check (human-readable output)
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+
+# JSON output for monitoring tools
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
+
+# Check specific components only
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags health
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags certs
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags step-ca
+```
+
+**What it checks:**
+- ✅ Etcd endpoint health (all nodes)
+- ✅ Cluster member list and quorum
+- ✅ Endpoint status and leader election
+- ✅ Database size with quota warnings
+- ✅ Certificate expiration (peer, server, client)
+- ✅ Renewal timer status (ensures auto-renewal is working)
+- ✅ step-ca service health
+- ✅ Root CA certificate expiration
+
+**Example output:**
+```
+════════════════════════════════════════════════════════════════
+ETCD CLUSTER HEALTH CHECK - k8s
+════════════════════════════════════════════════════════════════
+
+┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐
+https://10.0.1.10:2379 is healthy: successfully committed proposal
+https://10.0.1.11:2379 is healthy: successfully committed proposal
+https://10.0.1.12:2379 is healthy: successfully committed proposal
+└────────────────────────────────────────────────────────────┘
+
+┌─ OVERALL STATUS ──────────────────────────────────────────┐
+✅ Cluster is HEALTHY
+└────────────────────────────────────────────────────────────┘
+```
+
+### Manual Health Checks
 
 ```bash
 # Check all endpoints
