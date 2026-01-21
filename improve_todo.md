@@ -81,18 +81,19 @@
 - [x] Provides actionable recommendations for issues
 - [x] Supports tags for selective checks
 
-### 9. Secrets Management Best Practices 📋 APPROVED
+### 9. Secrets Management Best Practices ✅ COMPLETED
 **Motivation**: Variables show plaintext credentials without Vault examples.
 **Impact**: Risk of credential exposure in version control.
-**Status**: APPROVED - Completing implementation
+**Status**: COMPLETED
 **What was done**:
-- [x] Replace GPG with AWS KMS for CA backup encryption
-- [x] Add symmetric encryption option with ansible-vault
-- [x] Document backup encryption best practices
-- [x] Add restore playbook with encrypted backup support
-**What needs to happen NOW**:
-- [ ] Add `.gitignore` patterns for secret files
-- [ ] Enhance vault.yml.example with better documentation
+- [x] Replace GPG with AWS KMS for CA backup encryption (playbooks/backup-ca.yaml)
+- [x] Add symmetric encryption option with ansible-vault (step_ca_backup_encryption_method)
+- [x] Document backup encryption best practices (CERTIFICATE_ARCHITECTURE.md)
+- [x] Add restore playbook with encrypted backup support (playbooks/restore-ca-from-backup.yaml)
+- [x] Add vault.yml.example with comprehensive documentation
+- [x] Add KMS setup playbook (playbooks/setup-kms.yaml)
+- [x] Add `.gitignore` patterns for secret files (vault.yml, .vault-pass, credentials, etc.)
+- [x] Document .gitignore in README.md with security warnings
 
 ### 10. Download Role Complexity ✅ COMPLETED
 **Motivation**: `roles/download_etcd/` had complex container logic.
@@ -230,8 +231,7 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-9. **Secrets Management Best Practices** (#9) - Add .gitignore, enhance vault example
-11. **Systemd Service Customization** (#11) - Add tuning variables
+11. **Systemd Service Customization** (#11) - Add tuning variables (etcd_systemd_*)
 12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
 15. **Ansible Best Practices** (#15) - Add changed_when, failed_when, better task names
 19. **Cluster Scaling Support** (#19) - Create playbooks/scale-cluster.yaml
@@ -240,13 +240,15 @@
 23. **Improve Variable Naming** (#23) - Rename ipvar, add comments
 
 ### Completed ✅
-1. **Add etcdutl for Snapshot Verification** - Verification added to all backup tasks
-3. **Inconsistent Error Handling** - Error handling improved
+1. **Add etcdutl for Snapshot Verification** - Verification added to all backup tasks (commit d9f686f)
+3. **Inconsistent Error Handling** - Error handling improved throughout
 5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
-6. **Hard-coded Binary Paths** - All use {{ bin_dir }}
-8. **No Health Check Playbook** - Comprehensive health check with JSON output support
+6. **Hard-coded Binary Paths** - All use {{ bin_dir }} variable
+8. **No Health Check Playbook** - Comprehensive health check with JSON output (commit b5b143f)
+9. **Secrets Management Best Practices** - AWS KMS encryption, .gitignore, vault.yml.example
 10. **Download Role Complexity** - Simplified to etcd3/download
 22. **Consolidate Download Roles** - Completed simplification
+**User/Group Consolidation** - Removed etcd_cert_user/group, use etcd_user.name (commits 56ff6f3, 8795e8b)
 
 ### Deferred ⏳
 4. **Certificate Expiration Monitoring** - Smallstep handles auto-renewal

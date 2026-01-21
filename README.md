@@ -108,6 +108,12 @@ etcd-k8s-2  # Backup cert-manager (CA keys replicated)
 
 ### 3. Configure Secrets
 
+**IMPORTANT:** This repository includes a `.gitignore` file that prevents accidental commit of secrets. The following files are ignored:
+- `group_vars/all/vault.yml` (your actual vault file)
+- `.vault-pass` (vault password file)
+- `inventory.ini` (your actual inventory)
+- SSL certificates and keys in the root directory
+
 Create encrypted vault file for sensitive variables:
 
 ```bash
@@ -119,6 +125,10 @@ vi group_vars/all/vault.yml
 
 # Encrypt with ansible-vault
 ansible-vault encrypt group_vars/all/vault.yml
+
+# Store vault password securely (this file is gitignored)
+echo "your-vault-password" > .vault-pass
+chmod 600 .vault-pass
 ```
 
 Required secrets in `group_vars/all/vault.yml`:

@@ -98,3 +98,90 @@ target/
 venv/
 ENV/
 .aider*
+# Ansible vault password files
+.vault-pass
+.vault_pass
+vault-pass.txt
+vault_pass.txt
+
+# Encrypted vault files (keep .example files)
+group_vars/all/vault.yml
+group_vars/*/vault.yml
+host_vars/*/vault.yml
+
+# Ansible retry files
+*.retry
+
+# Python bytecode
+*.pyc
+__pycache__/
+*.pyo
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.DS_Store
+
+# Ansible facts cache
+fact_cache/
+.ansible/
+
+# Local inventory files (keep examples)
+inventory.ini
+inventory-*.ini
+!inventory-example.ini
+!inventory-test.ini
+
+# Downloaded binaries and archives
+/roles/etcd3/download/files/
+*.tar.gz
+*.tgz
+
+# Backup files
+backup/
+backups/
+*.backup
+
+# Local test files
+test-inventory.ini
+test-vars.yml
+
+# SSL certificates and keys (keep in roles, not root)
+/*.crt
+/*.key
+/*.pem
+/*.csr
+
+# Step-ca local files
+/step-ca/
+/.step/
+
+# AWS credentials
+.aws/credentials
+aws-credentials.txt
+
+# KMS policy files (keep examples)
+kms-policy.json
+!docs/examples/kms-policy.json
+
+# Logs
+*.log
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+.project
+.pydevproject
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Documentation build
+site/
+docs/_build/
