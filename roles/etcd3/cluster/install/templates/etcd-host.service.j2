@@ -6,13 +6,28 @@ After=network.target
 Type=notify
 User={{ etcd_user.name }}
 Group={{ etcd_user.name }}
+{% if etcd_systemd_nice_level is defined %}
+Nice={{ etcd_systemd_nice_level }}
+{% endif %}
+{% if etcd_systemd_ionice_class is defined %}
+IOSchedulingClass={{ etcd_systemd_ionice_class }}
+{% endif %}
+{% if etcd_systemd_ionice_priority is defined %}
+IOSchedulingPriority={{ etcd_systemd_ionice_priority }}
+{% endif %}
 EnvironmentFile=/etc/etcd/{{etcd_name}}.env
 ExecStart={{ bin_dir }}/etcd --config-file=/etc/etcd/{{etcd_name}}-conf.yaml --experimental-initial-corrupt-check
 NotifyAccess=all
 Restart=always
-TimeoutStartSec=60s
-RestartSec=15s
-LimitNOFILE=40000
+TimeoutStartSec={{ etcd_systemd_timeout_start_sec }}
+RestartSec={{ etcd_systemd_restart_sec }}
+LimitNOFILE={{ etcd_systemd_limit_nofile }}
+{% if etcd_systemd_memory_limit is defined %}
+MemoryLimit={{ etcd_systemd_memory_limit }}
+{% endif %}
+{% if etcd_systemd_cpu_quota is defined %}
+CPUQuota={{ etcd_systemd_cpu_quota }}
+{% endif %}
 
 [Install]
 WantedBy=multi-user.target

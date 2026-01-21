@@ -107,17 +107,23 @@
 - [x] Standardized checksum verification using get_url's built-in checksum parameter
 - [x] Reduced from ~400 lines across 6 files to ~60 lines in 3 files
 
-### 11. Systemd Service Customization 📋 APPROVED
+### 11. Systemd Service Customization ✅ COMPLETED
 **Motivation**: Service template has hard-coded values.
 **Impact**: Cannot customize for different environments (ionice, nice, etc.).
-**Status**: APPROVED - Implementing now
-**What needs to happen**:
-- [ ] Add variables for systemd service customization:
-  - `etcd_systemd_nice_level`
-  - `etcd_systemd_ionice_class`
-  - `etcd_systemd_memory_limit`
-  - `etcd_systemd_cpu_limit`
-- [ ] Update etcd-host.service.j2 template
+**Status**: COMPLETED
+**What was done**:
+- [x] Added variables for systemd service customization:
+  - `etcd_systemd_timeout_start_sec` (default: 60s)
+  - `etcd_systemd_restart_sec` (default: 15s)
+  - `etcd_systemd_limit_nofile` (default: 40000)
+  - `etcd_systemd_nice_level` (optional)
+  - `etcd_systemd_ionice_class` (optional)
+  - `etcd_systemd_ionice_priority` (optional)
+  - `etcd_systemd_memory_limit` (optional)
+  - `etcd_systemd_cpu_quota` (optional)
+- [x] Updated etcd-host.service.j2 template
+- [x] All variables defined in roles/etcd3/defaults/main.yaml
+- [x] Optional tuning variables only applied when defined
 
 ### 12. Upgrade Safety Checks 📋 APPROVED
 **Motivation**: Upgrades can be destructive without proper validation.
@@ -231,7 +237,6 @@
 ## Implementation Summary
 
 ### Approved for Implementation NOW 📋
-11. **Systemd Service Customization** (#11) - Add tuning variables (etcd_systemd_*)
 12. **Upgrade Safety Checks** (#12) - Improve validation and error messages
 15. **Ansible Best Practices** (#15) - Add changed_when, failed_when, better task names
 19. **Cluster Scaling Support** (#19) - Create playbooks/scale-cluster.yaml
@@ -245,8 +250,9 @@
 5. **Backup Retention Policy** - S3 lifecycle + datetime in filenames
 6. **Hard-coded Binary Paths** - All use {{ bin_dir }} variable
 8. **No Health Check Playbook** - Comprehensive health check with JSON output (commit b5b143f)
-9. **Secrets Management Best Practices** - AWS KMS encryption, .gitignore, vault.yml.example
+9. **Secrets Management Best Practices** - AWS KMS encryption, .gitignore, vault.yml.example (commit f104428)
 10. **Download Role Complexity** - Simplified to etcd3/download
+11. **Systemd Service Customization** - Tuning variables for timeout, limits, nice, ionice, memory, CPU
 22. **Consolidate Download Roles** - Completed simplification
 **User/Group Consolidation** - Removed etcd_cert_user/group, use etcd_user.name (commits 56ff6f3, 8795e8b)
 
