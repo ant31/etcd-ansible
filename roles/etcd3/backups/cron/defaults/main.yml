@@ -1,11 +1,13 @@
 ---
-# NOTE: Automated backups use AWS CLI (automatically downloaded and installed)
-# AWS credentials are passed via environment variables from vault.yml
+# NOTE: Automated backups support multiple encryption methods
 #
-# Encryption method: CLIENT-SIDE KMS
-#   - Files encrypted locally before upload (requires kms:Encrypt permission)
-#   - Decryption requires kms:Decrypt permission
-#   - Works on non-AWS infrastructure
+# Encryption methods:
+#   - aws-kms: AWS KMS client-side encryption (requires AWS CLI, credentials, kms:Encrypt/Decrypt)
+#   - symmetric: OpenSSL AES-256-CBC encryption (requires step_ca_backup_password in vault.yml)
+#   - none: No encryption (not recommended for production)
+#
+# AWS CLI is automatically downloaded when encryption method is 'aws-kms'
+# Credentials passed via environment variables from vault.yml
 
 # Backup scheduling
 etcd_backup_cron_enabled: true

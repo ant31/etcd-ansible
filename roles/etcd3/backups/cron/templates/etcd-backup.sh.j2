@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-# AWS credentials from environment
+# AWS credentials from environment (only for aws-kms method)
 export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
 export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
 export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
@@ -16,7 +16,9 @@ KEY="{{ etcd_cert_paths.client.key }}"
 CACERT="{{ etcd_cert_paths.client.ca }}"
 S3_BUCKET="{{ etcd_upload_backup.bucket }}"
 S3_PREFIX="{{ etcd_upload_backup.prefix | default('') }}"
+ENCRYPTION_METHOD="{{ step_ca_backup_encryption_method }}"
 KMS_KEY_ID="{{ step_ca_backup_kms_key_id }}"
+BACKUP_PASSWORD="{{ step_ca_backup_password }}"
 CLUSTER_NAME="{{ etcd_cluster_name }}"
 RETENTION_DAYS="{{ etcd_backup_retention_days }}"
 HEALTHCHECK_URL="{{ backup_healthcheck_url }}"
@@ -47,28 +49,61 @@ create_snapshot() {
     log "Verifying snapshot..."
     {{ bin_dir }}/etcdutl snapshot status "$snapshot_file" --write-out=table
     
-    log "Encrypting snapshot with AWS KMS (client-side)..."
-    {{ bin_dir }}/aws kms encrypt \
-        --key-id "$KMS_KEY_ID" \
-        --plaintext "fileb://${snapshot_file}" \
-        --output text \
-        --query CiphertextBlob | base64 -d > "$encrypted_file"
+    # Encrypt based on method
+    local final_file=""
+    local s3_suffix=""
     
-    log "Uploading encrypted backup to S3..."
-    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename $encrypted_file)"
+    case "$ENCRYPTION_METHOD" in
+        aws-kms)
+            log "Encrypting snapshot with AWS KMS (client-side)..."
+            {{ bin_dir }}/aws kms encrypt \
+                --key-id "$KMS_KEY_ID" \
+                --plaintext "fileb://${snapshot_file}" \
+                --output text \
+                --query CiphertextBlob | base64 -d > "$encrypted_file"
+            final_file="$encrypted_file"
+            s3_suffix=".kms"
+            ;;
+            
+        symmetric)
+            log "Encrypting snapshot with OpenSSL AES-256-CBC..."
+            local enc_file="${snapshot_file}.enc"
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+                -in "$snapshot_file" -out "$enc_file" \
+                -pass pass:"$BACKUP_PASSWORD"
+            final_file="$enc_file"
+            s3_suffix=".enc"
+            ;;
+            
+        none)
+            log "No encryption - uploading plain snapshot"
+            final_file="$snapshot_file"
+            s3_suffix=""
+            ;;
+            
+        *)
+            log "ERROR: Unknown encryption method: $ENCRYPTION_METHOD"
+            return 1
+            ;;
+    esac
+    
+    log "Uploading backup to S3..."
+    {{ bin_dir }}/aws s3 cp "$final_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename ${snapshot_file})${s3_suffix}"
     
     # Keep latest snapshot link
-    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/latest-snapshot.db.kms"
+    {{ bin_dir }}/aws s3 cp "$final_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/latest-snapshot.db${s3_suffix}"
     
     # Keep local unencrypted snapshot
     cp "$snapshot_file" "${BACKUP_DIR}/${CLUSTER_NAME}-snapshot.db"
     
     # Cleanup encrypted file
-    rm -f "$encrypted_file"
+    if [ "$final_file" != "$snapshot_file" ]; then
+        rm -f "$final_file"
+    fi
     
-    log "Snapshot complete: s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename $encrypted_file)"
+    log "Snapshot complete: s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename ${snapshot_file})${s3_suffix}"
 }
 
 # Cleanup old backups

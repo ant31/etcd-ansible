@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-# AWS credentials from environment
+# AWS credentials from environment (only for aws-kms method)
 export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
 export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
 export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
@@ -15,7 +15,9 @@ CA_SECRETS_DIR="/etc/step-ca/secrets"
 CA_CONFIG_DIR="/etc/step-ca/config"
 S3_BUCKET="{{ step_ca_backup_s3_bucket }}"
 S3_PREFIX="{{ step_ca_backup_s3_prefix }}"
+ENCRYPTION_METHOD="{{ step_ca_backup_encryption_method }}"
 KMS_KEY_ID="{{ step_ca_backup_kms_key_id }}"
+BACKUP_PASSWORD="{{ step_ca_backup_password }}"
 HEALTHCHECK_URL="{{ ca_backup_healthcheck_url }}"
 
 log() {
@@ -27,36 +29,69 @@ calculate_checksum() {
     find "$CA_SECRETS_DIR" "$CA_CONFIG_DIR" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1
 }
 
-# Backup CA files to S3 with client-side KMS encryption
+# Backup CA files to S3 with encryption
 backup_ca() {
     local timestamp=$(date +%Y-%m-%d_%H-%M-%S)
     local year=$(date +%Y)
     local month=$(date +%m)
     local temp_archive="/tmp/ca-backup-${timestamp}.tar.gz"
-    local encrypted_file="/tmp/ca-backup-${timestamp}.tar.gz.kms"
+    local final_file=""
+    local s3_suffix=""
     
     log "Creating CA backup archive..."
     tar czf "$temp_archive" -C / etc/step-ca/secrets etc/step-ca/config
     
-    log "Encrypting with AWS KMS (client-side)..."
-    {{ bin_dir }}/aws kms encrypt \
-        --key-id "$KMS_KEY_ID" \
-        --plaintext "fileb://${temp_archive}" \
-        --output text \
-        --query CiphertextBlob | base64 -d > "$encrypted_file"
+    # Encrypt based on method
+    case "$ENCRYPTION_METHOD" in
+        aws-kms)
+            log "Encrypting with AWS KMS (client-side)..."
+            local encrypted_file="/tmp/ca-backup-${timestamp}.tar.gz.kms"
+            {{ bin_dir }}/aws kms encrypt \
+                --key-id "$KMS_KEY_ID" \
+                --plaintext "fileb://${temp_archive}" \
+                --output text \
+                --query CiphertextBlob | base64 -d > "$encrypted_file"
+            final_file="$encrypted_file"
+            s3_suffix=".kms"
+            ;;
+            
+        symmetric)
+            log "Encrypting with OpenSSL AES-256-CBC..."
+            local encrypted_file="/tmp/ca-backup-${timestamp}.tar.gz.enc"
+            openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+                -in "$temp_archive" -out "$encrypted_file" \
+                -pass pass:"$BACKUP_PASSWORD"
+            final_file="$encrypted_file"
+            s3_suffix=".enc"
+            ;;
+            
+        none)
+            log "No encryption - uploading plain backup"
+            final_file="$temp_archive"
+            s3_suffix=""
+            ;;
+            
+        *)
+            log "ERROR: Unknown encryption method: $ENCRYPTION_METHOD"
+            return 1
+            ;;
+    esac
     
-    log "Uploading encrypted backup to S3..."
-    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz.kms"
+    log "Uploading backup to S3..."
+    {{ bin_dir }}/aws s3 cp "$final_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz${s3_suffix}"
     
     # Keep latest backup link
-    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}/latest-ca-backup.tar.gz.kms"
+    {{ bin_dir }}/aws s3 cp "$final_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/latest-ca-backup.tar.gz${s3_suffix}"
     
     # Cleanup
-    rm -f "$temp_archive" "$encrypted_file"
+    rm -f "$temp_archive"
+    if [ "$final_file" != "$temp_archive" ]; then
+        rm -f "$final_file"
+    fi
     
-    log "Backup complete: s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz.kms"
+    log "Backup complete: s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz${s3_suffix}"
 }
 
 # Main logic

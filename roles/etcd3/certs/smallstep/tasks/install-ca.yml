@@ -15,7 +15,7 @@
 
 - name: Install step-ca binary
   copy:
-    src: "{{ bin_dir }}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64/bin/step-ca"
+    src: "{{ bin_dir }}/step-ca-archive/step-ca_{{ step_ca_version }}/step-ca"
     dest: "{{ bin_dir }}/step-ca"
     mode: 0755
     remote_src: yes

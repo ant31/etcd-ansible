@@ -18,11 +18,24 @@
   tags:
     - restore-ca
 
+- name: Detect encryption method from backup file
+  set_fact:
+    backup_encryption_method: >-
+      {%- if ca_backup_s3_path.endswith('.kms') -%}
+      aws-kms
+      {%- elif ca_backup_s3_path.endswith('.enc') -%}
+      symmetric
+      {%- else -%}
+      none
+      {%- endif -%}
+  tags:
+    - restore-ca
+
 - name: Download CA backup from S3
   command: >
     {{ bin_dir }}/aws s3 cp
     s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
-    /tmp/ca-restore.tar.gz.kms
+    /tmp/ca-restore-encrypted
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -30,10 +43,10 @@
   tags:
     - restore-ca
 
-- name: Decrypt CA backup with KMS
+- name: Decrypt CA backup with AWS KMS
   command: >
     {{ bin_dir }}/aws kms decrypt
-    --ciphertext-blob fileb:///tmp/ca-restore.tar.gz.kms
+    --ciphertext-blob fileb:///tmp/ca-restore-encrypted
     --output text
     --query Plaintext |
     base64 -d > /tmp/ca-restore.tar.gz
@@ -41,6 +54,24 @@
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  when: backup_encryption_method == 'aws-kms'
+  tags:
+    - restore-ca
+
+- name: Decrypt CA backup with symmetric encryption
+  command: >
+    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
+    -in /tmp/ca-restore-encrypted
+    -out /tmp/ca-restore.tar.gz
+    -pass pass:"{{ step_ca_backup_password }}"
+  when: backup_encryption_method == 'symmetric'
+  no_log: true
+  tags:
+    - restore-ca
+
+- name: Copy unencrypted backup
+  command: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
+  when: backup_encryption_method == 'none'
   tags:
     - restore-ca
 
@@ -76,7 +107,7 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - /tmp/ca-restore.tar.gz.kms
+    - /tmp/ca-restore-encrypted
     - /tmp/ca-restore.tar.gz
   tags:
     - restore-ca

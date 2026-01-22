@@ -29,26 +29,33 @@ step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
 step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
 
-# Backup encryption configuration - CLIENT-SIDE KMS encryption
-step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
+# Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, none
 step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
 step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
 step_ca_backup_s3_enabled: true  # Enable S3 uploads
 step_ca_backup_retention_days: 90  # Delete backups older than this
 
-# AWS Credentials (set in group_vars/all/vault.yml encrypted with ansible-vault)
-# These are used for client-side KMS encryption and S3 uploads
+# AWS KMS encryption (when step_ca_backup_encryption_method: aws-kms)
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
 #
-# Required variables:
+# AWS Credentials (set in group_vars/all/vault.yml encrypted with ansible-vault)
+# Required for aws-kms encryption method:
 #   aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
 #   aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 #   aws_default_region: "us-east-1"
 #
-# Required IAM permissions for the credentials:
+# Required IAM permissions:
 #   - s3:PutObject, s3:GetObject on s3://bucket-name/*
 #   - kms:Encrypt, kms:Decrypt, kms:DescribeKey on the KMS key
-#
-# Backups use CLIENT-SIDE encryption:
-#   1. Data encrypted locally with "aws kms encrypt" before upload
-#   2. Encrypted blob (.kms file) uploaded to S3
-#   3. No AWS infrastructure required on nodes (works anywhere)
+
+# Symmetric encryption (when step_ca_backup_encryption_method: symmetric)
+step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
+# Uses OpenSSL AES-256-CBC with PBKDF2 (100,000 iterations)
+# Example vault.yml:
+#   step_ca_backup_password: "your-very-secure-password-from-password-manager"
+
+# Encryption method comparison:
+# - aws-kms: Best for AWS users, integrates with IAM, audit logs, key rotation
+# - symmetric: Simple password-based, works anywhere, no cloud dependencies
+# - none: No encryption (not recommended for production)

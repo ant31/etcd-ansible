@@ -36,11 +36,32 @@
   tags:
     - restore-etcd
 
+- name: Set backup file path
+  set_fact:
+    etcd_backup_file_path: "{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}"
+  when: restore_etcd_local_file == ''
+  tags:
+    - restore-etcd
+
+- name: Detect encryption method from backup file
+  set_fact:
+    backup_encryption_method: >-
+      {%- if etcd_backup_file_path.endswith('.kms') -%}
+      aws-kms
+      {%- elif etcd_backup_file_path.endswith('.enc') -%}
+      symmetric
+      {%- else -%}
+      none
+      {%- endif -%}
+  when: restore_etcd_local_file == ''
+  tags:
+    - restore-etcd
+
 - name: Download etcd backup from S3
   command: >
     {{ bin_dir }}/aws s3 cp
-    s3://{{ etcd_upload_backup.bucket }}/{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}
-    /tmp/etcd-restore.db.kms
+    s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
+    /tmp/etcd-restore-encrypted
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -49,10 +70,10 @@
   tags:
     - restore-etcd
 
-- name: Decrypt etcd backup with KMS
+- name: Decrypt etcd backup with AWS KMS
   command: >
     {{ bin_dir }}/aws kms decrypt
-    --ciphertext-blob fileb:///tmp/etcd-restore.db.kms
+    --ciphertext-blob fileb:///tmp/etcd-restore-encrypted
     --output text
     --query Plaintext |
     base64 -d > /tmp/etcd-restore.db
@@ -60,7 +81,30 @@
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: restore_etcd_local_file == ''
+  when: 
+    - restore_etcd_local_file == ''
+    - backup_encryption_method == 'aws-kms'
+  tags:
+    - restore-etcd
+
+- name: Decrypt etcd backup with symmetric encryption
+  command: >
+    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
+    -in /tmp/etcd-restore-encrypted
+    -out /tmp/etcd-restore.db
+    -pass pass:"{{ step_ca_backup_password }}"
+  when:
+    - restore_etcd_local_file == ''
+    - backup_encryption_method == 'symmetric'
+  no_log: true
+  tags:
+    - restore-etcd
+
+- name: Copy unencrypted backup
+  command: mv /tmp/etcd-restore-encrypted /tmp/etcd-restore.db
+  when:
+    - restore_etcd_local_file == ''
+    - backup_encryption_method == 'none'
   tags:
     - restore-etcd
 
@@ -149,7 +193,7 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - /tmp/etcd-restore.db.kms
+    - /tmp/etcd-restore-encrypted
     - /tmp/etcd-restore.db
   tags:
     - restore-etcd
