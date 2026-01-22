@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# AWS credentials from environment
+export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
+export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
+export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
+
 BACKUP_DIR="{{ etcd_cluster_backup.directory }}"
 STATE_FILE="/var/lib/etcd-ca-backup/last-backup-checksum"
 CA_SECRETS_DIR="/etc/step-ca/secrets"
@@ -22,7 +27,7 @@ calculate_checksum() {
     find "$CA_SECRETS_DIR" "$CA_CONFIG_DIR" -type f -exec sha256sum {} \; | sort | sha256sum | cut -d' ' -f1
 }
 
-# Backup CA files to S3 with KMS encryption
+# Backup CA files to S3 with client-side KMS encryption
 backup_ca() {
     local timestamp=$(date +%Y-%m-%d_%H-%M-%S)
     local year=$(date +%Y)
@@ -33,24 +38,20 @@ backup_ca() {
     log "Creating CA backup archive..."
     tar czf "$temp_archive" -C / etc/step-ca/secrets etc/step-ca/config
     
-    log "Encrypting with AWS KMS..."
-    aws kms encrypt \
+    log "Encrypting with AWS KMS (client-side)..."
+    {{ bin_dir }}/aws kms encrypt \
         --key-id "$KMS_KEY_ID" \
         --plaintext "fileb://${temp_archive}" \
         --output text \
         --query CiphertextBlob | base64 -d > "$encrypted_file"
     
-    log "Uploading to S3..."
-    aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz.kms" \
-        --sse aws:kms \
-        --sse-kms-key-id "$KMS_KEY_ID"
+    log "Uploading encrypted backup to S3..."
+    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/${year}/${month}/ca-backup-${timestamp}.tar.gz.kms"
     
     # Keep latest backup link
-    aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}/latest-ca-backup.tar.gz.kms" \
-        --sse aws:kms \
-        --sse-kms-key-id "$KMS_KEY_ID"
+    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/latest-ca-backup.tar.gz.kms"
     
     # Cleanup
     rm -f "$temp_archive" "$encrypted_file"

@@ -18,11 +18,15 @@
 
 - name: Find latest etcd backup in S3
   command: >
-    aws s3api list-objects-v2
+    {{ bin_dir }}/aws s3api list-objects-v2
     --bucket {{ etcd_upload_backup.bucket }}
     --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
     --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
     --output text
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   register: latest_etcd_backup
   when: 
     - restore_etcd_s3_file == 'latest'
@@ -34,20 +38,28 @@
 
 - name: Download etcd backup from S3
   command: >
-    aws s3 cp
+    {{ bin_dir }}/aws s3 cp
     s3://{{ etcd_upload_backup.bucket }}/{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}
     /tmp/etcd-restore.db.kms
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   when: restore_etcd_local_file == ''
   tags:
     - restore-etcd
 
 - name: Decrypt etcd backup with KMS
   command: >
-    aws kms decrypt
+    {{ bin_dir }}/aws kms decrypt
     --ciphertext-blob fileb:///tmp/etcd-restore.db.kms
     --output text
-    --query Plaintext
-    | base64 -d > /tmp/etcd-restore.db
+    --query Plaintext |
+    base64 -d > /tmp/etcd-restore.db
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   when: restore_etcd_local_file == ''
   tags:
     - restore-etcd

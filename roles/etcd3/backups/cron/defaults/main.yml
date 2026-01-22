@@ -1,4 +1,12 @@
 ---
+# NOTE: Automated backups use AWS CLI (automatically downloaded and installed)
+# AWS credentials are passed via environment variables from vault.yml
+#
+# Encryption method: CLIENT-SIDE KMS
+#   - Files encrypted locally before upload (requires kms:Encrypt permission)
+#   - Decryption requires kms:Decrypt permission
+#   - Works on non-AWS infrastructure
+
 # Backup scheduling
 etcd_backup_cron_enabled: true
 etcd_backup_interval: "*/30"  # Every 30 minutes (format: */N for every N minutes, or cron format)

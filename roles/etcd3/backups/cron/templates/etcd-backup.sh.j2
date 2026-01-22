@@ -4,6 +4,11 @@
 
 set -euo pipefail
 
+# AWS credentials from environment
+export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
+export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
+export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
+
 BACKUP_DIR="{{ etcd_cluster_backup.directory }}"
 ETCD_ENDPOINTS="{{ etcd_access_addresses }}"
 CERT="{{ etcd_cert_paths.client.cert }}"
@@ -42,24 +47,20 @@ create_snapshot() {
     log "Verifying snapshot..."
     {{ bin_dir }}/etcdutl snapshot status "$snapshot_file" --write-out=table
     
-    log "Encrypting snapshot with KMS..."
-    aws kms encrypt \
+    log "Encrypting snapshot with AWS KMS (client-side)..."
+    {{ bin_dir }}/aws kms encrypt \
         --key-id "$KMS_KEY_ID" \
         --plaintext "fileb://${snapshot_file}" \
         --output text \
         --query CiphertextBlob | base64 -d > "$encrypted_file"
     
-    log "Uploading to S3..."
-    aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename $encrypted_file)" \
-        --sse aws:kms \
-        --sse-kms-key-id "$KMS_KEY_ID"
+    log "Uploading encrypted backup to S3..."
+    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename $encrypted_file)"
     
     # Keep latest snapshot link
-    aws s3 cp "$encrypted_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/latest-snapshot.db.kms" \
-        --sse aws:kms \
-        --sse-kms-key-id "$KMS_KEY_ID"
+    {{ bin_dir }}/aws s3 cp "$encrypted_file" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/latest-snapshot.db.kms"
     
     # Keep local unencrypted snapshot
     cp "$snapshot_file" "${BACKUP_DIR}/${CLUSTER_NAME}-snapshot.db"

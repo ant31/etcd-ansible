@@ -20,19 +20,27 @@
 
 - name: Download CA backup from S3
   command: >
-    aws s3 cp
+    {{ bin_dir }}/aws s3 cp
     s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
     /tmp/ca-restore.tar.gz.kms
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   tags:
     - restore-ca
 
 - name: Decrypt CA backup with KMS
   command: >
-    aws kms decrypt
+    {{ bin_dir }}/aws kms decrypt
     --ciphertext-blob fileb:///tmp/ca-restore.tar.gz.kms
     --output text
-    --query Plaintext
-    | base64 -d > /tmp/ca-restore.tar.gz
+    --query Plaintext |
+    base64 -d > /tmp/ca-restore.tar.gz
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   tags:
     - restore-ca
 

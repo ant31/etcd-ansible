@@ -55,3 +55,16 @@
   tags:
     - download
     - download-extract
+
+- name: download | Install AWS CLI
+  command: "{{ bin_dir }}/awscli-archive/aws/install --bin-dir {{ bin_dir }} --install-dir {{ bin_dir }}/aws-cli --update"
+  args:
+    creates: "{{ bin_dir }}/aws"
+  when:
+    - not skip_downloads | default(false)
+    - downloads.awscli is defined
+    - downloads.awscli.enabled
+    - group_names | intersect(downloads.awscli.groups) | length > 0
+  tags:
+    - download
+    - download-awscli

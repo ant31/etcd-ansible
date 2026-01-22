@@ -29,16 +29,26 @@ step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
 step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
 
-# Backup encryption configuration
-step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, aws-s3-sse
+# Backup encryption configuration - CLIENT-SIDE KMS encryption
 step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
-step_ca_backup_password: ""  # Password for symmetric encryption (store in ansible-vault)
 step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
 step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
 step_ca_backup_s3_enabled: true  # Enable S3 uploads
 step_ca_backup_retention_days: 90  # Delete backups older than this
 
-# AWS KMS Key Policy - required IAM permissions for etcd nodes
-# Nodes need kms:Encrypt, kms:Decrypt, kms:DescribeKey on the KMS key
-# Example: arn:aws:iam::ACCOUNT_ID:role/etcd-nodes-role
-step_ca_backup_kms_principal: ""  # IAM role ARN for etcd nodes (optional, set in vault.yml)
+# AWS Credentials (set in group_vars/all/vault.yml encrypted with ansible-vault)
+# These are used for client-side KMS encryption and S3 uploads
+#
+# Required variables:
+#   aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
+#   aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+#   aws_default_region: "us-east-1"
+#
+# Required IAM permissions for the credentials:
+#   - s3:PutObject, s3:GetObject on s3://bucket-name/*
+#   - kms:Encrypt, kms:Decrypt, kms:DescribeKey on the KMS key
+#
+# Backups use CLIENT-SIDE encryption:
+#   1. Data encrypted locally with "aws kms encrypt" before upload
+#   2. Encrypted blob (.kms file) uploaded to S3
+#   3. No AWS infrastructure required on nodes (works anywhere)

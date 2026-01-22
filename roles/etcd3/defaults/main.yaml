@@ -89,6 +89,44 @@ etcd_downloads:
     groups:
       - "{{etcd_cluster_group}}"
   
+  awscli:
+    file: true
+    enabled: "{{ etcd_backup_cron_enabled | default(false) or ca_backup_cron_enabled | default(false) }}"
+    dest: "{{bin_dir}}/awscli-archive/awscliv2.zip"
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    unarchive: true
+    owner: "root"
+    mode: "0755"
+    groups:
+      - "{{etcd_cluster_group}}"
+      - "{{etcd_certmanagers_group}}"
+  
+  step:
+    file: true
+    enabled: true
+    dest: "{{bin_dir}}/step-archive/step_linux_{{ step_version }}_amd64.tar.gz"
+    url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+    sha256: "{{ step_checksums[step_version] | default(omit) }}"
+    unarchive: true
+    owner: "root"
+    mode: "0755"
+    groups:
+      - "{{etcd_cluster_group}}"
+      - "{{etcd_clients_group}}"
+      - "{{etcd_certmanagers_group}}"
+  
+  step_ca:
+    file: true
+    enabled: true
+    dest: "{{bin_dir}}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    url: "https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    sha256: "{{ step_ca_checksums[step_ca_version] | default(omit) }}"
+    unarchive: true
+    owner: "root"
+    mode: "0755"
+    groups:
+      - "{{etcd_certmanagers_group}}"
+  
 ###########
 ## CERTS
 ##########3
@@ -141,6 +179,11 @@ etcd_secure_client: true
 
 # Enable peer client cert authentication
 etcd_peer_client_auth: true
+
+# AWS credentials for backup encryption (set in vault.yml)
+aws_access_key_id: ""
+aws_secret_access_key: ""
+aws_default_region: "us-east-1"
 
 etcd_user:
     name: etcd

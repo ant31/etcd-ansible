@@ -13,48 +13,16 @@
     - "{{ step_ca_certs }}"
     - "{{ step_ca_secrets }}"
 
-- name: Download step-ca binary
-  get_url:
-    url: "https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
-    dest: "/tmp/step-ca_{{ step_ca_version }}.tar.gz"
-
-  tags:
-    - download
-
-- name: Extract step-ca binary
-  unarchive:
-    src: "/tmp/step-ca_{{ step_ca_version }}.tar.gz"
-    dest: "/tmp/"
-    remote_src: yes
-  tags:
-    - download
-
 - name: Install step-ca binary
   copy:
-    src: "/tmp/step-ca"
+    src: "{{ bin_dir }}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64/bin/step-ca"
     dest: "{{ bin_dir }}/step-ca"
     mode: 0755
     remote_src: yes
 
-- name: Download step CLI
-  get_url:
-    url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
-    dest: "/tmp/step_{{ step_version }}.tar.gz"
-    
-  tags:
-    - download
-
-- name: Extract step CLI
-  unarchive:
-    src: "/tmp/step_{{ step_version }}.tar.gz"
-    dest: "/tmp/"
-    remote_src: yes
-  tags:
-    - download
-
 - name: Install step CLI
   copy:
-    src: "/tmp/step_{{ step_version }}/bin/step"
+    src: "{{ bin_dir }}/step-archive/step_{{ step_version }}/bin/step"
     dest: "{{ bin_dir }}/step"
     mode: 0755
     remote_src: yes
