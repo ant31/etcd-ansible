@@ -29,6 +29,7 @@
 # FILESYSTEM PATHS
 # ============================================================================
 # bin_dir: /opt/bin
+# download_cache_dir: /opt/bin  # Separate disk: /var/cache/downloads
 # etcd_home: /var/lib/etcd
 # etcd_config_dir: /etc/etcd
 # etcd_cert_dir: /etc/etcd/ssl

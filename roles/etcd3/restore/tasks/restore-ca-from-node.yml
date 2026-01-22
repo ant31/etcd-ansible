@@ -17,7 +17,6 @@
     - /etc/step-ca/secrets/intermediate_ca_key
     - /etc/step-ca/secrets/password
     - /etc/step-ca/config/ca.json
-  no_log: true
   tags:
     - restore-ca
 
@@ -29,12 +28,12 @@
   tags:
     - restore-ca
 
-- name: Ensure CA directories exist
+- name: Ensure CA directories exist (root only, step-ca runs as root)
   file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: root
+    group: root
     mode: 0700
   loop:
     - /etc/step-ca/secrets
@@ -42,16 +41,15 @@
   tags:
     - restore-ca
 
-- name: Restore CA files
+- name: Restore CA files (root only, 0400 for secrets, 0640 for config)
   copy:
     content: "{{ item.content | b64decode }}"
     dest: "{{ item.source }}"
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
-    mode: "{{ '0400' if 'secrets' in item.source else '0644' }}"
+    owner: root
+    group: root
+    mode: "{{ '0400' if 'secrets' in item.source else '0640' }}"
   loop: "{{ source_ca_files.results }}"
   loop_control:
     label: "{{ item.source }}"
-  no_log: true
   tags:
     - restore-ca

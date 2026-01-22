@@ -1,10 +1,10 @@
 ---
-- name: Create step-ca directories
+- name: Create step-ca directories (owned by root, step-ca runs as root)
   file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: root
+    group: root
     mode: 0700
   loop:
     - "{{ step_path }}"
@@ -13,19 +13,45 @@
     - "{{ step_ca_certs }}"
     - "{{ step_ca_secrets }}"
 
-- name: Install step-ca binary
-  copy:
-    src: "{{ bin_dir }}/step-ca-archive/step-ca_{{ step_ca_version }}/step-ca"
-    dest: "{{ bin_dir }}/step-ca"
-    mode: 0755
-    remote_src: yes
+- name: Check if step-ca is installed
+  stat:
+    path: "{{ bin_dir }}/step-ca"
+  register: step_ca_installed
 
-- name: Install step CLI
-  copy:
-    src: "{{ bin_dir }}/step-archive/step_{{ step_version }}/bin/step"
-    dest: "{{ bin_dir }}/step"
-    mode: 0755
-    remote_src: yes
+- name: Fail if step-ca binary not installed
+  fail:
+    msg: |
+      ❌ step-ca binary not found
+      Expected location: {{ bin_dir }}/step-ca
+      
+      The download role should have installed this already.
+      
+      Manual installation:
+         curl -L -o /tmp/step-ca.tar.gz https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz
+         tar -xzf /tmp/step-ca.tar.gz -C /tmp
+         cp /tmp/step-ca {{ bin_dir }}/step-ca
+         chmod 755 {{ bin_dir }}/step-ca
+  when: not step_ca_installed.stat.exists
+
+- name: Check if step CLI is installed
+  stat:
+    path: "{{ bin_dir }}/step"
+  register: step_cli_installed
+
+- name: Fail if step CLI binary not installed
+  fail:
+    msg: |
+      ❌ step CLI binary not found
+      Expected location: {{ bin_dir }}/step
+      
+      The download role should have installed this already.
+      
+      Manual installation:
+         curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz
+         tar -xzf /tmp/step.tar.gz -C /tmp
+         cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step
+         chmod 755 {{ bin_dir }}/step
+  when: not step_cli_installed.stat.exists
 
 - name: Check if CA already initialized
   stat:
@@ -41,13 +67,14 @@
       --provisioner="{{ step_ca_provisioner }}" \
       --password-file=<(echo "{{ step_ca_password }}") \
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
-      --root="{{ step_ca_certs }}/root_ca.crt" \
-      --key="{{ step_ca_secrets }}/root_ca_key" \
-      --no-db=false
+      --san="{{ step_ca_dns }}" \
+      --san="127.0.0.1" \
+      --san="localhost"
   args:
     executable: /bin/bash
+  environment:
+    STEPPATH: "{{ step_path }}"
   when: not step_ca_config_stat.stat.exists
-  no_log: true
 
 - name: Configure step-ca certificate durations
   shell: |
@@ -59,7 +86,6 @@
   args:
     executable: /bin/bash
   when: not step_ca_config_stat.stat.exists
-  no_log: true
 
 - name: Create step-ca systemd service
   template:
@@ -72,10 +98,49 @@
   copy:
     content: "{{ step_ca_password }}"
     dest: "{{ step_ca_secrets }}/password"
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: root
+    group: root
     mode: 0400
-  no_log: true
+
+- name: Fix ownership and permissions of ALL CA files (step-ca runs as root)
+  file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+    state: "{{ item.state }}"
+    recurse: "{{ item.recurse | default(false) }}"
+  loop:
+    - { path: "{{ step_path }}", mode: "0755", state: "directory", recurse: false }
+    - { path: "{{ step_ca_secrets }}", mode: "0700", state: "directory", recurse: false }
+    - { path: "{{ step_ca_certs }}", mode: "0755", state: "directory", recurse: false }
+    - { path: "{{ step_ca_config }}", mode: "0640", state: "file" }
+    - { path: "{{ step_ca_db }}", mode: "0700", state: "directory", recurse: false }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Fix CA secrets files permissions (private keys - root only)
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: 0400
+  loop:
+    - "{{ step_ca_secrets }}/root_ca_key"
+    - "{{ step_ca_secrets }}/intermediate_ca_key"
+    - "{{ step_ca_secrets }}/password"
+  failed_when: false
+
+- name: Fix CA certificate permissions (root only, NOT world-readable)
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: 0400
+  loop:
+    - "{{ step_ca_certs }}/root_ca.crt"
+    - "{{ step_ca_certs }}/intermediate_ca.crt"
+  failed_when: false
 
 - name: Enable and start step-ca service
   systemd:
@@ -83,10 +148,34 @@
     enabled: yes
     state: started
     daemon_reload: yes
+  register: step_ca_service
 
-- name: Wait for step-ca to be ready
+- name: Check step-ca service status
+  command: systemctl status step-ca
+  register: step_ca_status
+  failed_when: false
+  changed_when: false
+
+- name: Show step-ca service status if it failed to start
+  debug:
+    var: step_ca_status.stdout_lines
+  when: step_ca_service.state != 'started'
+
+- name: Show step-ca logs if service failed
+  command: journalctl -u step-ca -n 50 --no-pager
+  register: step_ca_logs
+  when: step_ca_service.state != 'started'
+  failed_when: false
+  changed_when: false
+
+- name: Display step-ca logs on failure
+  debug:
+    var: step_ca_logs.stdout_lines
+  when: step_ca_service.state != 'started'
+
+- name: Wait for step-ca to be ready (localhost check)
   uri:
-    url: "{{ step_ca_url }}/health"
+    url: "https://localhost:{{ step_ca_port }}/health"
     validate_certs: no
     status_code: 200
   register: result
@@ -123,27 +212,26 @@
         src: "{{ step_ca_config }}"
       register: ca_config_for_replication
 
-    - name: Install CA keys on backup cert-managers
+    - name: Install CA keys on backup cert-managers (root only)
       copy:
         content: "{{ item.1.content | b64decode }}"
         dest: "{{ item.1.source }}"
-        owner: "{{ etcd_user.name }}"
-        group: "{{ etcd_user.name }}"
+        owner: root
+        group: root
         mode: 0400
       delegate_to: "{{ item.0 }}"
       loop: "{{ groups[etcd_certmanagers_group][1:] | product(ca_keys_for_replication.results) | list }}"
       loop_control:
         label: "{{ item.0 }}: {{ item.1.source | basename }}"
-      no_log: true
       when: groups[etcd_certmanagers_group] | length > 1
 
-    - name: Install CA config on backup cert-managers
+    - name: Install CA config on backup cert-managers (root only)
       copy:
         content: "{{ ca_config_for_replication.content | b64decode }}"
         dest: "{{ step_ca_config }}"
-        owner: "{{ etcd_user.name }}"
-        group: "{{ etcd_user.name }}"
-        mode: 0644
+        owner: root
+        group: root
+        mode: 0640
       delegate_to: "{{ item }}"
       loop: "{{ groups[etcd_certmanagers_group][1:] }}"
       when: groups[etcd_certmanagers_group] | length > 1

@@ -10,9 +10,8 @@
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
       --ca-url="{{ step_ca_url }}" \
       --root="{{ etcd_cert_dir }}/root_ca.crt" \
-      --san="{{ ansible_fqdn }}" \
-      --san="{{ ansible_hostname }}" \
-      --san="{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}" \
+      --san="{{ hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address']) }}" \
+      --san="{{ hostvars[inventory_hostname].get('access_ip', hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address'])) }}" \
       --san="127.0.0.1" \
       --san="localhost" \
       --not-after="{{ step_cert_default_duration }}"
@@ -20,7 +19,6 @@
     executable: /bin/bash
     creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
-  no_log: true
 
 - name: Generate etcd server certificate
   shell: |
@@ -32,9 +30,8 @@
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
       --ca-url="{{ step_ca_url }}" \
       --root="{{ etcd_cert_dir }}/root_ca.crt" \
-      --san="{{ ansible_fqdn }}" \
-      --san="{{ ansible_hostname }}" \
-      --san="{{ hostvars[inventory_hostname]['ansible_default_ipv4']['address'] }}" \
+      --san="{{ hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address']) }}" \
+      --san="{{ hostvars[inventory_hostname].get('access_ip', hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address'])) }}" \
       --san="127.0.0.1" \
       --san="localhost" \
       --not-after="{{ step_cert_default_duration }}"
@@ -42,7 +39,6 @@
     executable: /bin/bash
     creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
-  no_log: true
 
 - name: Generate etcd client certificate
   shell: |
@@ -58,9 +54,8 @@
   args:
     executable: /bin/bash
     creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
-  no_log: true
 
-- name: Set certificate permissions
+- name: Set certificate file permissions (private keys - etcd user only)
   file:
     path: "{{ item }}"
     owner: "{{ etcd_user.name }}"
@@ -68,16 +63,22 @@
     mode: 0400
   loop:
     - "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
+    - "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
     - "{{ etcd_cert_dir }}/{{ etcd_name }}-server.key"
+    - "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
     - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
 
-- name: Set client certificate permissions
+- name: Set client certificate permissions (etcd user only)
   file:
-    path: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    path: "{{ item }}"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     mode: 0400
+  loop:
+    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
 
 - name: Create symlinks for CA certificates
   file:

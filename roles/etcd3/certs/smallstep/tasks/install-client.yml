@@ -1,10 +1,28 @@
 ---
-- name: Install step CLI on client nodes
-  copy:
-    src: "{{ bin_dir }}/step-archive/step_{{ step_version }}/bin/step"
-    dest: "{{ bin_dir }}/step"
-    mode: 0755
-    remote_src: yes
+- name: Check if step CLI is installed
+  stat:
+    path: "{{ bin_dir }}/step"
+  register: step_cli_installed
+
+- name: Fail if step CLI binary not installed
+  fail:
+    msg: |
+      ❌ step CLI binary not found
+      Expected location: {{ bin_dir }}/step
+      
+      The download role should have installed this already.
+      
+      Troubleshooting:
+      1. Ensure download role ran on this node
+      2. Check if download was skipped: ansible-playbook -vvv
+      3. Verify inventory groups are correct
+      
+      Manual installation:
+         curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz
+         tar -xzf /tmp/step.tar.gz -C /tmp
+         cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step
+         chmod 755 {{ bin_dir }}/step
+  when: not step_cli_installed.stat.exists
 
 - name: Create step configuration directory
   file:
@@ -14,20 +32,23 @@
     group: "{{ etcd_user.name }}"
     mode: 0700
 
-- name: Install root CA certificate
+- name: Install root CA certificate (etcd user only, NOT world-readable)
   copy:
     content: "{{ step_ca_root_cert }}"
     dest: "{{ etcd_cert_dir }}/root_ca.crt"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
-    mode: 0644
+    mode: 0400
 
 - name: Bootstrap step CLI
-  command: >
+  shell: >
     {{ bin_dir }}/step ca bootstrap
     --ca-url {{ step_ca_url }}
     --fingerprint $({{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt)
     --install
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_cert_dir }}/.step/config/defaults.json"
   environment:
     STEPPATH: "{{ etcd_cert_dir }}/.step"
   changed_when: false

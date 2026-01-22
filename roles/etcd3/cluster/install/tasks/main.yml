@@ -14,7 +14,7 @@
 
 - name: install | Copy etcd and etcdctl binary from download dir
   copy:
-    src: "{{ bin_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
+    src: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
     dest: "{{ bin_dir }}/"
     mode: 0755
     remote_src: yes

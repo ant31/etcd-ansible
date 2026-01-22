@@ -10,6 +10,7 @@ etcd_cluster_backup:
 etcd_action: none
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
 bin_dir: /opt/bin
+download_cache_dir: "{{ bin_dir }}"
 etcd_config_dir: /etc/etcd
 etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
 dns_domain: cluster.local
@@ -80,7 +81,7 @@ etcd_downloads:
   etcd:
     file: true
     enabled: true
-    dest: "{{bin_dir}}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
     sha256: "{{ etcd_checksums[etcd_version] | default(omit)}}"
     url: "{{ etcd_download_url }}"
     unarchive: true
@@ -92,7 +93,7 @@ etcd_downloads:
   awscli:
     file: true
     enabled: "{{ etcd_backup_cron_enabled | default(false) or ca_backup_cron_enabled | default(false) }}"
-    dest: "{{bin_dir}}/awscli-archive/awscliv2.zip"
+    dest: "{{ download_cache_dir }}/awscli-archive/awscliv2.zip"
     url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
     unarchive: true
     owner: "root"
@@ -104,7 +105,7 @@ etcd_downloads:
   step:
     file: true
     enabled: true
-    dest: "{{bin_dir}}/step-archive/step_linux_{{ step_version }}_amd64.tar.gz"
+    dest: "{{ download_cache_dir }}/step-archive/step_linux_{{ step_version }}_amd64.tar.gz"
     url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
     sha256: "{{ step_checksums[step_version] | default(omit) }}"
     unarchive: true
@@ -118,7 +119,7 @@ etcd_downloads:
   step_ca:
     file: true
     enabled: true
-    dest: "{{bin_dir}}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    dest: "{{ download_cache_dir }}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
     url: "https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
     sha256: "{{ step_ca_checksums[step_ca_version] | default(omit) }}"
     unarchive: true

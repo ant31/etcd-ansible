@@ -48,6 +48,11 @@ etcd_ports:
 # Binary installation directory
 bin_dir: /opt/bin
 
+# Download cache directory (for archives before extraction)
+# Default: same as bin_dir
+# Useful for: separate disk/partition, shared download cache, easier cleanup
+download_cache_dir: /opt/bin
+
 # Etcd home directory (contains data and backups)
 etcd_home: /var/lib/etcd
 

@@ -65,7 +65,6 @@
     -out /tmp/ca-restore.tar.gz
     -pass pass:"{{ step_ca_backup_password }}"
   when: backup_encryption_method == 'symmetric'
-  no_log: true
   tags:
     - restore-ca
 
@@ -91,14 +90,21 @@
   tags:
     - restore-ca
 
-- name: Set CA file permissions
+- name: Set CA file permissions (root only, step-ca runs as root)
   file:
     path: /etc/step-ca/secrets
     state: directory
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: root
+    group: root
     mode: 0700
     recurse: yes
+  tags:
+    - restore-ca
+    
+- name: Set CA private key permissions (root only, 0400)
+  shell: |
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chmod 0400 {} \;
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chown root:root {} \;
   tags:
     - restore-ca
 

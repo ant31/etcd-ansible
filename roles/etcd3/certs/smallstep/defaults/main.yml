@@ -1,11 +1,13 @@
 ---
 # Smallstep version
-step_version: "0.25.2"
-step_ca_version: "0.25.2"
+step_version: "0.29.0"
+step_ca_version: "0.29.0"
 
 # Smallstep CA configuration
 step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"
-step_ca_dns: "{{ hostvars[groups[etcd_certmanagers_group][0]]['ansible_fqdn'] }}"
+# Use IP address for step-ca, following same pattern as etcd facts
+# Try access_ip first, then ip, then discovered IP
+step_ca_dns: "{{ hostvars[groups[etcd_certmanagers_group][0]].get('access_ip', hostvars[groups[etcd_certmanagers_group][0]].get('ip', hostvars[groups[etcd_certmanagers_group][0]]['ansible_default_ipv4']['address'])) }}"
 step_ca_url: "https://{{ step_ca_dns }}:9000"
 step_ca_port: 9000
 step_ca_provisioner: "etcd-provisioner"

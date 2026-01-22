@@ -96,7 +96,6 @@
   when:
     - restore_etcd_local_file == ''
     - backup_encryption_method == 'symmetric'
-  no_log: true
   tags:
     - restore-etcd
 
