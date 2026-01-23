@@ -1,0 +1,9 @@
+---
+- name: Clean etcd data directories
+  hosts: etcd
+  gather_facts: no
+  roles:
+    - role: etcd3/cleanup
+      vars:
+        cleanup_action: data
+        cleanup_require_confirm: "{{ cleanup_require_confirm | default(true) }}"

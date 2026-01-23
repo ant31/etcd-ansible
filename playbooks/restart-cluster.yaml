@@ -1,0 +1,8 @@
+---
+- name: Restart all etcd services
+  hosts: etcd
+  gather_facts: no
+  roles:
+    - role: etcd3/service
+      vars:
+        service_action: restart

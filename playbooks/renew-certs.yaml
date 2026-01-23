@@ -1,0 +1,8 @@
+---
+- name: Manually renew all certificates
+  hosts: etcd,etcd-clients
+  gather_facts: yes
+  roles:
+    - role: etcd3/certs/operations
+      vars:
+        cert_operation_action: renew

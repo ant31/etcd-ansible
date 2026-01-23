@@ -1,0 +1,8 @@
+---
+- name: Force certificate rotation (start all renewal services)
+  shell: |
+    for timer in /etc/systemd/system/step-renew-*.timer; do
+      systemctl start $(basename $timer .timer).service
+    done
+  register: cert_rotation
+  changed_when: true

@@ -1,0 +1,8 @@
+---
+- name: View etcd logs
+  hosts: etcd
+  gather_facts: no
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: logs

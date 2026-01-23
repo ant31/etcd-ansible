@@ -1,0 +1,28 @@
+---
+# Cleanup operations role
+# Supports: certs, data, backups, logs, all
+# Usage: Set cleanup_action variable
+
+- name: Clean certificates
+  include_tasks: clean-certs.yml
+  when: cleanup_action in ['certs', 'all']
+  tags:
+    - clean-certs
+
+- name: Clean data
+  include_tasks: clean-data.yml
+  when: cleanup_action in ['data', 'all']
+  tags:
+    - clean-data
+
+- name: Clean backups
+  include_tasks: clean-backups.yml
+  when: cleanup_action == 'backups'
+  tags:
+    - clean-backups
+
+- name: Clean logs
+  include_tasks: clean-logs.yml
+  when: cleanup_action == 'logs'
+  tags:
+    - clean-logs

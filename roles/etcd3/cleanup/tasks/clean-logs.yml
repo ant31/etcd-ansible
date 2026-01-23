@@ -1,0 +1,8 @@
+---
+- name: Clean old journald logs
+  command: journalctl --vacuum-time=7d
+  register: log_cleanup
+
+- name: Display cleanup result
+  debug:
+    msg: "Logs older than 7 days cleaned"

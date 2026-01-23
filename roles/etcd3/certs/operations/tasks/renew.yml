@@ -1,0 +1,16 @@
+---
+- name: Trigger certificate renewal services
+  systemd:
+    name: "step-renew-{{ item }}"
+    state: started
+  loop:
+    - "{{ etcd_name }}-peer"
+    - "{{ etcd_name }}-server"
+    - "{{ etcd_name }}-client"
+  when: inventory_hostname in groups[etcd_cluster_group]
+
+- name: Trigger client certificate renewal
+  systemd:
+    name: "step-renew-{{ etcd_name }}-client"
+    state: started
+  when: inventory_hostname in groups[etcd_clients_group]

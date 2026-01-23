@@ -1,0 +1,11 @@
+---
+- name: Remove certificate directories
+  file:
+    path: /etc/etcd/ssl
+    state: absent
+
+- name: Remove step-ca directory
+  file:
+    path: /etc/step-ca
+    state: absent
+  when: inventory_hostname in groups[etcd_certmanagers_group]

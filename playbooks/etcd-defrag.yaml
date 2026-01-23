@@ -1,0 +1,8 @@
+---
+- name: Defragment etcd database
+  hosts: etcd
+  gather_facts: yes
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: defrag

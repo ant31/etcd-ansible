@@ -1,0 +1,40 @@
+---
+# Main playbook for etcd cluster management
+# Usage:
+#   Create:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b
+#   Deploy:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=deploy -b
+#   Upgrade:  ansible-playbook -i inventory/inventory.ini playbooks/upgrade-cluster.yaml -b (recommended)
+#   Backup:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=backup -b
+#   Delete:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_delete_cluster=true -b
+#
+# Variables:
+#   etcd_action: create|deploy|upgrade|backup (default: none)
+#   etcd_cluster_name: Cluster name (default: default)
+#   etcd_version: etcd version to install (default: v3.5.26)
+#   etcd_delete_cluster: Set to true to delete cluster (default: false)
+
+# Install the etcd cluster
+- hosts: etcd
+  strategy: linear
+  any_errors_fatal: true
+  vars:
+    etcd_cluster_name: "{{ etcd_cluster_name | default('default') }}"
+    etcd_ports:
+      client: 2379
+      peer: 2380
+  tasks:
+    - name: Manage etcd cluster
+      import_role:
+        name: etcd3/cluster
+      tags:
+        - etcd
+
+# Install the etcd client certificates to all hosts using etcd
+- hosts: etcd-clients
+  strategy: linear
+  tasks:
+    - name: Create client certificates
+      import_role:
+        name: etcd3/certs
+      tags:
+        - etcd-certs

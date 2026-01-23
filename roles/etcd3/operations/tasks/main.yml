@@ -1,0 +1,40 @@
+---
+# Etcd cluster operations role
+# Supports: status, members, logs, compact, defrag
+# Usage: Set operation_action variable
+
+- name: Show cluster status
+  include_tasks: status.yml
+  when: operation_action == 'status'
+  tags:
+    - status
+
+- name: List cluster members
+  include_tasks: members.yml
+  when: operation_action == 'members'
+  tags:
+    - members
+
+- name: View logs
+  include_tasks: logs.yml
+  when: operation_action == 'logs'
+  tags:
+    - logs
+
+- name: Follow logs
+  include_tasks: logs-follow.yml
+  when: operation_action == 'logs-follow'
+  tags:
+    - logs
+
+- name: Compact database
+  include_tasks: compact.yml
+  when: operation_action == 'compact'
+  tags:
+    - compact
+
+- name: Defragment database
+  include_tasks: defrag.yml
+  when: operation_action == 'defrag'
+  tags:
+    - defrag

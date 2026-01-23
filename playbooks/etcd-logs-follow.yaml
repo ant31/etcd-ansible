@@ -1,0 +1,8 @@
+---
+- name: Follow etcd logs (live)
+  hosts: etcd[0]
+  gather_facts: no
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: logs-follow

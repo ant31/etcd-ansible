@@ -1,0 +1,29 @@
+---
+- name: Get current revision
+  shell: |
+    {{ bin_dir }}/etcdctl \
+      --endpoints=$(cat /etc/etcd/etcd-*-conf.yaml | grep advertise-client-urls | cut -d' ' -f2) \
+      --cert=/etc/etcd/ssl/etcd-*-client.crt \
+      --key=/etc/etcd/ssl/etcd-*-client.key \
+      --cacert=/etc/etcd/ssl/root_ca.crt \
+      endpoint status -w json | jq -r '.[0].Status.header.revision'
+  environment:
+    ETCDCTL_API: "3"
+  register: current_revision
+  changed_when: false
+
+- name: Compact database to current revision
+  shell: |
+    {{ bin_dir }}/etcdctl \
+      --endpoints=$(cat /etc/etcd/etcd-*-conf.yaml | grep advertise-client-urls | cut -d' ' -f2) \
+      --cert=/etc/etcd/ssl/etcd-*-client.crt \
+      --key=/etc/etcd/ssl/etcd-*-client.key \
+      --cacert=/etc/etcd/ssl/root_ca.crt \
+      compact {{ current_revision.stdout }}
+  environment:
+    ETCDCTL_API: "3"
+  register: compact_result
+
+- name: Display compact result
+  debug:
+    msg: "Database compacted to revision {{ current_revision.stdout }}"

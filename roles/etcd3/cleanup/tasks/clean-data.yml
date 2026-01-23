@@ -1,0 +1,24 @@
+---
+- name: Confirm data deletion
+  pause:
+    prompt: "This will DELETE all etcd data on {{ inventory_hostname }}. Type 'yes' to confirm"
+  register: confirm_delete
+  when: cleanup_require_confirm | default(true)
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not (cleanup_require_confirm | default(true)) or confirm_delete.user_input == 'yes'
+    fail_msg: "Data deletion cancelled"
+  when: cleanup_require_confirm | default(true)
+
+- name: Stop etcd services
+  systemd:
+    name: etcd-*
+    state: stopped
+  failed_when: false
+
+- name: Remove etcd data directories
+  shell: rm -rf /var/lib/etcd/etcd-*
+  args:
+    warn: false

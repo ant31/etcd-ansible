@@ -1,0 +1,17 @@
+---
+- name: Get cluster status
+  shell: |
+    {{ bin_dir }}/etcdctl \
+      --endpoints=$(cat /etc/etcd/etcd-*-conf.yaml | grep advertise-client-urls | cut -d' ' -f2 | sed 's/,/,https:\/\//g') \
+      --cert=/etc/etcd/ssl/etcd-*-client.crt \
+      --key=/etc/etcd/ssl/etcd-*-client.key \
+      --cacert=/etc/etcd/ssl/root_ca.crt \
+      endpoint status -w table
+  environment:
+    ETCDCTL_API: "3"
+  register: cluster_status
+  changed_when: false
+
+- name: Display cluster status
+  debug:
+    var: cluster_status.stdout_lines
