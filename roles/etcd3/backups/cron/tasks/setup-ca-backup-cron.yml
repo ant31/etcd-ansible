@@ -19,7 +19,7 @@
   tags:
     - ca-backup-cron
 
-- name: Setup CA backup cron job
+- name: Setup CA backup cron job (enabled by default)
   cron:
     name: "Check and backup CA if changed"
     minute: "{{ ca_backup_cron_minute }}"
@@ -27,6 +27,20 @@
     job: "{{ backup_scripts_dir }}/ca-backup-check.sh >> {{ backup_log_dir }}/ca-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present
+  when: ca_backup_cron_enabled | default(true)
+  tags:
+    - ca-backup-cron
+
+- name: Verify CA backup cron job is installed
+  shell: "crontab -l -u {{ etcd_user.name }} | grep -c 'ca-backup-check.sh' || true"
+  register: ca_cron_check
+  changed_when: false
+  tags:
+    - ca-backup-cron
+
+- name: Display CA backup cron status
+  debug:
+    msg: "CA backup cron job: {{ 'INSTALLED' if ca_cron_check.stdout|int > 0 else 'NOT FOUND' }}"
   tags:
     - ca-backup-cron
 

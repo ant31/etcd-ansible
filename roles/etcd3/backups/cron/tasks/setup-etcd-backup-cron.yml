@@ -9,7 +9,7 @@
   tags:
     - etcd-backup-cron
 
-- name: Setup etcd backup cron job
+- name: Setup etcd backup cron job (enabled by default)
   cron:
     name: "Backup etcd cluster data"
     minute: "{{ etcd_backup_cron_minute }}"
@@ -17,7 +17,24 @@
     job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present
-  when: inventory_hostname == groups[etcd_cluster_group][0]  # Only run on first node
+  when: 
+    - etcd_backup_cron_enabled | default(true)
+    - inventory_hostname == groups[etcd_cluster_group][0]  # Only run on first node
+  tags:
+    - etcd-backup-cron
+
+- name: Verify etcd backup cron job is installed
+  shell: "crontab -l -u {{ etcd_user.name }} | grep -c 'etcd-backup.sh' || true"
+  register: etcd_cron_check
+  changed_when: false
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+  tags:
+    - etcd-backup-cron
+
+- name: Display etcd backup cron status
+  debug:
+    msg: "Etcd backup cron job: {{ 'INSTALLED' if etcd_cron_check.stdout|int > 0 else 'NOT FOUND' }}"
+  when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
 

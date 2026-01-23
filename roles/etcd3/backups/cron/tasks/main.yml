@@ -29,3 +29,53 @@
   tags:
     - backup-cron
     - etcd-backup-cron
+
+- name: Run initial CA backup after deployment
+  command: "{{ backup_scripts_dir }}/ca-backup-check.sh --force"
+  become: yes
+  become_user: "{{ etcd_user.name }}"
+  when:
+    - ca_backup_initial_run | default(true)
+    - ca_backup_cron_enabled
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  ignore_errors: yes
+  register: initial_ca_backup
+  tags:
+    - backup-cron
+    - ca-backup-cron
+    - initial-backup
+
+- name: Show initial CA backup result
+  debug:
+    msg: "{{ initial_ca_backup.stdout_lines | default(['No output']) }}"
+  when:
+    - initial_ca_backup is defined
+    - initial_ca_backup is changed
+  tags:
+    - backup-cron
+    - initial-backup
+
+- name: Run initial etcd backup after deployment
+  command: "{{ backup_scripts_dir }}/etcd-backup.sh"
+  become: yes
+  become_user: "{{ etcd_user.name }}"
+  when:
+    - etcd_backup_initial_run | default(true)
+    - etcd_backup_cron_enabled
+    - inventory_hostname == groups[etcd_cluster_group][0]
+  ignore_errors: yes
+  register: initial_etcd_backup
+  tags:
+    - backup-cron
+    - etcd-backup-cron
+    - initial-backup
+
+- name: Show initial etcd backup result
+  debug:
+    msg: "{{ initial_etcd_backup.stdout_lines | default(['No output']) }}"
+  when:
+    - initial_etcd_backup is defined
+    - initial_etcd_backup is changed
+  tags:
+    - backup-cron
+    - initial-backup

@@ -9,17 +9,21 @@
 # AWS CLI is automatically downloaded when encryption method is 'aws-kms'
 # Credentials passed via environment variables from vault.yml
 
-# Backup scheduling
+# Backup scheduling - ENABLED BY DEFAULT
 etcd_backup_cron_enabled: true
 etcd_backup_interval: "*/30"  # Every 30 minutes (format: */N for every N minutes, or cron format)
 etcd_backup_cron_minute: "*/30"
 etcd_backup_cron_hour: "*"
 
-# CA backup - only when changed
+# CA backup - only when changed - ENABLED BY DEFAULT
 ca_backup_cron_enabled: true
 ca_backup_check_interval: "*/5"  # Check every 5 minutes if CA changed
 ca_backup_cron_minute: "*/5"
 ca_backup_cron_hour: "*"
+
+# Trigger initial backup after deployment
+etcd_backup_initial_run: true
+ca_backup_initial_run: true
 
 # Deadman monitoring (optional)
 backup_healthcheck_enabled: false
