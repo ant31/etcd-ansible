@@ -14,37 +14,55 @@ upgrade-cluster:
 delete-cluster:
 	ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root   -e etcd_delete_cluster=true
 
-# Test targets for etcd-ansible
-test-etcd: test-create test-health
+# Test environment targets (use test inventory with production playbooks)
 test:
-	echo "test skipped"
+	@echo "🧪 Running basic test: create cluster + health check"
+	@$(MAKE) test-create
+	@$(MAKE) test-health
+	@echo "✅ Basic test passed"
+
+test-all:
+	@echo "🧪 Running full test suite: create → backup → upgrade → restore → delete"
+	@$(MAKE) test-create
+	@$(MAKE) test-health
+	@$(MAKE) test-backup
+	@$(MAKE) test-upgrade
+	@$(MAKE) test-health
+	@$(MAKE) test-restore
+	@$(MAKE) test-health
+	@$(MAKE) test-delete
+	@echo "✅ Full test suite completed"
 
 test-create:
-	@echo "Creating test etcd cluster..."
-	ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=create -b -vv
+	@echo "📦 Creating test cluster..."
+	ansible-playbook -i inventory-test.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b --vault-password-file ~/.vault-pass
 
-test-health:
-	@echo "Checking etcd cluster health..."
-	ansible-playbook -i inventory-test.ini test-etcd.yaml --tags etcd-verify -b
+test-deploy:
+	@echo "📦 Deploying/updating test cluster..."
+	ansible-playbook -i inventory-test.ini playbooks/etcd-cluster.yaml -e etcd_action=deploy -b --vault-password-file ~/.vault-pass
 
 test-upgrade:
-	@echo "Upgrading etcd cluster..."
-	ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=upgrade -b -vv
+	@echo "⬆️  Upgrading test cluster..."
+	ansible-playbook -i inventory-test.ini playbooks/upgrade-cluster.yaml -b --vault-password-file ~/.vault-pass
+
+test-health:
+	@echo "🏥 Checking test cluster health..."
+	ansible-playbook -i inventory-test.ini playbooks/etcd-health.yaml
 
 test-backup:
-	@echo "Creating etcd cluster backup..."
-	ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_action=backup -b -v
+	@echo "💾 Creating test cluster backup..."
+	ansible-playbook -i inventory-test.ini playbooks/etcd-cluster.yaml -e etcd_action=backup -b --vault-password-file ~/.vault-pass
+
+test-restore:
+	@echo "♻️  Restoring test cluster from backup..."
+	ansible-playbook -i inventory-test.ini playbooks/restore-etcd-cluster.yaml -e restore_confirm=false -b --vault-password-file ~/.vault-pass
 
 test-delete:
-	@echo "Deleting test etcd cluster..."
-	ansible-playbook -i inventory-test.ini test-etcd.yaml -e etcd_delete_cluster=true -b -v
+	@echo "🗑️  Deleting test cluster..."
+	ansible-playbook -i inventory-test.ini playbooks/etcd-cluster.yaml -e etcd_delete_cluster=true -b --vault-password-file ~/.vault-pass
 
 test-clean: test-delete
-	@echo "Test cluster deleted"
-
-test-download:
-	@echo "Testing download functionality only..."
-	ansible-playbook -i inventory-test.ini test-download.yaml -b -v
+	@echo "✅ Test cluster cleaned up"
 
 # Documentation targets
 docs-serve:
@@ -72,19 +90,39 @@ help:
 	@echo "  make delete-cluster  - Delete production etcd cluster"
 	@echo "  make clean           - Clean temporary files"
 	@echo ""
-	@echo "Test targets:"
-	@echo "  make test            - Create test cluster and verify health (default)"
-	@echo "  make test-create     - Create a new test etcd cluster"
-	@echo "  make test-health     - Verify test cluster health"
-	@echo "  make test-upgrade    - Upgrade existing test cluster"
-	@echo "  make test-backup     - Create a test cluster backup"
-	@echo "  make test-delete     - Delete the test cluster"
-	@echo "  make test-clean      - Alias for test-delete"
-	@echo "  make test-download   - Test download functionality only"
+	@echo "🧪 TEST ENVIRONMENT (uses inventory-test.ini)"
+	@echo "  make test                - Quick test (create + health check)"
+	@echo "  make test-all            - Full test suite (create/backup/upgrade/restore/delete)"
+	@echo "  make test-create         - Create test cluster"
+	@echo "  make test-deploy         - Deploy/update test cluster"
+	@echo "  make test-upgrade        - Upgrade test cluster"
+	@echo "  make test-health         - Health check test cluster"
+	@echo "  make test-backup         - Backup test cluster"
+	@echo "  make test-restore        - Restore test cluster"
+	@echo "  make test-delete         - Delete test cluster"
+	@echo "  make test-clean          - Alias for test-delete"
 	@echo ""
-	@echo "Documentation targets:"
-	@echo "  make docs            - Serve documentation locally (alias for docs-serve)"
-	@echo "  make docs-serve      - Serve documentation at http://127.0.0.1:8000"
-	@echo "  make docs-build      - Build static documentation site"
-	@echo "  make docs-deploy     - Deploy to GitHub Pages"
-	@echo "  make docs-clean      - Clean documentation build artifacts"
+	@echo "📚 DOCUMENTATION"
+	@echo "  make docs                - Serve docs locally at http://127.0.0.1:8000"
+	@echo "  make docs-build          - Build static site"
+	@echo "  make docs-deploy         - Deploy to GitHub Pages"
+	@echo ""
+	@echo "🧹 MAINTENANCE"
+	@echo "  make clean               - Clean temporary files"
+	@echo ""
+	@echo "════════════════════════════════════════════════════════════════════════════════"
+	@echo "💡 QUICK START:"
+	@echo "   Production:"
+	@echo "     1. cp inventory-example.ini inventory.ini"
+	@echo "     2. Edit inventory.ini with your nodes"
+	@echo "     3. cp group_vars/all/vault.yml.example group_vars/all/vault.yml"
+	@echo "     4. Edit vault.yml and encrypt: ansible-vault encrypt group_vars/all/vault.yml"
+	@echo "     5. make create-cluster"
+	@echo ""
+	@echo "   Testing:"
+	@echo "     1. cp inventory-example.ini inventory-test.ini"
+	@echo "     2. Edit inventory-test.ini with your test nodes"
+	@echo "     3. make test"
+	@echo ""
+	@echo "📖 Full documentation: make docs"
+	@echo "════════════════════════════════════════════════════════════════════════════════"

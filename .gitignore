@@ -105,6 +105,8 @@ vault-pass.txt
 vault_pass.txt
 
 # Encrypted vault files (keep .example files)
+**/vault.yml
+**/vault.yaml
 group_vars/all/vault.yml
 group_vars/*/vault.yml
 host_vars/*/vault.yml
@@ -135,14 +137,10 @@ inventory-*.ini
 !inventory-test.ini
 
 # Downloaded binaries and archives
-/roles/etcd3/download/files/
+
 *.tar.gz
 *.tgz
 
-# Backup files
-backup/
-backups/
-*.backup
 
 # Local test files
 test-inventory.ini
