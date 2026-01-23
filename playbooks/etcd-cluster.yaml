@@ -18,7 +18,6 @@
   strategy: linear
   any_errors_fatal: true
   vars:
-    etcd_cluster_name: "{{ etcd_cluster_name | default('default') }}"
     etcd_ports:
       client: 2379
       peer: 2380

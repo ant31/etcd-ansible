@@ -75,33 +75,29 @@
     STEPPATH: "{{ step_path }}"
   when: not step_ca_config_stat.stat.exists
 
+- name: Copy step-ca configuration script
+  template:
+    src: configure_step_ca_durations.py.j2
+    dest: /tmp/configure_step_ca_durations.py
+    mode: 0755
+  when: not step_ca_config_stat.stat.exists
+
 - name: Configure step-ca certificate durations
-  shell: |
-    /usr/bin/env python3 -c "
-    import json
-    import sys
-    
-    path = '{{ step_ca_config }}'
-    with open(path, 'r') as f:
-        config = json.load(f)
-    
-    updated = False
-    for p in config.get('authority', {}).get('provisioners', []):
-        if p.get('name') == '{{ step_ca_provisioner }}':
-            p['claims'] = {
-                'minTLSCertDuration': '{{ step_cert_min_duration }}',
-                'maxTLSCertDuration': '{{ step_cert_max_duration }}',
-                'defaultTLSCertDuration': '{{ step_cert_default_duration }}'
-            }
-            updated = True
-    
-    if updated:
-        with open(path, 'w') as f:
-            json.dump(config, f, indent=4)
-    else:
-        print('Provisioner {{ step_ca_provisioner }} not found in config')
-        sys.exit(1)
-    "
+  command: /usr/bin/python3 /tmp/configure_step_ca_durations.py
+  register: configure_durations_result
+  when: not step_ca_config_stat.stat.exists
+
+- name: Display configuration result
+  debug:
+    var: configure_durations_result.stdout
+  when: 
+    - not step_ca_config_stat.stat.exists
+    - configure_durations_result is defined
+
+- name: Cleanup configuration script
+  file:
+    path: /tmp/configure_step_ca_durations.py
+    state: absent
   when: not step_ca_config_stat.stat.exists
 
 - name: Create step-ca systemd service

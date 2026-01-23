@@ -1,0 +1,10 @@
+---
+# Setup tasks for external dependencies
+# Supports: kms
+# Usage: Set setup_action variable
+
+- name: Setup AWS KMS key
+  include_tasks: kms.yml
+  when: setup_action == 'kms'
+  tags:
+    - kms

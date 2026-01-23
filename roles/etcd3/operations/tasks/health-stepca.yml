@@ -34,7 +34,7 @@
     echo $(( ( $(date -d "{{ root_ca_expiry.stdout }}" +%s) - $(date +%s) ) / 86400 ))
   register: root_ca_days_left
   changed_when: false
-  when: root_ca_expiry is defined and root_ca_expiry.rc == 0
+  when: root_ca_expiry.rc is defined and root_ca_expiry.rc == 0
 
 - name: Display step-ca status (text)
   debug:
@@ -43,7 +43,7 @@
       ┌─ STEP-CA STATUS - {{ inventory_hostname }} ──────────────┐
       Service status:      {{ step_ca_active.stdout | upper }}
       Health endpoint:     {{ 'HEALTHY (' + step_ca_health.json.status + ')' if step_ca_health.status == 200 else 'UNHEALTHY' }}
-      {% if root_ca_expiry is defined and root_ca_expiry.rc == 0 %}
+      {% if root_ca_expiry.rc is defined and root_ca_expiry.rc == 0 %}
       Root CA expires:     {{ root_ca_expiry.stdout }}
       Days until expiry:   {{ root_ca_days_left.stdout }}
       {% if root_ca_days_left.stdout | int < 365 %}

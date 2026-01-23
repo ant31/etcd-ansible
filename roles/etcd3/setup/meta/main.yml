@@ -1,0 +1,131 @@
+---
+# No dependencies - this role sets up external resources
+````
+
+playbooks/setup-kms.yaml
+````yaml
+<<<<<<< SEARCH
+---
+# Setup AWS KMS key for etcd CA backup encryption
+# Usage: ansible-playbook playbooks/setup-kms.yaml -e kms_key_alias=alias/etcd-ca-backup
+
+- name: Setup AWS KMS key for CA backups
+  hosts: localhost
+  gather_facts: no
+  connection: local
+  vars:
+    kms_key_alias: "{{ kms_key_alias | default('alias/etcd-ca-backup') }}"
+    kms_key_description: "{{ kms_key_description | default('Encryption key for etcd CA backups') }}"
+    kms_principal_arn: "{{ step_ca_backup_kms_principal | default('') }}"
+    
+  tasks:
+    - name: Check if KMS key alias already exists
+      command: aws kms describe-key --key-id {{ kms_key_alias }}
+      register: kms_key_check
+      failed_when: false
+      changed_when: false
+      
+    - name: Display existing key info
+      debug:
+        msg: "KMS key {{ kms_key_alias }} already exists: {{ (kms_key_check.stdout | from_json).KeyMetadata.KeyId }}"
+      when: kms_key_check.rc == 0
+      
+    - name: Create KMS key
+      command: >
+        aws kms create-key
+        --description "{{ kms_key_description }}"
+        --tags TagKey=Purpose,TagValue=etcd-ca-backup TagKey=ManagedBy,TagValue=ansible
+      register: kms_key_created
+      when: kms_key_check.rc != 0
+      
+    - name: Extract key ID
+      set_fact:
+        kms_key_id: "{{ (kms_key_created.stdout | from_json).KeyMetadata.KeyId }}"
+      when: kms_key_check.rc != 0
+      
+    - name: Create KMS key alias
+      command: >
+        aws kms create-alias
+        --alias-name {{ kms_key_alias }}
+        --target-key-id {{ kms_key_id }}
+      when: kms_key_check.rc != 0
+      
+    - name: Create KMS key policy file
+      copy:
+        content: |
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid": "Enable IAM User Permissions",
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "arn:aws:iam::{{ lookup('pipe', 'aws sts get-caller-identity --query Account --output text') }}:root"
+                },
+                "Action": "kms:*",
+                "Resource": "*"
+              }{% if kms_principal_arn %},
+              {
+                "Sid": "Allow etcd nodes to use key",
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "{{ kms_principal_arn }}"
+                },
+                "Action": [
+                  "kms:Encrypt",
+                  "kms:Decrypt",
+                  "kms:DescribeKey",
+                  "kms:GenerateDataKey"
+                ],
+                "Resource": "*"
+              }{% endif %}
+            ]
+          }
+        dest: /tmp/kms-policy.json
+      when: kms_key_check.rc != 0
+      
+    - name: Apply KMS key policy
+      command: >
+        aws kms put-key-policy
+        --key-id {{ kms_key_alias }}
+        --policy-name default
+        --policy file:///tmp/kms-policy.json
+      when: kms_key_check.rc != 0
+      
+    - name: Cleanup policy file
+      file:
+        path: /tmp/kms-policy.json
+        state: absent
+      when: kms_key_check.rc != 0
+      
+    - name: Display setup complete message
+      debug:
+        msg: |
+          ✅ KMS key setup complete!
+          
+          KMS Key Alias: {{ kms_key_alias }}
+          {% if kms_key_check.rc != 0 %}
+          KMS Key ID: {{ kms_key_id }}
+          {% else %}
+          KMS Key ID: {{ (kms_key_check.stdout | from_json).KeyMetadata.KeyId }}
+          {% endif %}
+          
+          Add to your vault.yml:
+            step_ca_backup_kms_key_id: "{{ kms_key_alias }}"
+          
+          {% if kms_principal_arn %}
+          IAM Principal: {{ kms_principal_arn }}
+          {% else %}
+          Note: No IAM principal specified. Update key policy manually if needed.
+          To grant access to etcd nodes:
+            step_ca_backup_kms_principal: "arn:aws:iam::ACCOUNT:role/etcd-nodes"
+          Then re-run this playbook.
+          {% endif %}
+          
+          Test encryption:
+            echo "test" | aws kms encrypt --key-id {{ kms_key_alias }} --plaintext fileb:///dev/stdin --output text --query CiphertextBlob
+          
+          Next steps:
+          1. Update group_vars/all/vault.yml with KMS key alias
+          2. Deploy etcd cluster: ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
+          3. Setup automated backups: add playbooks/backup-ca.yaml to cron

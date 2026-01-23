@@ -1,41 +1,24 @@
 ---
-- name: Install boto3 and botocore
-  pip:
-    name:
-      - boto3
-      - botocore
+- name: Upload backup to S3 using AWS CLI
+  shell: |
+    {{ bin_dir }}/aws s3 cp {{ item.src }} \
+      s3://{{ etcd_upload_backup.bucket }}/{{ item.object }} \
+      {% if etcd_upload_backup.encrypt | d(true) %}--sse AES256{% endif %}
   environment:
-    PATH: "{{ ansible_env.PATH }}:{{ bin_dir }}"
-
-- name: create S3 bucket
-  aws_s3:
-    bucket: "{{etcd_upload_backup.bucket}}"
-    mode: create
-    permission: private
-    object: "{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}"
-    access_key: "{{etcd_upload_backup.access_key}}"
-    secret_key: "{{etcd_upload_backup.secret_key}}"
-    region: "{{etcd_upload_backup.region|d(omit)}}"
-    s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
-    metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
+    AWS_ACCESS_KEY_ID: "{{ etcd_upload_backup.access_key }}"
+    AWS_SECRET_ACCESS_KEY: "{{ etcd_upload_backup.secret_key }}"
+    AWS_DEFAULT_REGION: "{{ etcd_upload_backup.region | d('us-east-1') }}"
+    AWS_ENDPOINT_URL: "{{ etcd_upload_backup.s3_url | d(omit) }}"
   when:
-    - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
-
-- name: uploads items
-  aws_s3:
-    bucket: "{{etcd_upload_backup.bucket}}"
-    object: "{{item.object}}"
-    src: "{{item.src}}"
-    mode: put
-    permission: []
-    access_key: "{{etcd_upload_backup.access_key}}"
-    secret_key: "{{etcd_upload_backup.secret_key}}"
-    region: "{{etcd_upload_backup.region|d(omit)}}"
-    s3_url: "{{etcd_upload_backup.s3_url|d(omit)}}"
-    metadata: "{{etcd_upload_backup.metadata|d(omit)}}"
-    encrypt: "{{etcd_upload_backup.encrypt|d(true)}}"
-  when:
-    - etcd_upload_backup.storage == "s3" or  etcd_upload_backup.storage == "aws"
+    - etcd_upload_backup.storage == "s3" or etcd_upload_backup.storage == "aws"
   loop:
-    - object: "{{etcd_upload_backup.prefix|d('')}}{{etcd_cluster_name}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_backup_file | basename}}"
-      src: "{{etcd_backup_file}}"
+    - object: "{{ etcd_upload_backup.prefix | d('') }}{{ etcd_cluster_name }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ etcd_backup_file | basename }}"
+      src: "{{ etcd_backup_file }}"
+  register: s3_upload_result
+
+- name: Display upload result
+  debug:
+    msg: "Backup uploaded to s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | d('') }}{{ etcd_cluster_name }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ etcd_backup_file | basename }}"
+  when:
+    - etcd_upload_backup.storage == "s3" or etcd_upload_backup.storage == "aws"
+    - s3_upload_result is succeeded
