@@ -139,9 +139,9 @@ etcd_cert_alt_ips: []
 # ============================================================================
 # SMALLSTEP CA CONFIGURATION
 # ============================================================================
-# Smallstep CLI and CA versions
-step_version: "0.25.2"
-step_ca_version: "0.25.2"
+# # Smallstep CLI and CA versions
+step_version: "0.29.0"
+step_ca_version: "0.29.0"
 
 # CA naming and network
 # step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"  # Auto-generated
@@ -261,6 +261,9 @@ etcd_extra_vars: {}
 
 # Force cluster creation (DANGER: destroys existing data)
 # etcd_force_create: false
+
+# Force certificate regeneration (removes existing CA and certificates)
+# etcd_force_certs: false
 
 # Force deployment on unhealthy cluster (DANGER: may cause data loss)
 # etcd_force_deploy: false

@@ -2,8 +2,8 @@
 # etcd_version: {{etcd_version}}
 # etcd_binary_sha256: {{etcd_binary_sha256}}
 # certs_serials:
-#   peer: {{etcd_peer_cert_serial}}
-#   client: {{etcd_client_cert_serial}}
+#   peer: {{etcd_peer_cert_serial | default('0')}}
+#   client: {{etcd_client_cert_serial | default('0')}}
 # cluster: {{etcd_cluster_name}}
 # This is the configuration file for the etcd server.
 # Human-readable name for this member.

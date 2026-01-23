@@ -2,4 +2,4 @@
 dependencies:
   - name: etcd3
 
-allow_duplicates: true
+allow_duplicates: false

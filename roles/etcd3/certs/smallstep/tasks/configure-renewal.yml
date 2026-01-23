@@ -4,8 +4,8 @@
   shell: |
     {{ bin_dir }}/step ca certificate \
       "{{ etcd_name }}" \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-peer.key \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key \
       --provisioner="{{ step_ca_provisioner }}" \
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
       --ca-url="{{ step_ca_url }}" \
@@ -17,15 +17,15 @@
       --not-after="{{ step_cert_default_duration }}"
   args:
     executable: /bin/bash
-    creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
+    creates: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Generate etcd server certificate
   shell: |
     {{ bin_dir }}/step ca certificate \
       "{{ etcd_name }}-server" \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-server.crt \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-server.key \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key \
       --provisioner="{{ step_ca_provisioner }}" \
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
       --ca-url="{{ step_ca_url }}" \
@@ -37,15 +37,15 @@
       --not-after="{{ step_cert_default_duration }}"
   args:
     executable: /bin/bash
-    creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
+    creates: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Generate etcd client certificate
   shell: |
     {{ bin_dir }}/step ca certificate \
       "{{ etcd_name }}-client" \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-client.crt \
-      {{ etcd_cert_dir }}/{{ etcd_name }}-client.key \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt \
+      {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key \
       --provisioner="{{ step_ca_provisioner }}" \
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
       --ca-url="{{ step_ca_url }}" \
@@ -53,7 +53,7 @@
       --not-after="{{ step_cert_default_duration }}"
   args:
     executable: /bin/bash
-    creates: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
+    creates: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
 
 - name: Set certificate file permissions (private keys - etcd user only)
   file:
@@ -62,12 +62,12 @@
     group: "{{ etcd_user.name }}"
     mode: 0400
   loop:
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-server.key"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Set client certificate permissions (etcd user only)
@@ -77,8 +77,8 @@
     group: "{{ etcd_user.name }}"
     mode: 0400
   loop:
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
-    - "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
 
 - name: Create symlinks for CA certificates
   file:
@@ -96,8 +96,8 @@
     mode: 0644
   vars:
     cert_name: "{{ etcd_name }}"
-    cert_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.crt"
-    key_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-peer.key"
+    cert_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
+    key_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key"
     exec_start_post: "/bin/systemctl reload {{ etcd_name }}.service"
   when: inventory_hostname in groups[etcd_cluster_group]
 
@@ -117,8 +117,8 @@
     mode: 0644
   vars:
     cert_name: "{{ etcd_name }}-server"
-    cert_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.crt"
-    key_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-server.key"
+    cert_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
+    key_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key"
     exec_start_post: "/bin/systemctl reload {{ etcd_name }}.service"
   when: inventory_hostname in groups[etcd_cluster_group]
 
@@ -138,8 +138,8 @@
     mode: 0644
   vars:
     cert_name: "{{ etcd_name }}-client"
-    cert_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.crt"
-    key_path: "{{ etcd_cert_dir }}/{{ etcd_name }}-client.key"
+    cert_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
+    key_path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
     exec_start_post: ""
 
 - name: Create certificate renewal timer for client cert

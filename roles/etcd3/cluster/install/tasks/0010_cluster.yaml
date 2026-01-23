@@ -43,7 +43,7 @@
 - name: Validate upgrade path (no version downgrade)
   assert:
     that:
-      - current_etcd_version.stdout is version(etcd_version, '<=')
+      - (current_etcd_version.stdout | string) is version(etcd_version | string, '<=')
     fail_msg: |
       ❌ VERSION DOWNGRADE NOT ALLOWED on {{ inventory_hostname }}
       Current version: {{ current_etcd_version.stdout }}

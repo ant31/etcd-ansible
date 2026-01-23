@@ -13,6 +13,14 @@
     - uinput.user_input != 'yes'
   run_once: true
 
+- name: Backup before delete
+  import_role:
+    name: etcd3/backups
+  vars:
+    etcd_backup_offline: true
+  when:
+    - etcd_backup | d(true) | bool
+
 - name: stop the cluster {{etcd_cluster_name}}
   service:
     name: "{{etcd_name}}"

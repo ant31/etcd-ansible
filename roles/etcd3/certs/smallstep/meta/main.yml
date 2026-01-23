@@ -5,7 +5,6 @@ dependencies:
   - name: etcd3/download
     vars:
       downloads: "{{ etcd_downloads }}"
-    when: inventory_hostname in groups[etcd_certmanagers_group]
     tags:
       - download
       - download-step

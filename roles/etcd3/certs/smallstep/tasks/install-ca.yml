@@ -67,9 +67,8 @@
       --provisioner="{{ step_ca_provisioner }}" \
       --password-file=<(echo "{{ step_ca_password }}") \
       --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
-      --san="{{ step_ca_dns }}" \
-      --san="127.0.0.1" \
-      --san="localhost"
+      --dns="127.0.0.1" \
+      --dns="localhost"
   args:
     executable: /bin/bash
   environment:
@@ -78,13 +77,31 @@
 
 - name: Configure step-ca certificate durations
   shell: |
-    {{ bin_dir }}/step ca provisioner update {{ step_ca_provisioner }} \
-      --password-file=<(echo "{{ step_ca_password }}") \
-      --root="{{ step_ca_certs }}/root_ca.crt" \
-      --ca-url="{{ step_ca_url }}" \
-      --claims='{"minTLSCertDuration":"{{ step_cert_min_duration }}","maxTLSCertDuration":"{{ step_cert_max_duration }}","defaultTLSCertDuration":"{{ step_cert_default_duration }}"}'
-  args:
-    executable: /bin/bash
+    /usr/bin/env python3 -c "
+    import json
+    import sys
+    
+    path = '{{ step_ca_config }}'
+    with open(path, 'r') as f:
+        config = json.load(f)
+    
+    updated = False
+    for p in config.get('authority', {}).get('provisioners', []):
+        if p.get('name') == '{{ step_ca_provisioner }}':
+            p['claims'] = {
+                'minTLSCertDuration': '{{ step_cert_min_duration }}',
+                'maxTLSCertDuration': '{{ step_cert_max_duration }}',
+                'defaultTLSCertDuration': '{{ step_cert_default_duration }}'
+            }
+            updated = True
+    
+    if updated:
+        with open(path, 'w') as f:
+            json.dump(config, f, indent=4)
+    else:
+        print('Provisioner {{ step_ca_provisioner }} not found in config')
+        sys.exit(1)
+    "
   when: not step_ca_config_stat.stat.exists
 
 - name: Create step-ca systemd service

@@ -1,4 +1,39 @@
 ---
+- name: Stop step-ca if forced cleanup
+  systemd:
+    name: step-ca
+    state: stopped
+  when:
+    - etcd_force_certs | default(false) | bool
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  ignore_errors: true
+  tags:
+    - step-ca
+    - step-ca-install
+
+- name: Cleanup step-ca configuration if forced
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ step_path }}"
+  when:
+    - etcd_force_certs | default(false) | bool
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - step-ca
+    - step-ca-install
+
+- name: Cleanup client certificates and configuration if forced
+  file:
+    path: "{{ etcd_cert_dir }}"
+    state: absent
+  when:
+    - etcd_force_certs | default(false) | bool
+  tags:
+    - step-ca
+    - step-ca-client
+
 - name: Include cert-manager tasks
   include_tasks: install-ca.yml
   when:
