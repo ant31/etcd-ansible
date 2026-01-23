@@ -1,0 +1,34 @@
+---
+# ============================================================================
+# CA BACKUP ROLE DEFAULTS
+# ============================================================================
+# These variables are duplicated in roles/etcd3/defaults/main.yaml for
+# cross-role access. Keep both in sync!
+# ============================================================================
+
+# Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, none
+step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
+step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
+step_ca_backup_s3_enabled: true  # Enable S3 uploads
+step_ca_backup_retention_days: 365  # Delete backups older than this
+
+# AWS KMS encryption (when step_ca_backup_encryption_method: aws-kms)
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
+
+# Symmetric encryption (when step_ca_backup_encryption_method: symmetric)
+step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
+
+# AWS credentials (from vault.yml)
+aws_access_key_id: ""
+aws_secret_access_key: ""
+aws_default_region: "us-east-1"
+
+# Smallstep paths (inherited from etcd3/certs/smallstep)
+step_path: "/etc/step-ca"
+step_ca_config: "{{ step_path }}/config/ca.json"
+step_ca_certs: "{{ step_path }}/certs"
+step_ca_secrets: "{{ step_path }}/secrets"
+
+# Binary paths (inherited from etcd3)
+bin_dir: /opt/bin

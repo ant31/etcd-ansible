@@ -97,7 +97,7 @@
   tags:
     - backup
 
-- name: Upload encrypted backup to S3 with KMS
+- name: Upload encrypted backup to S3 with KMS (timestamped)
   shell: |
     {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
       s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
@@ -112,7 +112,7 @@
     - backup
     - upload
 
-- name: Upload encrypted backup to S3 (symmetric encryption)
+- name: Upload encrypted backup to S3 (symmetric encryption, timestamped)
   shell: |
     {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
       s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
@@ -123,6 +123,20 @@
   when:
     - step_ca_backup_s3_enabled
     - step_ca_backup_encryption_method == 'symmetric'
+  tags:
+    - backup
+    - upload
+
+- name: Upload as latest pointer (for replication)
+  shell: |
+    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
+      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz{{ '.kms' if step_ca_backup_encryption_method == 'aws-kms' else ('.enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  when: 
+    - step_ca_backup_s3_enabled
   tags:
     - backup
     - upload

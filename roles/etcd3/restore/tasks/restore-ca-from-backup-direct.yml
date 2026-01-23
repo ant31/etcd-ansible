@@ -80,11 +80,12 @@
     - restore-ca
 
 - name: Download CA backup from S3
-  command: >
+  shell: >
     {{ bin_dir }}/aws s3 cp
     s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
     /tmp/ca-restore-encrypted
   environment:
+    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
@@ -93,13 +94,13 @@
     - restore-ca
 
 - name: Decrypt CA backup with AWS KMS
-  command: >
-    {{ bin_dir }}/aws kms decrypt
-    --ciphertext-blob fileb:///tmp/ca-restore-encrypted
-    --output text
-    --query Plaintext |
-    base64 -d > /tmp/ca-restore.tar.gz
+  shell: |
+    {{ bin_dir }}/aws kms decrypt \
+      --ciphertext-blob fileb:///tmp/ca-restore-encrypted \
+      --output text \
+      --query Plaintext | base64 -d > /tmp/ca-restore.tar.gz
   environment:
+    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
@@ -110,11 +111,13 @@
     - restore-ca
 
 - name: Decrypt CA backup with symmetric encryption
-  command: >
+  shell: >
     openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
     -in /tmp/ca-restore-encrypted
     -out /tmp/ca-restore.tar.gz
     -pass pass:"{{ step_ca_backup_password }}"
+  environment:
+    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
   when:
     - ca_backup_exists | default(true)
     - backup_encryption_method == 'symmetric'
@@ -123,7 +126,9 @@
     - restore-ca
 
 - name: Copy unencrypted backup
-  command: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
+  shell: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
+  environment:
+    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
   when:
     - ca_backup_exists | default(true)
     - backup_encryption_method == 'none'
@@ -170,7 +175,9 @@
   shell: |
     find /etc/step-ca/secrets -type f -name "*_key" -exec chmod 0400 {} \;
     find /etc/step-ca/secrets -type f -name "*_key" -exec chown root:root {} \;
-    chmod 0400 /etc/step-ca/secrets/password
+    if [ -f /etc/step-ca/secrets/password ]; then
+      chmod 0400 /etc/step-ca/secrets/password
+    fi
   when: ca_backup_exists | default(true)
   tags:
     - restore-ca
