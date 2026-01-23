@@ -1,113 +1,104 @@
 ---
-# CA replication tasks - moved from playbooks/replicate-ca.yaml
-# Replicates CA keys from primary to backup cert-managers
+# CA replication tasks - uses encrypted backup/restore method
+# This ensures manual replication uses the same secure method as automatic deployment
+# Usage: ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
 
-- name: Read CA private keys from primary
-  slurp:
-    src: "{{ item }}"
-  register: ca_keys
-  loop:
-    - /etc/step-ca/secrets/root_ca_key
-    - /etc/step-ca/secrets/intermediate_ca_key
-    - /etc/step-ca/secrets/password
-  no_log: true
+- name: Create encrypted CA backup on primary
+  include_role:
+    name: etcd3/backups/ca
+  vars:
+    ca_backup_action: replication
   when: inventory_hostname == groups[etcd_certmanagers_group][0]
-  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  tags:
+    - ca-backup
+
+- name: Wait for backup to appear in S3
+  command: >
+    {{ bin_dir }}/aws s3api head-object
+    --bucket {{ step_ca_backup_s3_bucket }}
+    --key {{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else ('enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  register: s3_backup_check
+  retries: 10
+  delay: 3
+  until: s3_backup_check.rc == 0
+  changed_when: false
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
   run_once: true
   tags:
     - ca-backup
 
-- name: Read CA certificates
-  slurp:
-    src: "{{ item }}"
-  register: ca_certs
-  loop:
-    - /etc/step-ca/certs/root_ca.crt
-    - /etc/step-ca/certs/intermediate_ca.crt
-  when: inventory_hostname == groups[etcd_certmanagers_group][0]
-  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
-  run_once: true
-  tags:
-    - ca-backup
-
-- name: Read CA config
-  slurp:
-    src: /etc/step-ca/config/ca.json
-  register: ca_config
-  when: inventory_hostname == groups[etcd_certmanagers_group][0]
-  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
-  run_once: true
-  tags:
-    - ca-backup
-
-- name: Ensure step-ca directories exist on backup nodes
-  file:
-    path: "{{ item }}"
-    state: directory
-    owner: root
-    group: root
-    mode: 0700
-  loop:
-    - /etc/step-ca/secrets
-    - /etc/step-ca/certs
-    - /etc/step-ca/config
+- name: Restore CA on backup cert-managers from encrypted S3 backup
+  include_role:
+    name: etcd3/restore
+  vars:
+    restore_action: ca-from-backup
+    restore_ca: true
+    restore_ca_from: s3
+    restore_ca_s3_file: latest
+    restore_confirm: false  # No prompt for manual replication
   when: inventory_hostname in groups[etcd_certmanagers_group][1:]
   tags:
     - ca-restore
 
-- name: Install CA private keys on backup nodes
-  copy:
-    content: "{{ item.content | b64decode }}"
-    dest: "{{ item.source }}"
-    owner: root
-    group: root
-    mode: 0400
-  loop: "{{ hostvars[groups[etcd_certmanagers_group][0]]['ca_keys'].results }}"
-  loop_control:
-    label: "{{ item.source }}"
-  no_log: true
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
-  tags:
-    - ca-restore
-
-- name: Install CA certificates on backup nodes
-  copy:
-    content: "{{ item.content | b64decode }}"
-    dest: "{{ item.source }}"
-    owner: root
-    group: root
-    mode: 0644
-  loop: "{{ hostvars[groups[etcd_certmanagers_group][0]]['ca_certs'].results }}"
-  loop_control:
-    label: "{{ item.source }}"
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
-  tags:
-    - ca-restore
-
-- name: Install CA config on backup nodes
-  copy:
-    content: "{{ hostvars[groups[etcd_certmanagers_group][0]]['ca_config'].content | b64decode }}"
-    dest: /etc/step-ca/config/ca.json
-    owner: root
-    group: root
-    mode: 0644
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
-  tags:
-    - ca-restore
-
-- name: Ensure step-ca service exists but is stopped
+- name: Ensure step-ca is stopped on backup cert-managers
   systemd:
     name: step-ca
     enabled: no
     state: stopped
-  ignore_errors: true
   when: inventory_hostname in groups[etcd_certmanagers_group][1:]
   tags:
     - ca-restore
 
-- name: Display backup node status
-  debug:
-    msg: "CA keys replicated to {{ inventory_hostname }} - step-ca installed but STOPPED (ready for failover)"
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+- name: Verify CA fingerprints match across all cert-managers
+  shell: step certificate fingerprint {{ step_ca_certs }}/root_ca.crt
+  register: ca_fingerprint
+  changed_when: false
   tags:
-    - ca-restore
+    - verify
+
+- name: Collect all CA fingerprints
+  set_fact:
+    all_ca_fingerprints: "{{ groups[etcd_certmanagers_group] | map('extract', hostvars, 'ca_fingerprint') | map(attribute='stdout') | list }}"
+  run_once: true
+  tags:
+    - verify
+
+- name: Assert all CA fingerprints are identical
+  assert:
+    that:
+      - all_ca_fingerprints | unique | length == 1
+    fail_msg: |
+      ❌ CA FINGERPRINT MISMATCH across cert-managers!
+      
+      Fingerprints:
+      {% for host in groups[etcd_certmanagers_group] %}
+      {{ host }}: {{ hostvars[host]['ca_fingerprint'].stdout }}
+      {% endfor %}
+      
+      Manual replication failed. Check logs and S3 backup.
+    success_msg: "✅ All cert-managers have identical CA (fingerprint: {{ all_ca_fingerprints[0] }})"
+  run_once: true
+  tags:
+    - verify
+
+- name: Display replication status
+  debug:
+    msg: |
+      ✅ CA Replication Complete
+      
+      Method: Encrypted backup/restore via S3
+      Encryption: {{ step_ca_backup_encryption_method }}
+      
+      Primary: {{ groups[etcd_certmanagers_group][0] }} (step-ca RUNNING)
+      Backups: {{ groups[etcd_certmanagers_group][1:] | join(', ') }} (step-ca STOPPED)
+      
+      CA fingerprint: {{ ca_fingerprint.stdout }}
+      
+      All cert-managers now have identical CA keys.
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+  tags:
+    - verify

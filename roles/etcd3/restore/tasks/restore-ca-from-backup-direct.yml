@@ -1,0 +1,187 @@
+---
+# Direct CA restore from S3 backup - used during replication
+# Simpler than full restore-ca.yml (no confirmation, no existing backup)
+# Variables required:
+#   - restore_ca_from: s3
+#   - restore_ca_s3_file: S3 path or 'latest'
+
+- name: Find latest CA backup in S3
+  shell: >
+    {{ bin_dir }}/aws s3api list-objects-v2
+    --bucket {{ step_ca_backup_s3_bucket }}
+    --prefix {{ step_ca_backup_s3_prefix }}/
+    --query 'Contents[?!contains(Key, `latest-ca-backup`)] | reverse(sort_by(@, &LastModified))[0].Key'
+    --output text 2>/dev/null || echo "NONE"
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  register: latest_backup
+  when: restore_ca_s3_file == 'latest'
+  changed_when: false
+  failed_when: false
+  tags:
+    - restore-ca
+
+- name: Check if CA backup exists
+  set_fact:
+    ca_backup_exists: "{{ latest_backup.stdout is defined and latest_backup.stdout != 'NONE' and latest_backup.stdout != 'None' and latest_backup.stdout | length > 0 }}"
+  when: restore_ca_s3_file == 'latest'
+  tags:
+    - restore-ca
+
+- name: Display warning if no backup exists
+  debug:
+    msg: |
+      ⚠️  No CA backup found in S3 (initial deployment)
+      
+      Bucket: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/
+      
+      This is expected during initial cluster deployment.
+      CA replication will be skipped for this backup cert-manager.
+      
+      The CA backup is being created now and will be available soon.
+      
+      To manually replicate CA later:
+        ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
+  when: 
+    - restore_ca_s3_file == 'latest'
+    - not ca_backup_exists | default(false)
+  tags:
+    - restore-ca
+
+- name: End play if no backup exists
+  meta: end_host
+  when:
+    - restore_ca_s3_file == 'latest'
+    - not ca_backup_exists | default(false)
+  tags:
+    - restore-ca
+
+- name: Set backup file path
+  set_fact:
+    ca_backup_s3_path: "{{ restore_ca_s3_file if restore_ca_s3_file != 'latest' else latest_backup.stdout }}"
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Detect encryption method from backup file
+  set_fact:
+    backup_encryption_method: >-
+      {%- if ca_backup_s3_path.endswith('.kms') -%}
+      aws-kms
+      {%- elif ca_backup_s3_path.endswith('.enc') -%}
+      symmetric
+      {%- else -%}
+      none
+      {%- endif -%}
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Download CA backup from S3
+  command: >
+    {{ bin_dir }}/aws s3 cp
+    s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
+    /tmp/ca-restore-encrypted
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Decrypt CA backup with AWS KMS
+  command: >
+    {{ bin_dir }}/aws kms decrypt
+    --ciphertext-blob fileb:///tmp/ca-restore-encrypted
+    --output text
+    --query Plaintext |
+    base64 -d > /tmp/ca-restore.tar.gz
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  when: 
+    - ca_backup_exists | default(true)
+    - backup_encryption_method == 'aws-kms'
+  tags:
+    - restore-ca
+
+- name: Decrypt CA backup with symmetric encryption
+  command: >
+    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
+    -in /tmp/ca-restore-encrypted
+    -out /tmp/ca-restore.tar.gz
+    -pass pass:"{{ step_ca_backup_password }}"
+  when:
+    - ca_backup_exists | default(true)
+    - backup_encryption_method == 'symmetric'
+  no_log: true
+  tags:
+    - restore-ca
+
+- name: Copy unencrypted backup
+  command: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
+  when:
+    - ca_backup_exists | default(true)
+    - backup_encryption_method == 'none'
+  tags:
+    - restore-ca
+
+- name: Ensure step-ca directories exist (root only)
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - /etc/step-ca/secrets
+    - /etc/step-ca/certs
+    - /etc/step-ca/config
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Extract CA backup
+  unarchive:
+    src: /tmp/ca-restore.tar.gz
+    dest: /
+    remote_src: yes
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Set CA file permissions (root only, step-ca runs as root)
+  file:
+    path: /etc/step-ca/secrets
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+    recurse: yes
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Set CA private key permissions (root only, 0400)
+  shell: |
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chmod 0400 {} \;
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chown root:root {} \;
+    chmod 0400 /etc/step-ca/secrets/password
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca
+
+- name: Cleanup temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/ca-restore-encrypted
+    - /tmp/ca-restore.tar.gz
+  when: ca_backup_exists | default(true)
+  tags:
+    - restore-ca

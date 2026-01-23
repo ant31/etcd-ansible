@@ -33,6 +33,12 @@
     - backup
     - validate
 
+- name: Gather date/time facts
+  setup:
+    filter: ansible_date_time
+  tags:
+    - backup
+
 - name: Set backup variables
   set_fact:
     backup_dir: /tmp
@@ -51,14 +57,17 @@
     - backup
 
 - name: Encrypt backup with AWS KMS
-  command: >
-    aws kms encrypt
-    --key-id {{ step_ca_backup_kms_key_id }}
-    --plaintext fileb://{{ backup_dir }}/{{ backup_file }}
-    --output text
-    --query CiphertextBlob
-    | base64 -d > {{ backup_dir }}/{{ backup_file }}.kms
+  shell: |
+    {{ bin_dir }}/aws kms encrypt \
+      --key-id {{ step_ca_backup_kms_key_id }} \
+      --plaintext fileb://{{ backup_dir }}/{{ backup_file }} \
+      --output text \
+      --query CiphertextBlob | base64 -d > {{ backup_dir }}/{{ backup_file }}.kms
   when: step_ca_backup_encryption_method == 'aws-kms'
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   tags:
     - backup
     - encrypt
@@ -89,14 +98,13 @@
     - backup
 
 - name: Upload encrypted backup to S3 with KMS
-  aws_s3:
-    bucket: "{{ step_ca_backup_s3_bucket }}"
-    object: "{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
-    src: "{{ backup_dir }}/{{ encrypted_file }}"
-    mode: put
-    encrypt: yes
-    encryption_mode: "aws:kms"
-    encryption_kms_key_id: "{{ step_ca_backup_kms_key_id }}"
+  shell: |
+    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
+      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   when: 
     - step_ca_backup_s3_enabled
     - step_ca_backup_encryption_method in ['aws-kms', 'aws-s3-sse']
@@ -105,12 +113,13 @@
     - upload
 
 - name: Upload encrypted backup to S3 (symmetric encryption)
-  aws_s3:
-    bucket: "{{ step_ca_backup_s3_bucket }}"
-    object: "{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
-    src: "{{ backup_dir }}/{{ encrypted_file }}"
-    mode: put
-    encrypt: yes
+  shell: |
+    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
+      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   when:
     - step_ca_backup_s3_enabled
     - step_ca_backup_encryption_method == 'symmetric'

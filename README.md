@@ -166,7 +166,14 @@ This will:
 4. Generate certificates for all nodes (2-year lifetime)
 5. Configure automatic renewal via systemd timers
 6. Deploy and start etcd cluster
-7. Replicate CA keys to backup cert-managers
+7. **Replicate CA keys securely to backup cert-managers (if multiple cert-managers configured):**
+   - Creates encrypted backup on primary (aws-kms or symmetric encryption)
+   - Uploads to S3 (never transmits plaintext keys over network)
+   - Restores on backup nodes from encrypted S3 backup
+   - Verifies CA fingerprints match across all cert-managers
+   - Tests backup/restore during deployment
+   - Manual replication (if needed) uses same secure method
+   - **Note:** Skipped if only one cert-manager in inventory (single node setup)
 
 ### 5. Verify Installation
 

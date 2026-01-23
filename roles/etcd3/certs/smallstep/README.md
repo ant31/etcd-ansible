@@ -282,14 +282,33 @@ etcd-k8s-2  # Backup - CA keys replicated, step-ca installed but stopped
 Deploy with CA key replication:
 
 ```bash
-# Initial deployment
+# Initial deployment - replication happens automatically
 ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
 
-# This automatically:
-# 1. Installs step-ca on etcd-k8s-1 (starts service)
-# 2. Installs step-ca on etcd-k8s-2 (service stopped)
-# 3. Replicates CA keys to etcd-k8s-2
+# Manual replication (if adding new backup cert-manager later)
+ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
 ```
+
+**Automatic replication during deployment (only if multiple cert-managers):**
+1. Installs step-ca on primary cert-manager (starts service)
+2. Creates encrypted backup of CA keys to S3 (aws-kms or symmetric)
+3. Restores CA on backup cert-managers from encrypted S3 backup
+4. Verifies CA fingerprints match across all cert-managers
+5. Keeps step-ca stopped on backups (ready for failover)
+
+**Note:** Replication is **automatically skipped** if only one cert-manager is configured in inventory.
+
+**Encryption Options:**
+- **aws-kms** (recommended): AWS KMS client-side encryption with key rotation support
+- **symmetric**: OpenSSL AES-256-CBC encryption with password from ansible-vault
+- **none**: No encryption (not recommended for production)
+
+**Security Benefits:**
+- ✅ CA keys transmitted encrypted (aws-kms or symmetric)
+- ✅ Backup/restore tested during deployment
+- ✅ Same process used for disaster recovery
+- ✅ No plaintext CA keys in Ansible memory
+- ✅ Manual replication uses same secure method
 
 ### Manual Failover Procedure
 

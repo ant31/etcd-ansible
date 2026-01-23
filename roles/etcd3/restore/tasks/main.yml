@@ -6,20 +6,27 @@
     - restore
     - restore-ca
 
+- name: Restore CA from backup (for replication during deployment)
+  include_tasks: restore-ca-from-backup-direct.yml
+  when: restore_action | default('') == 'ca-from-backup'
+  tags:
+    - restore
+    - restore-ca
+
 - name: Validate restore configuration
   assert:
     that:
       - restore_ca or restore_etcd_data
       - restore_ca_from in ['s3', 'local', 'backup-node'] or not restore_ca
     fail_msg: "Invalid restore configuration"
-  when: restore_action | default('') != 'ca-from-node'
+  when: restore_action | default('') not in ['ca-from-node', 'ca-from-backup']
   tags:
     - restore
     - validate
 
 - name: Restore CA
   include_tasks: restore-ca.yml
-  when: restore_ca and restore_action | default('') != 'ca-from-node'
+  when: restore_ca and restore_action | default('') not in ['ca-from-node', 'ca-from-backup']
   tags:
     - restore
     - restore-ca
