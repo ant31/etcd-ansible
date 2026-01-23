@@ -1,0 +1,133 @@
+---
+# Direct node-to-node CA restore - moved from playbooks/restore-ca.yaml
+# Variables required:
+#   - source_node: Node to copy CA from
+#   - target_node: Node to copy CA to
+
+- name: Read CA keys from source node
+  slurp:
+    src: "{{ item }}"
+  register: source_ca_keys
+  loop:
+    - /etc/step-ca/secrets/root_ca_key
+    - /etc/step-ca/secrets/intermediate_ca_key
+    - /etc/step-ca/secrets/password
+  no_log: true
+  delegate_to: "{{ source_node }}"
+  run_once: true
+  tags:
+    - restore
+
+- name: Read CA certs from source node
+  slurp:
+    src: "{{ item }}"
+  register: source_ca_certs
+  loop:
+    - /etc/step-ca/certs/root_ca.crt
+    - /etc/step-ca/certs/intermediate_ca.crt
+  delegate_to: "{{ source_node }}"
+  run_once: true
+  tags:
+    - restore
+
+- name: Read CA config from source node
+  slurp:
+    src: /etc/step-ca/config/ca.json
+  register: source_ca_config
+  delegate_to: "{{ source_node }}"
+  run_once: true
+  tags:
+    - restore
+
+- name: Stop step-ca service on target
+  systemd:
+    name: step-ca
+    state: stopped
+  failed_when: false
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Ensure step-ca directories exist on target
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - /etc/step-ca/secrets
+    - /etc/step-ca/certs
+    - /etc/step-ca/config
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Restore CA private keys on target
+  copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ item.source }}"
+    owner: root
+    group: root
+    mode: 0400
+  loop: "{{ source_ca_keys.results }}"
+  loop_control:
+    label: "{{ item.source }}"
+  no_log: true
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Restore CA certificates on target
+  copy:
+    content: "{{ item.content | b64decode }}"
+    dest: "{{ item.source }}"
+    owner: root
+    group: root
+    mode: 0644
+  loop: "{{ source_ca_certs.results }}"
+  loop_control:
+    label: "{{ item.source }}"
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Restore CA config on target
+  copy:
+    content: "{{ source_ca_config.content | b64decode }}"
+    dest: /etc/step-ca/config/ca.json
+    owner: root
+    group: root
+    mode: 0644
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Start step-ca service on target
+  systemd:
+    name: step-ca
+    state: started
+    enabled: yes
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Wait for step-ca to be ready
+  uri:
+    url: "https://localhost:9000/health"
+    validate_certs: no
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 3
+  when: inventory_hostname == target_node
+  tags:
+    - restore
+
+- name: Display restore status
+  debug:
+    msg: "CA keys restored from {{ source_node }} to {{ target_node }} - step-ca is running"
+  when: inventory_hostname == target_node
+  tags:
+    - restore

@@ -1,4 +1,17 @@
 ---
+- name: Confirm log deletion
+  pause:
+    prompt: "⚠️  WARNING: This will DELETE journald logs older than 7 days on {{ inventory_hostname }}. Type 'yes' to confirm"
+  register: confirm_log_delete
+  when: cleanup_require_confirm | default(true)
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not (cleanup_require_confirm | default(true)) or confirm_log_delete.user_input == 'yes'
+    fail_msg: "Log deletion cancelled by user"
+  when: cleanup_require_confirm | default(true)
+
 - name: Clean old journald logs
   command: journalctl --vacuum-time=7d
   register: log_cleanup
