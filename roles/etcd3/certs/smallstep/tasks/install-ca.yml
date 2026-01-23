@@ -211,17 +211,26 @@
   retries: 10
   delay: 3
 
-- name: Get root CA certificate
+- name: Get root CA certificate (force fresh read)
   slurp:
     src: "{{ step_ca_certs }}/root_ca.crt"
   register: step_root_ca
   
-- name: Store root CA as fact
+- name: Clear any cached root CA facts (ensure fresh distribution)
+  set_fact:
+    step_ca_root_cert: ""
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
+  when: etcd_force_certs | default(false) | bool
+
+- name: Store root CA as fact (fresh from regenerated CA)
   set_fact:
     step_ca_root_cert: "{{ step_root_ca.content | b64decode }}"
   delegate_to: "{{ item }}"
   delegate_facts: true
   loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
+
 
 - name: Replicate CA keys to backup cert-managers using encrypted backup/restore
   block:
@@ -360,4 +369,4 @@
 
   when:
     - groups[etcd_certmanagers_group] | length > 1
-    - not (etcd_force_certs | default(false))  # Skip during certificate regeneration
+    - not (etcd_force_certs | default(false) | bool)  # Skip during certificate regeneration

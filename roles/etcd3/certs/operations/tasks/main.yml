@@ -21,8 +21,14 @@
   tags:
     - rotate
 
-- name: Regenerate all certificates
+- name: Regenerate CA and all certificates (DISASTER RECOVERY)
   include_tasks: regenerate.yml
-  when: cert_operation_action == 'regenerate'
+  when: cert_operation_action == 'regenerate-ca'
   tags:
-    - regenerate
+    - regenerate-ca
+
+- name: Regenerate node certificates only (ROUTINE ROTATION)
+  include_tasks: regenerate-nodes.yml
+  when: cert_operation_action == 'regenerate-nodes'
+  tags:
+    - regenerate-nodes

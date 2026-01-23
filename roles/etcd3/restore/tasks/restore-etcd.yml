@@ -3,16 +3,16 @@
   pause:
     prompt: "You are about to restore etcd data. This will replace current cluster data. Continue? (yes/no)"
   register: restore_confirm_input
-  when: restore_confirm
+  when: restore_confirm | bool
   tags:
     - restore-etcd
 
 - name: Validate confirmation
   assert:
     that:
-      - not (restore_confirm | default(true)) or (restore_confirm_input.user_input is defined and restore_confirm_input.user_input == 'yes')
+      - not (restore_confirm | default(true) | bool) or (restore_confirm_input.user_input is defined and restore_confirm_input.user_input == 'yes')
     fail_msg: "❌ Etcd data restore cancelled: user did not confirm with 'yes'"
-  when: restore_confirm | default(true)
+  when: restore_confirm | default(true) | bool
   tags:
     - restore-etcd
 
@@ -127,7 +127,7 @@
   stat:
     path: "{{ etcd_data_dir }}"
   register: etcd_data_dir_stat
-  when: restore_backup_existing
+  when: restore_backup_existing | bool
   tags:
     - restore-etcd
 
@@ -136,7 +136,7 @@
     mv {{ etcd_data_dir }}
     {{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
   when: 
-    - restore_backup_existing
+    - restore_backup_existing | bool
     - etcd_data_dir_stat.stat.exists
   tags:
     - restore-etcd

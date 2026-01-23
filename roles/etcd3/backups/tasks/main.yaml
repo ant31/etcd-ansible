@@ -15,7 +15,13 @@
     group: "{{ etcd_user.name }}"
     mode: 0755
 
-- name: ETCD | Check if etcd cluster is healthy
+- name: Check if client certificate exists
+  stat:
+    path: "{{etcd_cert_paths.client.cert}}"
+  register: client_cert_exists
+  changed_when: false
+
+- name: ETCD | Check if etcd cluster is healthy (only if certificates exist)
   command: >-
     {{bin_dir}}/etcdctl --endpoints={{etcd_access_addresses}}
     --cert={{etcd_cert_paths.client.cert}}
@@ -30,18 +36,22 @@
   ignore_errors: true
   environment:
     ETCDCTL_API: "3"
+  when: client_cert_exists.stat.exists
 
-- name:
-  fail:
-    msg: >-
-      Can't create a live backup, the cluster is not healthy.
-      It's possible to try with `etcd_backup_offline=true` to create a backup from the 'member/snap/db' file
-  when:
-    - etcd_cluster_is_healthy is failed
-    - not etcd_backup_offline | d(false) | bool
-    - not etcd_force_backup | d(false) | bool
+- name: Set cluster health status (unhealthy if certs missing)
+  set_fact:
+    etcd_cluster_is_healthy: "{{ etcd_cluster_is_healthy if client_cert_exists.stat.exists else {'failed': true, 'rc': 1} }}"
 
-- name: Backup etcd v3 data
+- name: Display backup strategy
+  debug:
+    msg: |
+      Backup strategy:
+      - Certificates exist: {{ client_cert_exists.stat.exists }}
+      - Cluster healthy: {{ etcd_cluster_is_healthy.rc == 0 if etcd_cluster_is_healthy.rc is defined else false }}
+      - Forcing offline: {{ etcd_backup_offline | d(false) }}
+      - Will use: {{ 'OFFLINE backup (from snap/db file)' if (not client_cert_exists.stat.exists or etcd_cluster_is_healthy.failed | d(false) or etcd_backup_offline | d(false)) else 'ONLINE backup (via etcdctl)' }}
+
+- name: Backup etcd v3 data (online)
   command: >-
     {{bin_dir}}/etcdctl --endpoints={{etcd_client_url}}
     --cert={{etcd_cert_paths.client.cert}}
@@ -52,7 +62,11 @@
   environment:
     ETCDCTL_API: "3"
   when:
-    - etcd_cluster_is_healthy is succeeded or etcd_force_backup|d(false)|bool
+    - client_cert_exists.stat.exists
+    - not etcd_backup_offline | d(false) | bool
+    - etcd_cluster_is_healthy.rc is defined
+    - etcd_cluster_is_healthy.rc == 0
+  ignore_errors: true
 
 - name: Verify snapshot integrity with etcdutl
   command: >-
@@ -61,7 +75,9 @@
   register: snapshot_verification
   failed_when: snapshot_verification.rc != 0
   when:
+    - etcd_snapshot is defined
     - etcd_snapshot is succeeded
+    - etcd_snapshot is not skipped
   tags:
     - verify-backup
 
@@ -73,15 +89,15 @@
   tags:
     - verify-backup
 
-- name: backup from 'member/snap/db' file
+- name: Backup from 'member/snap/db' file (offline backup)
   copy:
     remote_src: true
     src: "{{etcd_data_dir}}/member/snap/db"
     dest: "{{etcd_backup_file}}"
   register: offline_backup
   when:
-    - etcd_backup_offline | d(false) | bool
-    - etcd_cluster_is_healthy is failed
+    - etcd_snapshot is not defined or etcd_snapshot.rc is not defined or etcd_snapshot.rc != 0 or etcd_backup_offline | d(false) | bool
+  failed_when: false
 
 - name: Verify offline snapshot integrity with etcdutl
   command: >-
@@ -90,7 +106,9 @@
   register: offline_snapshot_verification
   failed_when: offline_snapshot_verification.rc != 0
   when:
+    - offline_backup is defined
     - offline_backup is succeeded
+    - offline_backup is not skipped
   tags:
     - verify-backup
 

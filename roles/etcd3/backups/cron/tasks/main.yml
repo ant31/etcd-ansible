@@ -15,7 +15,7 @@
 - name: Setup CA backup cron
   include_tasks: setup-ca-backup-cron.yml
   when: 
-    - ca_backup_cron_enabled
+    - ca_backup_cron_enabled | bool
     - inventory_hostname in groups[etcd_certmanagers_group]
   tags:
     - backup-cron
@@ -24,7 +24,7 @@
 - name: Setup etcd data backup cron
   include_tasks: setup-etcd-backup-cron.yml
   when:
-    - etcd_backup_cron_enabled
+    - etcd_backup_cron_enabled | bool
     - inventory_hostname in groups[etcd_cluster_group]
   tags:
     - backup-cron
@@ -35,8 +35,8 @@
   become: yes
   become_user: root
   when:
-    - ca_backup_initial_run | default(true)
-    - ca_backup_cron_enabled
+    - ca_backup_initial_run | default(true) | bool
+    - ca_backup_cron_enabled | bool
     - inventory_hostname in groups[etcd_certmanagers_group]
   ignore_errors: yes
   register: initial_ca_backup
@@ -60,8 +60,8 @@
   become: yes
   become_user: "{{ etcd_user.name }}"
   when:
-    - etcd_backup_initial_run | default(true)
-    - etcd_backup_cron_enabled
+    - etcd_backup_initial_run | default(true) | bool
+    - etcd_backup_cron_enabled | bool
     - inventory_hostname == groups[etcd_cluster_group][0]
   ignore_errors: yes
   register: initial_etcd_backup

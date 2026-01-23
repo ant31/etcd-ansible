@@ -3,14 +3,14 @@
   pause:
     prompt: "⚠️  WARNING: This will DELETE all certificates on {{ inventory_hostname }}. Certificates will need to be regenerated. Type 'yes' to confirm"
   register: confirm_cert_delete
-  when: cleanup_require_confirm | default(true)
+  when: cleanup_require_confirm | default(true) | bool
 
 - name: Validate confirmation
   assert:
     that:
-      - not (cleanup_require_confirm | default(true)) or confirm_cert_delete.user_input == 'yes'
+      - not (cleanup_require_confirm | default(true) | bool) or confirm_cert_delete.user_input == 'yes'
     fail_msg: "Certificate deletion cancelled by user"
-  when: cleanup_require_confirm | default(true)
+  when: cleanup_require_confirm | default(true) | bool
 
 - name: Remove certificate directories
   file:

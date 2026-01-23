@@ -1,0 +1,201 @@
+---
+# Regenerate CA and all certificates (DISASTER RECOVERY)
+# ⚠️  USE ONLY WHEN CA PASSWORD IS LOST OR CA IS COMPROMISED
+#
+# This completely rebuilds the CA with new passwords
+# All existing certificates become invalid
+#
+# Usage: ansible-playbook -i inventory.ini playbooks/regenerate-ca.yaml --vault-password-file ~/.vault-pass
+#
+# WHEN TO USE:
+# ❌ Quarterly cert rotation → use regenerate-node-certs.yaml instead
+# ❌ Cert about to expire → use regenerate-node-certs.yaml instead
+# ✅ Lost CA password → use this playbook (last resort)
+# ✅ CA compromised → use this playbook (security incident)
+# ✅ Root CA expired → use this playbook (CA rebuild needed)
+#
+# For routine certificate rotation, see: playbooks/regenerate-node-certs.yaml
+
+- name: Confirm CA regeneration (DISASTER RECOVERY)
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Prompt for confirmation
+      pause:
+        prompt: |
+          ⚠️  WARNING: CA REGENERATION (DISASTER RECOVERY)
+          
+          This is a DESTRUCTIVE operation that completely rebuilds the CA!
+          
+          What will happen:
+          1. Backup cluster data (safety)
+          2. DELETE existing CA with all keys
+          3. BUILD new CA with NEW passwords from vault.yml
+          4. Generate ALL NEW certificates for ALL nodes
+          5. Replicate new CA to backup cert-managers
+          6. Rolling restart etcd (one node at a time)
+          
+          Impact:
+          - CA: COMPLETELY REBUILT (new root CA, new fingerprint)
+          - All certificates: INVALID (new ones generated)
+          - External clients: NEED NEW certificates
+          - Downtime: None (rolling restart maintains quorum)
+          - Time: 10-15 minutes
+          
+          Prerequisites:
+          ✓ Have you updated vault.yml with NEW passwords?
+          ✓ Is this a disaster recovery (lost password)?
+          ✓ Or is this a security incident (CA compromised)?
+          
+          For routine certificate rotation use: regenerate-node-certs.yaml
+          
+          Type 'yes' to confirm CA regeneration (disaster recovery)
+      register: confirm_input
+      when: not (skip_confirmation | default(false))
+    
+    - name: Validate confirmation
+      assert:
+        that:
+          - skip_confirmation | default(false) or confirm_input.user_input == 'yes'
+        fail_msg: "CA regeneration cancelled"
+
+- name: Backup cluster before regeneration (SAFETY FIRST)
+  hosts: etcd[0]
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: etcd3/backups
+      tags:
+        - backup
+  vars:
+    # Try online backup first, but will automatically fallback to offline if:
+    # - Certificates don't exist (haven't been generated yet)
+    # - Cluster is unhealthy
+    # - Online backup fails for any reason
+    etcd_backup_offline: false  # Let backup role handle fallback automatically
+
+- name: Cleanup old CA and certificates (etcd keeps running with old certs)
+  hosts: etcd,etcd-clients,etcd-cert-managers
+  become: yes
+  gather_facts: yes
+  vars:
+    cert_operation_action: regenerate-ca
+  roles:
+    - role: etcd3/certs/operations
+      tags:
+        - regenerate-ca
+
+- name: Regenerate certificates with new CA
+  hosts: etcd,etcd-clients,etcd-cert-managers
+  become: yes
+  gather_facts: yes
+  vars:
+    etcd_force_certs: true
+  roles:
+    - role: etcd3/certs/smallstep
+      tags:
+        - certs
+
+- name: Rolling restart etcd services (one at a time - maintains quorum)
+  hosts: etcd
+  become: yes
+  gather_facts: no
+  serial: 1  # ONE NODE AT A TIME - maintains quorum (n-1)/2 nodes always up
+  tasks:
+    - name: Restart etcd service with new certificates
+      systemd:
+        name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+        state: restarted
+      register: etcd_restart
+      retries: 3
+      delay: 10
+      until: etcd_restart is succeeded
+    
+    - name: Wait for node to be healthy after restart
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:2379
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: health_check
+      retries: 20
+      delay: 5
+      until: health_check.rc == 0
+      changed_when: false
+    
+    - name: Display node restart status
+      debug:
+        msg: |
+          ✅ Node {{ inventory_hostname }} restarted with new certificates
+          Remaining nodes: {{ groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1) }}
+
+- name: Replicate new CA to backup cert-managers
+  hosts: etcd-cert-managers
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: etcd3/certs/replicate
+      when: groups[etcd_certmanagers_group] | length > 1
+      tags:
+        - replicate-ca
+
+- name: Verify cluster health
+  hosts: etcd[0]
+  become: yes
+  gather_facts: no
+  vars:
+    operation_action: health
+  roles:
+    - role: etcd3/operations
+      tags:
+        - health
+
+- name: Display completion status
+  hosts: localhost
+  gather_facts: no
+  vars:
+    etcd_certmanagers_group: etcd-cert-managers
+  tasks:
+    - name: Show success message
+      debug:
+        msg: |
+          ✅ Certificate regeneration complete!
+          
+          ⚠️  DISASTER RECOVERY COMPLETE
+          
+          Process summary:
+          1. ✅ Cluster backup created (before any changes)
+          2. ✅ Old CA COMPLETELY DELETED (root + intermediate keys)
+          3. ✅ New CA initialized with NEW passwords from vault.yml
+          4. ✅ All certificates regenerated from new CA
+          {% if groups[etcd_certmanagers_group] | length > 1 %}
+          5. ✅ New CA replicated to backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}
+          {% endif %}
+          6. ✅ Etcd services restarted one-by-one (quorum maintained)
+          7. ✅ Automatic renewal reconfigured
+          
+          Impact assessment:
+          - CA: COMPLETELY NEW (different root CA fingerprint)
+          - All certificates: NEW (generated from new CA)
+          - External clients: MUST GET NEW certificates
+          - Quorum: MAINTAINED throughout (rolling restart)
+          - Downtime: ZERO
+          
+          CRITICAL NEXT STEPS:
+          1. 🔐 Save new vault.yml passwords SECURELY (different from old!)
+          2. 📋 Update ALL external systems with new certificates:
+             - Kubernetes API servers
+             - Monitoring systems
+             - Backup tools
+             - Any other etcd clients
+          3. ✅ Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+          {% if groups[etcd_certmanagers_group] | length > 1 %}
+          4. 🔍 Verify CA fingerprints match: ansible etcd-cert-managers -i inventory.ini -m shell -a 'step certificate fingerprint /etc/step-ca/certs/root_ca.crt' -b
+          {% endif %}
+          5. 📧 Notify team about CA change (new root CA fingerprint)
+          
+          For routine certificate rotation (keeping same CA):
+            Use: ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml

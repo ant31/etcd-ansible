@@ -13,8 +13,8 @@
   set_fact:
     cluster_size: "{{ groups[etcd_cluster_group] | length }}"
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
   tags:
     - etcd-backup-cron
 
@@ -22,8 +22,8 @@
   set_fact:
     backup_interval_minutes: "{{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}"
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
   tags:
     - etcd-backup-cron
 
@@ -31,8 +31,8 @@
   set_fact:
     backup_time_offset: "{{ (((etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1)) | int - 1) * (backup_interval_minutes | int) / (cluster_size | int)) | int }}"
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
   tags:
     - etcd-backup-cron
 
@@ -45,9 +45,9 @@
     user: "{{ etcd_user.name }}"
     state: present
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
-    - not (etcd_backup_independent | default(false))
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - not (etcd_backup_independent | default(false) | bool)
   tags:
     - etcd-backup-cron
 
@@ -60,9 +60,9 @@
     user: "{{ etcd_user.name }}"
     state: present
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
-    - etcd_backup_independent | default(false)
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - etcd_backup_independent | default(false) | bool
   tags:
     - etcd-backup-cron
 
@@ -75,8 +75,8 @@
     user: "{{ etcd_user.name }}"
     state: present
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - not (etcd_backup_distributed | default(true))
+    - etcd_backup_cron_enabled | default(true) | bool
+    - not (etcd_backup_distributed | default(true) | bool)
     - inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
@@ -108,7 +108,7 @@
   register: backup_schedule
   changed_when: false
   when: 
-    - etcd_backup_cron_enabled | default(true)
+    - etcd_backup_cron_enabled | default(true) | bool
     - inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
@@ -138,9 +138,9 @@
       
       To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
-    - not (etcd_backup_independent | default(false))
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - not (etcd_backup_independent | default(false) | bool)
   tags:
     - etcd-backup-cron
 
@@ -176,9 +176,9 @@
       
       To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - etcd_backup_distributed | default(true)
-    - etcd_backup_independent | default(false)
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - etcd_backup_independent | default(false) | bool
   tags:
     - etcd-backup-cron
 
@@ -194,8 +194,8 @@
       
       To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
   when: 
-    - etcd_backup_cron_enabled | default(true)
-    - not (etcd_backup_distributed | default(true))
+    - etcd_backup_cron_enabled | default(true) | bool
+    - not (etcd_backup_distributed | default(true) | bool)
     - inventory_hostname == groups[etcd_cluster_group][0]
     - backup_schedule is defined
   tags:

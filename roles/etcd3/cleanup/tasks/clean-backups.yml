@@ -3,14 +3,14 @@
   pause:
     prompt: "⚠️  WARNING: This will DELETE local backups older than 30 days on {{ inventory_hostname }}. Type 'yes' to confirm"
   register: confirm_backup_delete
-  when: cleanup_require_confirm | default(true)
+  when: cleanup_require_confirm | default(true) | bool
 
 - name: Validate confirmation
   assert:
     that:
-      - not (cleanup_require_confirm | default(true)) or confirm_backup_delete.user_input == 'yes'
+      - not (cleanup_require_confirm | default(true) | bool) or confirm_backup_delete.user_input == 'yes'
     fail_msg: "Backup deletion cancelled by user"
-  when: cleanup_require_confirm | default(true)
+  when: cleanup_require_confirm | default(true) | bool
 
 - name: Clean old local backups
   shell: |

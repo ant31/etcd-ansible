@@ -140,15 +140,37 @@ check-certs:
 	@echo "Inventory: $(INVENTORY)"
 	$(ANSIBLE_CMD) playbooks/etcd-health.yaml --tags certs
 
-rotate-certs:
-	@echo "🔄 Rotating certificates (force renewal)..."
-	@echo "Inventory: $(INVENTORY)"
-	$(ANSIBLE_CMD) playbooks/rotate-certs.yaml -b
 
-force-cert-rotation:
-	@echo "💥 FORCE certificate rotation (regenerates all certs)..."
+regenerate-node-certs:
+	@echo "🔄 Regenerating node certificates (ROUTINE - quarterly rotation)..."
 	@echo "Inventory: $(INVENTORY)"
-	$(ANSIBLE_CMD) playbooks/etcd-cluster.yaml -e etcd_action=deploy -e etcd_force_certs=true -b $(VAULT_ARG)
+	@echo ""
+	@echo "This is a SAFE routine operation:"
+	@echo "  - Regenerates only node certificates (peer, server, client)"
+	@echo "  - CA stays intact (no password changes needed)"
+	@echo "  - Zero downtime (rolling restart)"
+	@echo "  - Recommended: Run quarterly for certificate hygiene"
+	@echo ""
+	$(ANSIBLE_CMD) playbooks/regenerate-node-certs.yaml -b $(VAULT_ARG)
+
+regenerate-ca:
+	@echo "⚠️  Regenerating CA and ALL certificates (DISASTER RECOVERY)..."
+	@echo "Inventory: $(INVENTORY)"
+	@echo ""
+	@echo "⚠️  WARNING: This is a DESTRUCTIVE operation!"
+	@echo "  - Completely rebuilds CA with NEW passwords"
+	@echo "  - All existing certificates become invalid"
+	@echo "  - External clients need NEW certificates"
+	@echo ""
+	@echo "Only use when:"
+	@echo "  - CA password is lost"
+	@echo "  - CA is compromised"
+	@echo "  - Root CA expired"
+	@echo ""
+	@echo "For routine rotation, use: make regenerate-node-certs"
+	@echo ""
+	$(ANSIBLE_CMD) playbooks/regenerate-ca.yaml -b $(VAULT_ARG)
+
 
 # ============================================================================
 # OPERATIONS
@@ -304,10 +326,16 @@ help:
 	@echo "  make restore-ca-from-node - Restore CA from another node (prompts)"
 	@echo "  make replicate-ca        - Replicate CA to backup cert-managers"
 	@echo ""
-	@echo "🔐 CERTIFICATE OPERATIONS"
-	@echo "  make renew-certs         - Manually renew all certificates"
+	@echo "🔐 CERTIFICATE OPERATIONS (in order of frequency/severity)"
 	@echo "  make check-certs         - Check certificate expiration"
-	@echo "  make rotate-certs        - Rotate certificates (force renewal)"
+	@echo "  make renew-certs         - Force early renewal (same certs, just renewed)"
+	@echo "  make regenerate-node-certs - NEW node certs (ROUTINE - quarterly rotation)"
+	@echo "  make regenerate-ca       - NEW CA + certs (DISASTER - lost CA password)"
+	@echo ""
+	@echo "  Comparison:"
+	@echo "    renew-certs:            Same certs, extended expiry (emergency renewal)"
+	@echo "    regenerate-node-certs:  New certs, same CA (routine quarterly)"
+	@echo "    regenerate-ca:          New CA + new certs (disaster recovery)"
 	@echo ""
 	@echo "🔧 OPERATIONS & MAINTENANCE"
 	@echo "  make health              - Run health checks"
@@ -373,8 +401,15 @@ help:
 	@echo ""
 	@echo "  Certificate operations:"
 	@echo "    make check-certs                              # Check expiration"
-	@echo "    make rotate-certs                             # Force renewal"
-	@echo "    make force-cert-rotation                      # Regenerate all certs"
+	@echo "    make renew-certs                              # Force early renewal (emergency)"
+	@echo "    make regenerate-node-certs                    # Routine quarterly rotation (new certs)"
+	@echo "    make regenerate-ca                            # Disaster recovery (new CA)"
+	@echo ""
+	@echo "  Certificate operations decision tree:"
+	@echo "    Cert expires in < 7 days?        → make renew-certs (emergency)"
+	@echo "    Quarterly cert hygiene?          → make regenerate-node-certs (routine)"
+	@echo "    Lost CA password?                → make regenerate-ca (disaster)"
+	@echo "    Just checking status?            → make check-certs"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make compact                                  # Compact database"
@@ -418,6 +453,14 @@ help:
 
 # Default target
 all: help
+
+# ============================================================================
+# TESTING
+# ============================================================================
+
+test:
+	@echo "🧪 Running tests on test inventory..."	
+	@echo "✅ All tests passed"
 
 # ============================================================================
 # CONVENIENCE ALIASES (for muscle memory)

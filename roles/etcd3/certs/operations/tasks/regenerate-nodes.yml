@@ -1,0 +1,56 @@
+---
+# Regenerate node certificates only (CA stays intact)
+# This is a ROUTINE operation - can be done quarterly or when certs compromised
+# Zero downtime - old certs valid until nodes restart
+
+- name: Display node cert regeneration notice
+  debug:
+    msg: |
+      🔄 NODE CERTIFICATE REGENERATION
+      
+      This will regenerate ONLY node certificates (peer, server, client)
+      CA is NOT touched - remains intact
+      
+      Process:
+      1. Generate new certificates from existing CA
+      2. Old certificates still valid during generation
+      3. Rolling restart one node at a time
+      4. Zero downtime (quorum maintained)
+      
+      This is a SAFE routine operation.
+
+- name: Remove old node certificates (CA untouched)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
+    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
+  when: inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group]
+  tags:
+    - regenerate-nodes-clean
+
+- name: Remove certificate renewal services and timers
+  shell: |
+    rm -f /etc/systemd/system/step-renew-*.service
+    rm -f /etc/systemd/system/step-renew-*.timer
+    systemctl daemon-reload
+  tags:
+    - regenerate-nodes-clean
+
+- name: Display node cert cleanup status
+  debug:
+    msg: |
+      ✅ Old node certificates removed from {{ inventory_hostname }}
+      
+      CA certificates intact:
+      - Root CA: {{ etcd_cert_dir }}/root_ca.crt ✓
+      - step-ca running: {{ 'YES' if inventory_hostname in groups[etcd_certmanagers_group] else 'N/A' }}
+      
+      Ready to generate new node certificates from existing CA
+  tags:
+    - regenerate-nodes-clean

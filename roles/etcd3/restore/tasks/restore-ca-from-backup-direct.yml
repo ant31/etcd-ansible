@@ -61,7 +61,7 @@
 - name: Set backup file path
   set_fact:
     ca_backup_s3_path: "{{ restore_ca_s3_file if restore_ca_s3_file != 'latest' else latest_backup.stdout }}"
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -75,7 +75,7 @@
       {%- else -%}
       none
       {%- endif -%}
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -89,7 +89,7 @@
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -105,7 +105,7 @@
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
   when: 
-    - ca_backup_exists | default(true)
+    - ca_backup_exists | default(true) | bool
     - backup_encryption_method == 'aws-kms'
   tags:
     - restore-ca
@@ -119,7 +119,7 @@
   environment:
     PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
   when:
-    - ca_backup_exists | default(true)
+    - ca_backup_exists | default(true) | bool
     - backup_encryption_method == 'symmetric'
   no_log: true
   tags:
@@ -130,7 +130,7 @@
   environment:
     PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
   when:
-    - ca_backup_exists | default(true)
+    - ca_backup_exists | default(true) | bool
     - backup_encryption_method == 'none'
   tags:
     - restore-ca
@@ -146,7 +146,7 @@
     - /etc/step-ca/secrets
     - /etc/step-ca/certs
     - /etc/step-ca/config
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -155,7 +155,7 @@
     src: /tmp/ca-restore.tar.gz
     dest: /
     remote_src: yes
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -167,7 +167,7 @@
     group: root
     mode: 0700
     recurse: yes
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -178,7 +178,7 @@
     if [ -f /etc/step-ca/secrets/password ]; then
       chmod 0400 /etc/step-ca/secrets/password
     fi
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -189,6 +189,6 @@
   loop:
     - /tmp/ca-restore-encrypted
     - /tmp/ca-restore.tar.gz
-  when: ca_backup_exists | default(true)
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca

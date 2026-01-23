@@ -27,7 +27,7 @@
     job: "{{ backup_scripts_dir }}/ca-backup-check.sh >> {{ backup_log_dir }}/ca-backup.log 2>&1"
     user: root
     state: present
-  when: ca_backup_cron_enabled | default(true)
+  when: ca_backup_cron_enabled | default(true) | bool
   tags:
     - ca-backup-cron
 
@@ -55,7 +55,7 @@
     echo "Schedule: $MINUTE {{ ca_backup_cron_hour }} * * * (checks every {{ ca_backup_check_interval }} minute interval)"
   register: ca_backup_schedule
   changed_when: false
-  when: ca_backup_cron_enabled | default(true)
+  when: ca_backup_cron_enabled | default(true) | bool
   tags:
     - ca-backup-cron
 
@@ -70,7 +70,7 @@
       
       To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
   when: 
-    - ca_backup_cron_enabled | default(true)
+    - ca_backup_cron_enabled | default(true) | bool
     - ca_backup_schedule is defined
   tags:
     - ca-backup-cron
