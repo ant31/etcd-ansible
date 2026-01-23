@@ -60,6 +60,7 @@ show_help() {
 # Parse arguments
 FORCE_BACKUP=false
 DRY_RUN=false
+INDEPENDENT_MODE=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --help|-h)
@@ -71,6 +72,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --independent)
+            INDEPENDENT_MODE=true
             shift
             ;;
         *)
@@ -142,17 +147,20 @@ create_snapshot() {
         return 0
     fi
     
-    # Create directory
+    # Create directory (already running as etcd user via cron)
     log "INFO" "Creating backup directory..."
     if ! mkdir -p "$(dirname "$snapshot_file")"; then
         log "ERROR" "Failed to create backup directory"
+        log "ERROR" "Check permissions on {{ etcd_cluster_backup.directory }}"
         return 1
     fi
     log "INFO" "✓ Directory created: $(dirname "$snapshot_file")"
     
-    log "INFO" "Creating etcd snapshot..."
+    # Use only the first endpoint for snapshot (etcd requirement)
+    local first_endpoint=$(echo "$ETCD_ENDPOINTS" | cut -d',' -f1)
+    log "INFO" "Creating etcd snapshot from: $first_endpoint"
     if ! {{ bin_dir }}/etcdctl \
-        --endpoints="$ETCD_ENDPOINTS" \
+        --endpoints="$first_endpoint" \
         --cert="$CERT" \
         --cacert="$CACERT" \
         --key="$KEY" \
@@ -317,15 +325,44 @@ cleanup_old_backups() {
     log "INFO" "✓ Local cleanup completed"
 }
 
+# Check if recent backup exists in S3
+check_recent_backup() {
+    local interval_seconds={{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) * 60 }}
+    local current_time=$(date +%s)
+    local cutoff_time=$((current_time - interval_seconds))
+    
+    log "INFO" "Checking for recent backups (within last {{ etcd_backup_interval }} minutes)..."
+    
+    # List recent backups from S3
+    local recent_backups=$({{ bin_dir }}/aws s3api list-objects-v2 \
+        --bucket "$S3_BUCKET" \
+        --prefix "${S3_PREFIX}${CLUSTER_NAME}/" \
+        --query "Contents[?LastModified>=\`$(date -u -d @${cutoff_time} '+%Y-%m-%dT%H:%M:%S')\`].{Key:Key,Modified:LastModified}" \
+        --output text 2>/dev/null || echo "")
+    
+    if [ -n "$recent_backups" ]; then
+        log "INFO" "Recent backup found (created by another node):"
+        echo "$recent_backups" | while read key modified; do
+            log "INFO" "  - s3://${S3_BUCKET}/${key} (${modified})"
+        done
+        return 0  # Recent backup exists
+    else
+        log "INFO" "No recent backup found, proceeding with backup creation"
+        return 1  # No recent backup
+    fi
+}
+
 # Main logic
 main() {
     log "INFO" "========================================"
     log "INFO" "Etcd Backup Script Starting"
     log "INFO" "Time: $(date '+%Y-%m-%d %H:%M:%S')"
+    log "INFO" "Node: {{ inventory_hostname }}"
     log "INFO" "Cluster: $CLUSTER_NAME"
     log "INFO" "Endpoints: $ETCD_ENDPOINTS"
     log "INFO" "Encryption: $ENCRYPTION_METHOD"
     log "INFO" "S3 Bucket: s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}"
+    log "INFO" "Distributed backup: {{ etcd_backup_distributed | default(true) }}"
     log "INFO" "Force backup: $FORCE_BACKUP"
     log "INFO" "Dry run: $DRY_RUN"
     log "INFO" "========================================"
@@ -351,6 +388,35 @@ main() {
             return 1
         fi
     fi
+    
+    # Check for recent backups (distributed backup coordination)
+{% if etcd_backup_distributed | default(true) and not etcd_backup_independent | default(false) %}
+    if [ "$FORCE_BACKUP" != true ] && [ "$INDEPENDENT_MODE" != true ]; then
+        if check_recent_backup; then
+            log "INFO" "========================================"
+            log "INFO" "Recent backup already exists (created by another node)"
+            log "INFO" "Skipping backup to avoid duplicates"
+            log "INFO" "This is expected behavior in distributed backup mode"
+            log "INFO" "========================================"
+            
+            # Send healthcheck ping for "backup exists" status
+            if [ -n "$HEALTHCHECK_URL" ]; then
+                curl -fsS --retry 3 "${HEALTHCHECK_URL}?status=backup-exists" > /dev/null 2>&1 || \
+                    log "WARN" "Healthcheck ping failed (non-fatal)"
+            fi
+            
+            return 0  # Success - backup exists
+        fi
+    fi
+{% endif %}
+{% if etcd_backup_independent | default(false) %}
+    if [ "$FORCE_BACKUP" != true ]; then
+        log "INFO" "========================================"
+        log "INFO" "INDEPENDENT MODE: Creating backup without checking for existing backups"
+        log "INFO" "Multiple backups will be created (one per node)"
+        log "INFO" "========================================"
+    fi
+{% endif %}
     
     # Create snapshot
     log "INFO" "Starting snapshot operation..."

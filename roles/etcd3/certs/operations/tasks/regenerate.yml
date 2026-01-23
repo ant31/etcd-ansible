@@ -1,0 +1,62 @@
+---
+# Certificate regeneration tasks
+# This will completely regenerate CA and all certificates
+# USE WITH CAUTION - causes brief downtime
+
+- name: Stop etcd services before regeneration
+  systemd:
+    name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+    state: stopped
+  ignore_errors: yes
+  when: inventory_hostname in groups[etcd_cluster_group]
+  tags:
+    - regenerate-stop
+
+- name: Stop step-ca service
+  systemd:
+    name: step-ca
+    state: stopped
+  ignore_errors: yes
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-stop
+
+- name: Remove old CA directory
+  file:
+    path: /etc/step-ca
+    state: absent
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-clean
+
+- name: Remove old certificate directory
+  file:
+    path: "{{ etcd_cert_dir }}"
+    state: absent
+  tags:
+    - regenerate-clean
+
+- name: Remove step-ca systemd service
+  file:
+    path: /etc/systemd/system/step-ca.service
+    state: absent
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-clean
+
+- name: Remove certificate renewal services and timers
+  shell: |
+    rm -f /etc/systemd/system/step-renew-*.service
+    rm -f /etc/systemd/system/step-renew-*.timer
+    systemctl daemon-reload
+  tags:
+    - regenerate-clean
+
+- name: Display regeneration status
+  debug:
+    msg: |
+      ✅ Old certificates cleaned up on {{ inventory_hostname }}
+      
+      Ready to regenerate with new passwords from vault.yml
+  tags:
+    - regenerate-clean

@@ -1,0 +1,14 @@
+---
+# Verify backup cron jobs are installed and show next run times
+# Usage: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
+
+- name: Verify Backup Cron Jobs
+  hosts: etcd,etcd-cert-managers
+  gather_facts: yes
+  become: yes
+  vars:
+    operation_action: verify-backup-cron
+  roles:
+    - role: etcd3/operations
+      tags:
+        - verify-backup-cron

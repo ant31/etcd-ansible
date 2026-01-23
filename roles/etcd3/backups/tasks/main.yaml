@@ -11,9 +11,9 @@
   file:
     path: "{{etcd_backup_file | dirname}}"
     state: directory
-    owner: root
-    group: root
-    mode: 0600
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0755
 
 - name: ETCD | Check if etcd cluster is healthy
   command: >-

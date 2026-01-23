@@ -244,6 +244,10 @@ etcd_backup_cron_minute: "*/30"
 etcd_backup_cron_hour: "*"
 etcd_backup_interval: "*/30"  # Alias for cron_minute
 
+# Distributed backup strategy (high availability)
+etcd_backup_distributed: true  # Enable multi-node backups
+etcd_backup_independent: false  # If true, nodes don't check for existing backups (higher frequency)
+
 # CA backup - only when changed - ENABLED BY DEFAULT
 ca_backup_cron_enabled: true
 ca_backup_cron_minute: "*/5"

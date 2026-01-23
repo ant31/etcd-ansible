@@ -45,6 +45,12 @@
   tags:
     - health
 
+- name: Verify backup cron jobs
+  include_tasks: verify-backup-cron.yml
+  when: operation_action == 'verify-backup-cron'
+  tags:
+    - verify-backup-cron
+
 - name: Certificate health check
   include_tasks: health-certs.yml
   when: operation_action == 'health-certs'

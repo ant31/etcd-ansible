@@ -20,3 +20,9 @@
   when: cert_operation_action == 'rotate'
   tags:
     - rotate
+
+- name: Regenerate all certificates
+  include_tasks: regenerate.yml
+  when: cert_operation_action == 'regenerate'
+  tags:
+    - regenerate

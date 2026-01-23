@@ -360,3 +360,4 @@
 
   when:
     - groups[etcd_certmanagers_group] | length > 1
+    - not (etcd_force_certs | default(false))  # Skip during certificate regeneration

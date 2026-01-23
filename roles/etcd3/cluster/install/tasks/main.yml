@@ -30,6 +30,13 @@
     get_checksum: yes
   register: etcdbin
 
+- name: Install etcdctl wrapper script
+  template:
+    src: etcdctl.sh.j2
+    dest: "{{ bin_dir }}/etcdctl.sh"
+    mode: 0755
+  when: inventory_hostname in groups[etcd_cluster_group]
+
 - import_tasks: 0010_cluster.yaml
 
 - name: Create etcd profile.d script

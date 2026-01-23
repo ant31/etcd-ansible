@@ -15,6 +15,25 @@ etcd_backup_interval: "*/30"  # Every 30 minutes (format: */N for every N minute
 etcd_backup_cron_minute: "*/30"
 etcd_backup_cron_hour: "*"
 
+# Distributed backup strategy (high availability)
+# Two modes:
+#
+# 1. DISTRIBUTED MODE (default): Coordinated backups with deduplication
+#    - All nodes attempt backups, staggered across the interval
+#    - Each node checks S3 before creating backup (prevents duplicates)
+#    - Formula: offset = (node_index - 1) * (interval / cluster_size)
+#    - Example: 5 nodes, 60min interval = offsets 0,12,24,36,48 minutes
+#    - Result: One backup per interval (node 1 succeeds, others skip)
+#
+# 2. INDEPENDENT MODE: Uncoordinated backups for higher frequency
+#    - All nodes create backups independently (no S3 check)
+#    - Use larger base interval with frequent node attempts
+#    - Example: 5-hour base, 1-hour node attempts = backup every hour
+#    - Result: Multiple backups per interval (different node each hour)
+#
+etcd_backup_distributed: true  # Enable multi-node backups
+etcd_backup_independent: false  # If true, skip deduplication (each node always creates backup)
+
 # CA backup - only when changed - ENABLED BY DEFAULT
 ca_backup_cron_enabled: true
 ca_backup_check_interval: "*/5"  # Check every 5 minutes if CA changed
