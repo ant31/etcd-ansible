@@ -1,0 +1,131 @@
+---
+# Health check tasks - comprehensive cluster validation
+# Variables:
+#   output_format: text (default) or json
+
+- name: Set output format default
+  set_fact:
+    output_format: "{{ output_format | default('text') }}"
+
+- name: Check etcd endpoint health
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    endpoint health
+  environment:
+    ETCDCTL_API: "3"
+  register: endpoint_health
+  changed_when: false
+  failed_when: false
+
+- name: Check cluster member list
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    member list -w table
+  environment:
+    ETCDCTL_API: "3"
+  register: member_list
+  changed_when: false
+  failed_when: false
+
+- name: Check endpoint status
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    endpoint status -w table
+  environment:
+    ETCDCTL_API: "3"
+  register: endpoint_status
+  changed_when: false
+  failed_when: false
+
+- name: Get database metrics (JSON)
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    endpoint status -w json
+  environment:
+    ETCDCTL_API: "3"
+  register: endpoint_status_json
+  changed_when: false
+  failed_when: false
+
+- name: Parse database size
+  set_fact:
+    db_sizes: "{{ endpoint_status_json.stdout | from_json | map(attribute='Status.dbSize') | list }}"
+    total_db_size_mb: "{{ ((endpoint_status_json.stdout | from_json | map(attribute='Status.dbSize') | map('int') | sum) / 1024 / 1024) | round(2) }}"
+  when: endpoint_status_json.rc == 0
+
+- name: Display health check results (text)
+  debug:
+    msg: |
+      
+      ════════════════════════════════════════════════════════════════
+      ETCD CLUSTER HEALTH CHECK - {{ etcd_cluster_name }}
+      ════════════════════════════════════════════════════════════════
+      
+      ┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐
+      {% if endpoint_health.rc == 0 %}
+      {{ endpoint_health.stdout }}
+      {% else %}
+      ❌ FAILED:
+      {{ endpoint_health.stderr }}
+      {% endif %}
+      └────────────────────────────────────────────────────────────┘
+      
+      ┌─ CLUSTER MEMBERS ─────────────────────────────────────────┐
+      {{ member_list.stdout }}
+      └────────────────────────────────────────────────────────────┘
+      
+      ┌─ ENDPOINT STATUS ─────────────────────────────────────────┐
+      {{ endpoint_status.stdout }}
+      └────────────────────────────────────────────────────────────┘
+      
+      {% if total_db_size_mb is defined %}
+      ┌─ DATABASE METRICS ────────────────────────────────────────┐
+      Total DB Size: {{ total_db_size_mb }} MB
+      {% if total_db_size_mb | float > 8000 %}
+      ⚠️  WARNING: Database size approaching quota limit!
+      {% endif %}
+      └────────────────────────────────────────────────────────────┘
+      {% endif %}
+      
+      ┌─ OVERALL STATUS ──────────────────────────────────────────┐
+      {% if endpoint_health.rc == 0 %}
+      ✅ Cluster is HEALTHY
+      {% else %}
+      ❌ Cluster has ISSUES - check endpoint health above
+      Recommendation: Run 'journalctl -u etcd-* -n 100' on affected nodes
+      {% endif %}
+      └────────────────────────────────────────────────────────────┘
+      
+  when: output_format == 'text'
+
+- name: Build JSON health report
+  set_fact:
+    health_report:
+      cluster_name: "{{ etcd_cluster_name }}"
+      timestamp: "{{ ansible_date_time.iso8601 }}"
+      healthy: "{{ endpoint_health.rc == 0 }}"
+      endpoint_health:
+        stdout: "{{ endpoint_health.stdout }}"
+        stderr: "{{ endpoint_health.stderr }}"
+        rc: "{{ endpoint_health.rc }}"
+      member_list: "{{ member_list.stdout }}"
+      endpoint_status: "{{ endpoint_status.stdout }}"
+      database_size_mb: "{{ total_db_size_mb | default(0) }}"
+  when: output_format == 'json'
+
+- name: Display health report (JSON)
+  debug:
+    var: health_report
+  when: output_format == 'json'

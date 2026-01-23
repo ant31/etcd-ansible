@@ -13,6 +13,10 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
 LimitNOFILE=1048576
+{% if step_ca_runtime_minutes | int > 0 %}
+# Auto-shutdown after {{ step_ca_runtime_minutes }} minutes (security: minimize CA exposure)
+RuntimeMaxSec={{ step_ca_runtime_minutes * 60 }}
+{% endif %}
 
 [Install]
 WantedBy=multi-user.target

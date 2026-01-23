@@ -1,6 +1,6 @@
 ---
 # Etcd cluster operations role
-# Supports: status, members, logs, compact, defrag
+# Supports: status, members, logs, compact, defrag, health
 # Usage: Set operation_action variable
 
 - name: Show cluster status
@@ -38,3 +38,21 @@
   when: operation_action == 'defrag'
   tags:
     - defrag
+
+- name: Cluster health check
+  include_tasks: health.yml
+  when: operation_action == 'health'
+  tags:
+    - health
+
+- name: Certificate health check
+  include_tasks: health-certs.yml
+  when: operation_action == 'health-certs'
+  tags:
+    - health-certs
+
+- name: step-ca health check
+  include_tasks: health-stepca.yml
+  when: operation_action == 'health-stepca'
+  tags:
+    - health-stepca

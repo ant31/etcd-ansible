@@ -12,7 +12,11 @@
 # Unique name for this etcd cluster
 # Used in: service names, backup paths, certificate CN
 # Example: "k8s" → etcd service named "etcd-k8s-1"
-etcd_cluster_name: default
+
+# Cluster configuration
+etcd_cluster_name: test-cluster
+
+
 
 # Multiple clusters example:
 # etcd_cluster_name: k8s         # For Kubernetes
@@ -158,16 +162,6 @@ step_cert_min_duration: "1h"
 # Default: 2/3 of certificate lifetime
 step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
 
-# step-ca runtime limit (security: minimize CA exposure)
-# How long step-ca runs before auto-shutdown (in minutes)
-# Values:
-#   0 = infinite (always running, original behavior)
-#   30-60 = recommended (CA only runs when needed)
-#   120+ = less secure but more convenient
-# Default: 60 minutes
-# Note: step-ca can be restarted anytime with: systemctl start step-ca
-step_ca_runtime_minutes: 60
-
 # CA installation paths
 step_path: /etc/step-ca
 # step_ca_config: "{{ step_path }}/config/ca.json"
@@ -181,7 +175,7 @@ step_path: /etc/step-ca
 # Automated backups via cron
 etcd_backup_cron_enabled: true
 ca_backup_cron_enabled: true
-
+step_ca_backup_s3_enabled: true
 # Backup schedules (cron format)
 etcd_backup_cron_minute: "*/30"  # Every 30 minutes
 etcd_backup_cron_hour: "*"       # Every hour

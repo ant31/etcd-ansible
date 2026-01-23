@@ -45,12 +45,22 @@
   tags:
     - ca-restore
 
+- name: Check if step-ca service exists on backup cert-managers
+  stat:
+    path: /etc/systemd/system/step-ca.service
+  register: step_ca_service_file_replicate
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  tags:
+    - ca-restore
+
 - name: Ensure step-ca is stopped on backup cert-managers
   systemd:
     name: step-ca
     enabled: no
     state: stopped
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  when: 
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_service_file_replicate.stat.exists | default(false)
   tags:
     - ca-restore
 
