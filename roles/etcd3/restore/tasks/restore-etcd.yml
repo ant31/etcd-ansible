@@ -16,6 +16,14 @@
   tags:
     - restore-etcd
 
+- name: Check if snapshot already downloaded (from prepare phase)
+  stat:
+    path: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+  register: snapshot_predownloaded
+  when: restore_skip_download | default(false) | bool
+  tags:
+    - restore-etcd
+
 - name: Find latest etcd backup in S3
   command: >
     {{ bin_dir }}/aws s3api list-objects-v2
@@ -32,6 +40,7 @@
   when: 
     - restore_etcd_s3_file == 'latest'
     - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
   changed_when: false
   tags:
     - restore-etcd
@@ -39,7 +48,9 @@
 - name: Set backup file path
   set_fact:
     etcd_backup_file_path: "{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}"
-  when: restore_etcd_local_file == ''
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
@@ -53,7 +64,9 @@
       {%- else -%}
       none
       {%- endif -%}
-  when: restore_etcd_local_file == ''
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
@@ -61,22 +74,24 @@
   command: >
     {{ bin_dir }}/aws s3 cp
     s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
-    /tmp/etcd-restore-encrypted
+    /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
     AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: restore_etcd_local_file == ''
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
 - name: Decrypt etcd backup with AWS KMS
   command: >
     {{ bin_dir }}/aws kms decrypt
-    --ciphertext-blob fileb:///tmp/etcd-restore-encrypted
+    --ciphertext-blob fileb:///tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
     --output text
     --query Plaintext |
-    base64 -d > /tmp/etcd-restore.db
+    base64 -d > /tmp/etcd-restore-{{ etcd_cluster_name }}.db
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -84,35 +99,114 @@
   when: 
     - restore_etcd_local_file == ''
     - backup_encryption_method == 'aws-kms'
+    - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
 - name: Decrypt etcd backup with symmetric encryption
   command: >
     openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
-    -in /tmp/etcd-restore-encrypted
-    -out /tmp/etcd-restore.db
+    -in /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
+    -out /tmp/etcd-restore-{{ etcd_cluster_name }}.db
     -pass pass:"{{ step_ca_backup_password }}"
   when:
     - restore_etcd_local_file == ''
     - backup_encryption_method == 'symmetric'
+    - not (restore_skip_download | default(false) | bool)
+  no_log: true
   tags:
     - restore-etcd
 
 - name: Copy unencrypted backup
-  command: mv /tmp/etcd-restore-encrypted /tmp/etcd-restore.db
+  command: >
+    mv /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
+    /tmp/etcd-restore-{{ etcd_cluster_name }}.db
   when:
     - restore_etcd_local_file == ''
     - backup_encryption_method == 'none'
+    - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
 - name: Use local snapshot file
   copy:
     src: "{{ restore_etcd_local_file }}"
-    dest: /tmp/etcd-restore.db
+    dest: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
     remote_src: yes
-  when: restore_etcd_local_file != ''
+  when: 
+    - restore_etcd_local_file != ''
+    - not (restore_skip_download | default(false) | bool)
+  tags:
+    - restore-etcd
+
+- name: Verify snapshot exists and is ready
+  stat:
+    path: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+  register: restore_snapshot_ready
+  failed_when: not restore_snapshot_ready.stat.exists
+  tags:
+    - restore-etcd
+
+- name: Verify snapshot file is valid (check integrity)
+  command: >
+    {{ bin_dir }}/etcdutl snapshot status /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+    --write-out=json
+  register: snapshot_validation
+  failed_when: snapshot_validation.rc != 0
+  changed_when: false
+  tags:
+    - restore-etcd
+
+- name: Display snapshot validation details
+  debug:
+    msg: |
+      ✅ Snapshot validation PASSED
+      
+      File: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+      Size: {{ (restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) }} MB
+      
+      Snapshot details:
+      {{ snapshot_validation.stdout | from_json }}
+  when: snapshot_validation.rc == 0
+  tags:
+    - restore-etcd
+
+- name: Fail with helpful message if snapshot is invalid
+  fail:
+    msg: |
+      ❌ SNAPSHOT FILE IS INVALID OR CORRUPTED
+      
+      File: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+      Size: {{ restore_snapshot_ready.stat.size | default(0) }} bytes
+      
+      Validation error:
+      {{ snapshot_validation.stderr }}
+      
+      Common causes:
+      1. Decryption failed (wrong encryption method or password)
+      2. Incomplete download from S3
+      3. Corrupted backup file in S3
+      
+      Troubleshooting steps:
+      
+      1. Verify encryption method matches backup:
+         aws s3api head-object --bucket {{ etcd_upload_backup.bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}
+      
+      2. Check S3 file integrity:
+         aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable
+      
+      3. Try manual download and decrypt:
+         aws s3 cp s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test
+         {% if backup_encryption_method == 'aws-kms' %}
+         aws kms decrypt --ciphertext-blob fileb:///tmp/manual-test --output text --query Plaintext | base64 -d > /tmp/manual-test.db
+         {% elif backup_encryption_method == 'symmetric' %}
+         openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in /tmp/manual-test -out /tmp/manual-test.db -pass pass:YOUR_PASSWORD
+         {% endif %}
+         etcdutl snapshot status /tmp/manual-test.db
+      
+      4. List available backups and try different one:
+         aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/ --recursive
+  when: snapshot_validation.rc != 0
   tags:
     - restore-etcd
 
@@ -142,9 +236,9 @@
   tags:
     - restore-etcd
 
-- name: Restore etcd snapshot
+- name: Restore etcd snapshot (fast - local file operation)
   command: >
-    {{ bin_dir }}/etcdutl snapshot restore /tmp/etcd-restore.db
+    {{ bin_dir }}/etcdutl snapshot restore /tmp/etcd-restore-{{ etcd_cluster_name }}.db
     --name {{ etcd_name }}
     --initial-cluster {{ etcd_peer_addresses }}
     --initial-cluster-token {{ cluster_token | default(etcd_cluster_name) }}
@@ -176,7 +270,7 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - /tmp/etcd-restore-encrypted
-    - /tmp/etcd-restore.db
+    - /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
+    - /tmp/etcd-restore-{{ etcd_cluster_name }}.db
   tags:
     - restore-etcd

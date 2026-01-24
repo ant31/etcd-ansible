@@ -182,7 +182,7 @@ create_snapshot() {
     local snapshot_checksum=$(sha256sum "$snapshot_file" | cut -d' ' -f1)
     log "INFO" "Snapshot checksum: $snapshot_checksum"
     
-    # Encrypt based on method
+    # Encrypt based on method with validation
     local final_file=""
     local s3_suffix=""
     
@@ -198,7 +198,40 @@ create_snapshot() {
                 rm -f "$snapshot_file"
                 return 1
             fi
-            log "INFO" "✓ KMS encryption completed"
+            
+            # Verify encrypted file exists and has content
+            if [ ! -s "$encrypted_file" ]; then
+                log "ERROR" "Encrypted file is empty or missing (encryption pipe failed)"
+                rm -f "$snapshot_file" "$encrypted_file"
+                return 1
+            fi
+            log "INFO" "✓ Encrypted file created: $(stat -f%z "$encrypted_file" 2>/dev/null || stat -c%s "$encrypted_file") bytes"
+            
+            # Test decrypt to verify encryption integrity
+            log "INFO" "Validating encryption (test decrypt)..."
+            local test_decrypt="/tmp/etcd-decrypt-test-$$.db"
+            if ! {{ bin_dir }}/aws kms decrypt \
+                --ciphertext-blob "fileb://${encrypted_file}" \
+                --output text \
+                --query Plaintext | base64 -d > "$test_decrypt"; then
+                log "ERROR" "Test decryption failed - encrypted file is corrupted"
+                rm -f "$snapshot_file" "$encrypted_file" "$test_decrypt"
+                return 1
+            fi
+            
+            # Verify decrypted content matches original
+            local decrypted_checksum=$(sha256sum "$test_decrypt" | cut -d' ' -f1)
+            rm -f "$test_decrypt"
+            
+            if [ "$snapshot_checksum" != "$decrypted_checksum" ]; then
+                log "ERROR" "Encryption validation FAILED: checksum mismatch after decrypt"
+                log "ERROR" "Original:  $snapshot_checksum"
+                log "ERROR" "Decrypted: $decrypted_checksum"
+                rm -f "$snapshot_file" "$encrypted_file"
+                return 1
+            fi
+            log "INFO" "✓ Encryption validation PASSED (checksums match)"
+            
             final_file="$encrypted_file"
             s3_suffix=".kms"
             ;;
@@ -213,7 +246,39 @@ create_snapshot() {
                 rm -f "$snapshot_file"
                 return 1
             fi
-            log "INFO" "✓ OpenSSL encryption completed"
+            
+            # Verify encrypted file exists and has content
+            if [ ! -s "$enc_file" ]; then
+                log "ERROR" "Encrypted file is empty or missing"
+                rm -f "$snapshot_file" "$enc_file"
+                return 1
+            fi
+            log "INFO" "✓ Encrypted file created: $(stat -f%z "$enc_file" 2>/dev/null || stat -c%s "$enc_file") bytes"
+            
+            # Test decrypt to verify encryption integrity
+            log "INFO" "Validating encryption (test decrypt)..."
+            local test_decrypt="/tmp/etcd-decrypt-test-$$.db"
+            if ! openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+                -in "$enc_file" -out "$test_decrypt" \
+                -pass pass:"$BACKUP_PASSWORD"; then
+                log "ERROR" "Test decryption failed - encrypted file is corrupted"
+                rm -f "$snapshot_file" "$enc_file" "$test_decrypt"
+                return 1
+            fi
+            
+            # Verify decrypted content matches original
+            local decrypted_checksum=$(sha256sum "$test_decrypt" | cut -d' ' -f1)
+            rm -f "$test_decrypt"
+            
+            if [ "$snapshot_checksum" != "$decrypted_checksum" ]; then
+                log "ERROR" "Encryption validation FAILED: checksum mismatch after decrypt"
+                log "ERROR" "Original:  $snapshot_checksum"
+                log "ERROR" "Decrypted: $decrypted_checksum"
+                rm -f "$snapshot_file" "$enc_file"
+                return 1
+            fi
+            log "INFO" "✓ Encryption validation PASSED (checksums match)"
+            
             final_file="$enc_file"
             s3_suffix=".enc"
             ;;

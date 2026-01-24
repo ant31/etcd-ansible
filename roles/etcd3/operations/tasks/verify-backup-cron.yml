@@ -14,7 +14,7 @@
   failed_when: false
   
 - name: Parse etcd backup cron job
-  shell: crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.sh' || echo "NOT FOUND"
+  shell: crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.py' || echo "NOT FOUND"
   register: etcd_backup_cron
   changed_when: false
   failed_when: false
@@ -23,7 +23,7 @@
     - etcd_user_check.rc == 0
     
 - name: Parse CA backup cron job
-  shell: crontab -l -u root 2>/dev/null | grep 'ca-backup-check.sh' || echo "NOT FOUND"
+  shell: crontab -l -u root 2>/dev/null | grep 'ca-backup-check.py' || echo "NOT FOUND"
   register: ca_backup_cron
   changed_when: false
   failed_when: false
@@ -33,7 +33,7 @@
     
 - name: Calculate next etcd backup run time
   shell: |
-    CRON_LINE=$(crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.sh' | head -1)
+    CRON_LINE=$(crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.py' | head -1)
     if [ -z "$CRON_LINE" ]; then
       echo "NO CRON JOB FOUND"
       exit 0
@@ -67,7 +67,7 @@
     
 - name: Calculate next CA backup run time
   shell: |
-    CRON_LINE=$(crontab -l -u root 2>/dev/null | grep 'ca-backup-check.sh' | head -1)
+    CRON_LINE=$(crontab -l -u root 2>/dev/null | grep 'ca-backup-check.py' | head -1)
     if [ -z "$CRON_LINE" ]; then
       echo "NO CRON JOB FOUND"
       exit 0
@@ -104,7 +104,7 @@
     path: "{{ item }}"
   register: backup_scripts
   loop:
-    - "{{ backup_scripts_dir }}/etcd-backup.sh"
+    - "{{ backup_scripts_dir }}/etcd-backup.py"
     - "{{ backup_scripts_dir }}/ca-backup-check.sh"
   when: etcd_user_check.rc == 0
   
@@ -197,10 +197,17 @@
       
       3. Manually trigger a backup to test:
          # Etcd data backup
-         sudo -u {{ etcd_user.name }} {{ backup_scripts_dir }}/etcd-backup.sh
+         sudo -u {{ etcd_user.name }} python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
          
          # CA backup (runs as root)
-         sudo {{ backup_scripts_dir }}/ca-backup-check.sh --force
+         sudo python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force
+      
+      4. View current configuration:
+         # Etcd backup config
+         cat {{ backup_scripts_dir }}/etcd-backup-config.yaml
+         
+         # CA backup config
+         sudo cat {{ backup_scripts_dir }}/ca-backup-config.yaml
       
       4. Check cron logs:
          tail -f {{ backup_log_dir }}/etcd-backup.log

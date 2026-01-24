@@ -1,11 +1,22 @@
 ---
-- name: Install etcd backup script
-  template:
-    src: etcd-backup.sh.j2
-    dest: "{{ backup_scripts_dir }}/etcd-backup.sh"
+- name: Install etcd backup script (static file)
+  copy:
+    src: etcd-backup.py
+    dest: "{{ backup_scripts_dir }}/etcd-backup.py"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     mode: 0755
+  tags:
+    - etcd-backup-cron
+
+- name: Install etcd backup configuration (templated, tracked)
+  template:
+    src: etcd-backup-config.yaml.j2
+    dest: "{{ backup_scripts_dir }}/etcd-backup-config.yaml"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0600
+    backup: yes
   tags:
     - etcd-backup-cron
 
@@ -41,7 +52,7 @@
     name: "Backup etcd cluster data"
     minute: "{{ backup_time_offset | default(0) }},{{ (backup_time_offset | default(0) | int + (backup_interval_minutes | int)) % 60 }}"
     hour: "{% if (backup_interval_minutes | int) < 60 %}*{% else %}*/{{ (backup_interval_minutes | int / 60) | int }}{% endif %}"
-    job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present
   when: 
@@ -56,7 +67,7 @@
     name: "Backup etcd cluster data"
     minute: "{{ backup_time_offset | default(0) }}"
     hour: "*/{{ (backup_interval_minutes | int / 60) | int if (backup_interval_minutes | int) >= 60 else '*' }}"
-    job: "{{ backup_scripts_dir }}/etcd-backup.sh --independent >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present
   when: 
@@ -71,7 +82,7 @@
     name: "Backup etcd cluster data"
     minute: "{{ etcd_backup_cron_minute }}"
     hour: "{{ etcd_backup_cron_hour }}"
-    job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present
   when: 
@@ -82,7 +93,7 @@
     - etcd-backup-cron
 
 - name: Verify etcd backup cron job is installed
-  shell: "crontab -l -u {{ etcd_user.name }} | grep -c 'etcd-backup.sh' || true"
+  shell: "crontab -l -u {{ etcd_user.name }} | grep -c 'etcd-backup.py' || true"
   register: etcd_cron_check
   changed_when: false
   when: inventory_hostname == groups[etcd_cluster_group][0]
@@ -98,7 +109,7 @@
 
 - name: Get next backup run time
   shell: |
-    CRON_LINE=$(crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.sh' | head -1)
+    CRON_LINE=$(crontab -l -u {{ etcd_user.name }} 2>/dev/null | grep 'etcd-backup.py' | head -1)
     if [ -z "$CRON_LINE" ]; then
       echo "NOT SCHEDULED"
       exit 0

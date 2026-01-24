@@ -1,132 +1,64 @@
 ---
-- name: Refresh Time Fact
-  setup: filter=ansible_date_time
+# Manual backup - call the same script as cron for consistency
+# This ensures identical behavior: encryption validation, naming convention, etc.
 
-- name: Set Backup Directory
-  set_fact:
-    etcd_backup_file: "{{etcd_cluster_backup.directory}}/{{ansible_date_time.year}}/{{ansible_date_time.month}}/{{etcd_cluster_name}}-{{ansible_date_time.date}}_{{ansible_date_time.time}}-snapshot.db"
-    etcd_backup_latest: "{{etcd_cluster_backup.directory}}/{{etcd_cluster_name}}-snapshot.db"
-
-- name: Create Backup Directory
-  file:
-    path: "{{etcd_backup_file | dirname}}"
-    state: directory
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
-    mode: 0755
-
-- name: Check if client certificate exists
+- name: Ensure backup script exists
   stat:
-    path: "{{etcd_cert_paths.client.cert}}"
-  register: client_cert_exists
-  changed_when: false
+    path: "{{ backup_scripts_dir }}/etcd-backup.py"
+  register: backup_script_check
+  tags:
+    - backup
 
-- name: ETCD | Check if etcd cluster is healthy (only if certificates exist)
-  command: >-
-    {{bin_dir}}/etcdctl --endpoints={{etcd_access_addresses}}
-    --cert={{etcd_cert_paths.client.cert}}
-    --cacert={{etcd_cert_paths.client.ca}}
-    --key={{etcd_cert_paths.client.key}}
-    endpoint health
-  register: etcd_cluster_is_healthy
-  changed_when: false
-  retries: 4
-  delay: "{{retry_stagger | default(5)}}"
-  until: etcd_cluster_is_healthy.rc == 0
-  ignore_errors: true
+- name: Fail if backup script missing
+  fail:
+    msg: |
+      ❌ Backup script not found: {{ backup_scripts_dir }}/etcd-backup.py
+      
+      The backup cron role must be applied first to install the script.
+      
+      To fix:
+        ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy --tags backup-cron -b
+  when: not backup_script_check.stat.exists
+  tags:
+    - backup
+
+- name: Run backup script (same as cron)
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+  become: yes
+  become_user: "{{ etcd_user.name }}"
   environment:
     ETCDCTL_API: "3"
-  when: client_cert_exists.stat.exists
+  register: manual_backup_result
+  tags:
+    - backup
 
-- name: Set cluster health status (unhealthy if certs missing)
-  set_fact:
-    etcd_cluster_is_healthy: "{{ etcd_cluster_is_healthy if client_cert_exists.stat.exists else {'failed': true, 'rc': 1} }}"
-
-- name: Display backup strategy
+- name: Display backup result
   debug:
     msg: |
-      Backup strategy:
-      - Certificates exist: {{ client_cert_exists.stat.exists }}
-      - Cluster healthy: {{ etcd_cluster_is_healthy.rc == 0 if etcd_cluster_is_healthy.rc is defined else false }}
-      - Forcing offline: {{ etcd_backup_offline | d(false) }}
-      - Will use: {{ 'OFFLINE backup (from snap/db file)' if (not client_cert_exists.stat.exists or etcd_cluster_is_healthy.failed | d(false) or etcd_backup_offline | d(false)) else 'ONLINE backup (via etcdctl)' }}
-
-- name: Backup etcd v3 data (online)
-  command: >-
-    {{bin_dir}}/etcdctl --endpoints={{etcd_client_url}}
-    --cert={{etcd_cert_paths.client.cert}}
-    --cacert={{etcd_cert_paths.client.ca}}
-    --key={{etcd_cert_paths.client.key}}
-    snapshot save "{{etcd_backup_file}}"
-  register: etcd_snapshot
-  environment:
-    ETCDCTL_API: "3"
-  when:
-    - client_cert_exists.stat.exists
-    - not etcd_backup_offline | d(false) | bool
-    - etcd_cluster_is_healthy.rc is defined
-    - etcd_cluster_is_healthy.rc == 0
-  ignore_errors: true
-
-- name: Verify snapshot integrity with etcdutl
-  command: >-
-    {{bin_dir}}/etcdutl snapshot status "{{etcd_backup_file}}"
-    --write-out=table
-  register: snapshot_verification
-  failed_when: snapshot_verification.rc != 0
-  when:
-    - etcd_snapshot is defined
-    - etcd_snapshot is succeeded
-    - etcd_snapshot is not skipped
+      ✅ Backup completed
+      
+      {{ manual_backup_result.stdout }}
+      
+      The backup was created using the same process as automated cron backups.
+      This ensures consistent encryption validation and naming conventions.
+      
+      Check logs: {{ backup_log_dir }}/etcd-backup.log
+  when: manual_backup_result.rc == 0
   tags:
-    - verify-backup
+    - backup
 
-- name: Display snapshot verification results
+- name: Display backup failure
   debug:
-    var: snapshot_verification.stdout_lines
-  when:
-    - snapshot_verification is succeeded
+    msg: |
+      ❌ Backup FAILED
+      
+      {{ manual_backup_result.stderr }}
+      
+      Troubleshooting:
+      1. Check backup logs: tail -f {{ backup_log_dir }}/etcd-backup.log
+      2. Check config: cat {{ backup_scripts_dir }}/etcd-backup-config.yaml
+      3. Run manually for debugging: sudo -u {{ etcd_user.name }} python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
+      4. Verify cluster health: etcdctl endpoint health
+  when: manual_backup_result.rc != 0
   tags:
-    - verify-backup
-
-- name: Backup from 'member/snap/db' file (offline backup)
-  copy:
-    remote_src: true
-    src: "{{etcd_data_dir}}/member/snap/db"
-    dest: "{{etcd_backup_file}}"
-  register: offline_backup
-  when:
-    - etcd_snapshot is not defined or etcd_snapshot.rc is not defined or etcd_snapshot.rc != 0 or etcd_backup_offline | d(false) | bool
-  failed_when: false
-
-- name: Verify offline snapshot integrity with etcdutl
-  command: >-
-    {{bin_dir}}/etcdutl snapshot status "{{etcd_backup_file}}"
-    --write-out=table
-  register: offline_snapshot_verification
-  failed_when: offline_snapshot_verification.rc != 0
-  when:
-    - offline_backup is defined
-    - offline_backup is succeeded
-    - offline_backup is not skipped
-  tags:
-    - verify-backup
-
-- name: Display offline snapshot verification results
-  debug:
-    var: offline_snapshot_verification.stdout_lines
-  when:
-    - offline_snapshot_verification is succeeded
-  tags:
-    - verify-backup
-
-- name: Copy latest snapshot
-  copy:
-    remote_src: true
-    src:  "{{etcd_backup_file}}"
-    dest: "{{etcd_backup_latest}}"
-
-- import_tasks: "upload_object_storage.yaml"
-  when:
-    - etcd_upload_backup is defined
-    - etcd_upload_backup.storage in ['gcs', 's3', 'aws']
+    - backup

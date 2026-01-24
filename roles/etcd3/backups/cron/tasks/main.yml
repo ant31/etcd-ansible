@@ -31,7 +31,7 @@
     - etcd-backup-cron
 
 - name: Run initial CA backup after deployment
-  command: "{{ backup_scripts_dir }}/ca-backup-check.sh --force"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
   become: yes
   become_user: root
   when:
@@ -56,7 +56,7 @@
     - initial-backup
 
 - name: Run initial etcd backup after deployment
-  command: "{{ backup_scripts_dir }}/etcd-backup.sh"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
   become: yes
   become_user: "{{ etcd_user.name }}"
   when:

@@ -276,6 +276,32 @@ backup_log_dir: "/var/log/etcd-backups"
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365
 
+# ============================================================================
+# RESTORE CONFIGURATION (used by roles/etcd3/restore)
+# ============================================================================
+# What to restore
+restore_ca: false
+restore_etcd_data: false
+
+# CA restore options
+restore_ca_from: "s3"  # Options: s3, local, backup-node
+restore_ca_source_node: ""  # Source node name if restore_ca_from: backup-node
+restore_ca_s3_file: "latest"  # S3 object path or 'latest'
+
+# Etcd data restore options
+restore_etcd_s3_file: "latest"  # S3 object path or 'latest'
+restore_etcd_local_file: ""  # Local snapshot file path
+
+# Skip download phase (snapshot already downloaded to /tmp/etcd-restore-{cluster}.db)
+restore_skip_download: false
+
+# Revision bump (recommended for Kubernetes to invalidate informer caches)
+restore_bump_revision: 1000000000
+
+# Safety options
+restore_confirm: true  # Require confirmation before restore
+restore_backup_existing: true  # Backup existing data before restore
+
 etcd_user:
     name: etcd
     comment: "Etcd user"
