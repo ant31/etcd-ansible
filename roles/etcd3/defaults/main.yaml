@@ -16,6 +16,11 @@ etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
 dns_domain: cluster.local
 etcd_backup: yes
 
+# Disable backup encryption (defaults to false - encryption is ON by default)
+# Set to true to skip encryption (uploads plain .db files to S3)
+# WARNING: Only use in non-production or when S3 has bucket-level encryption
+deactivate_backup_encryption: false
+
 etcd_upload_backup:
   # storage: s3 or gcs
   storage: s3
