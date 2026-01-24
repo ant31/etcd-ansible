@@ -1,7 +1,17 @@
 ---
 # Simplified download defaults - file downloads only
 
-# Used to skip downloads if needed
+# Skip all download tasks if already downloaded
+# Set to true in subsequent plays to avoid re-checking downloads
+# Example:
+#   - hosts: etcd
+#     roles:
+#       - etcd3/download  # Downloads files
+#   - hosts: etcd
+#     vars:
+#       skip_downloads: true
+#     roles:
+#       - etcd3/download  # Skips immediately, no overhead
 skip_downloads: false
 
 # Validate SSL certificates when downloading

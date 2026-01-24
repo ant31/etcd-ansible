@@ -23,6 +23,7 @@
     --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
     --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
     --output text
+    --no-cli-pager
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -32,7 +33,6 @@
     - restore_etcd_s3_file == 'latest'
     - restore_etcd_local_file == ''
   changed_when: false
-  delegate_to: localhost
   tags:
     - restore-etcd
 
@@ -116,10 +116,11 @@
   tags:
     - restore-etcd
 
-- name: Stop etcd service
+- name: Stop etcd service (if running)
   systemd:
     name: "{{ etcd_name }}"
     state: stopped
+  failed_when: false
   tags:
     - restore-etcd
 
@@ -149,6 +150,9 @@
     --initial-cluster-token {{ cluster_token | default(etcd_cluster_name) }}
     --initial-advertise-peer-urls {{ etcd_peer_url }}
     --data-dir {{ etcd_data_dir }}
+    --skip-hash-check
+    --bump-revision {{ restore_bump_revision | default(1000000000) }}
+    --mark-compacted
   environment:
     ETCDCTL_API: "3"
   tags:
@@ -163,29 +167,9 @@
   tags:
     - restore-etcd
 
-- name: Start etcd service
-  systemd:
-    name: "{{ etcd_name }}"
-    state: started
-  tags:
-    - restore-etcd
-
-- name: Wait for etcd to be ready
-  command: >
-    {{ bin_dir }}/etcdctl
-    --endpoints={{ etcd_client_url }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
-    endpoint health
-  register: etcd_health
-  until: etcd_health.rc == 0
-  retries: 10
-  delay: 5
-  environment:
-    ETCDCTL_API: "3"
-  tags:
-    - restore-etcd
+# Note: etcd service is NOT started here
+# It must be started on ALL nodes together after ALL nodes are restored
+# This is done in the playbook level to ensure proper cluster formation
 
 - name: Cleanup temporary files
   file:

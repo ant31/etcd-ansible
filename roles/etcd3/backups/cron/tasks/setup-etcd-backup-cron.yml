@@ -40,7 +40,7 @@
   cron:
     name: "Backup etcd cluster data"
     minute: "{{ backup_time_offset | default(0) }},{{ (backup_time_offset | default(0) | int + (backup_interval_minutes | int)) % 60 }}"
-    hour: "*/{{ ((backup_time_offset | default(0) | int + (backup_interval_minutes | int)) / 60) | int }}" 
+    hour: "{% if (backup_interval_minutes | int) < 60 %}*{% else %}*/{{ (backup_interval_minutes | int / 60) | int }}{% endif %}"
     job: "{{ backup_scripts_dir }}/etcd-backup.sh >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
     user: "{{ etcd_user.name }}"
     state: present

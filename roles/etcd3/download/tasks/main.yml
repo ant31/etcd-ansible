@@ -1,6 +1,14 @@
 ---
 # Simplified download tasks - file downloads only (no container support)
 
+- name: download | Check if downloads should be skipped
+  debug:
+    msg: "⏭️  Skipping all downloads (skip_downloads={{ skip_downloads }})"
+  when: skip_downloads | default(false) | bool
+  tags:
+    - download
+    - always
+
 - name: download | Ensure unzip is installed (for AWS CLI and other zip archives)
   package:
     name: unzip
