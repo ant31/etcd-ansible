@@ -112,16 +112,16 @@
 
 - name: Display regeneration status
   debug:
-    msg: |
-      ✅ Old certificates and cached CA cleaned up on {{ inventory_hostname }}
-      
-      Cleaned up:
-      - Certificate directory: {{ etcd_cert_dir }}
-      - Cached root CA: {{ etcd_cert_dir }}/root_ca.crt
-      - Step CLI bootstrap cache: {{ etcd_cert_dir }}/.step
-      - Root step cache: /root/.step
-      - User step cache: /home/{{ etcd_user.name }}/.step
-      
-      Ready to regenerate with new CA from vault.yml
+    msg:
+      - "✅ Old certificates and cached CA cleaned up on {{ inventory_hostname }}"
+      - ""
+      - "Cleaned up:"
+      - "- Certificate directory: {{ etcd_cert_dir }}"
+      - "- Cached root CA: {{ etcd_cert_dir }}/root_ca.crt"
+      - "- Step CLI bootstrap cache: {{ etcd_cert_dir }}/.step"
+      - "- Root step cache: /root/.step"
+      - "- User step cache: /home/{{ etcd_user.name }}/.step"
+      - ""
+      - "Ready to regenerate with new CA from vault.yml"
   tags:
     - regenerate-clean

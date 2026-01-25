@@ -24,13 +24,13 @@
         that:
           - etcd_version is defined
           - etcd_version | length > 0
-        fail_msg: |
-          ❌ etcd_version not specified
-          
-          Usage: ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml -e etcd_version=vX.Y.Z
-          
-          Available versions: v3.5.13, v3.5.26, v3.6.7
-          Check latest: https://github.com/etcd-io/etcd/releases
+        fail_msg:
+          - "❌ etcd_version not specified"
+          - ""
+          - "Usage: ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml -e etcd_version=vX.Y.Z"
+          - ""
+          - "Available versions: v3.5.13, v3.5.26, v3.6.7"
+          - "Check latest: https://github.com/etcd-io/etcd/releases"
       tags:
         - validate
 
@@ -50,17 +50,17 @@
 
     - name: Display pre-upgrade cluster status
       debug:
-        msg: |
-          ✅ Pre-upgrade validation passed
-          
-          Cluster: {{ etcd_cluster_name }}
-          Target version: {{ etcd_version }}
-          Nodes: {{ groups['etcd'] | length }}
-          
-          Upgrade will proceed one node at a time.
-          Health check will run after each node restart.
-          
-          Estimated time: {{ (groups['etcd'] | length * 5) }} minutes
+        msg:
+          - "✅ Pre-upgrade validation passed"
+          - ""
+          - "Cluster: {{ etcd_cluster_name }}"
+          - "Target version: {{ etcd_version }}"
+          - "Nodes: {{ groups['etcd'] | length }}"
+          - ""
+          - "Upgrade will proceed one node at a time."
+          - "Health check will run after each node restart."
+          - ""
+          - "Estimated time: {{ (groups['etcd'] | length * 5) }} minutes"
       tags:
         - validate
 

@@ -32,18 +32,18 @@
 
 - name: Display warning if no backup exists
   debug:
-    msg: |
-      ⚠️  No CA backup found in S3 (initial deployment)
-      
-      Bucket: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/
-      
-      This is expected during initial cluster deployment.
-      CA replication will be skipped for this backup cert-manager.
-      
-      The CA backup is being created now and will be available soon.
-      
-      To manually replicate CA later:
-        ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
+    msg:
+      - "⚠️  No CA backup found in S3 (initial deployment)"
+      - ""
+      - "Bucket: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/"
+      - ""
+      - "This is expected during initial cluster deployment."
+      - "CA replication will be skipped for this backup cert-manager."
+      - ""
+      - "The CA backup is being created now and will be available soon."
+      - ""
+      - "To manually replicate CA later:"
+      - "  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
   when: 
     - restore_ca_s3_file == 'latest'
     - not ca_backup_exists | default(false)

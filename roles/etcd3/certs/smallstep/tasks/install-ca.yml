@@ -20,17 +20,17 @@
 
 - name: Fail if step-ca binary not installed
   fail:
-    msg: |
-      ❌ step-ca binary not found
-      Expected location: {{ bin_dir }}/step-ca
-      
-      The download role should have installed this already.
-      
-      Manual installation:
-         curl -L -o /tmp/step-ca.tar.gz https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz
-         tar -xzf /tmp/step-ca.tar.gz -C /tmp
-         cp /tmp/step-ca {{ bin_dir }}/step-ca
-         chmod 755 {{ bin_dir }}/step-ca
+    msg:
+      - "❌ step-ca binary not found"
+      - "Expected location: {{ bin_dir }}/step-ca"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step-ca.tar.gz https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step-ca.tar.gz -C /tmp"
+      - "   cp /tmp/step-ca {{ bin_dir }}/step-ca"
+      - "   chmod 755 {{ bin_dir }}/step-ca"
   when: not step_ca_installed.stat.exists
 
 - name: Check if step CLI is installed
@@ -40,17 +40,17 @@
 
 - name: Fail if step CLI binary not installed
   fail:
-    msg: |
-      ❌ step CLI binary not found
-      Expected location: {{ bin_dir }}/step
-      
-      The download role should have installed this already.
-      
-      Manual installation:
-         curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz
-         tar -xzf /tmp/step.tar.gz -C /tmp
-         cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step
-         chmod 755 {{ bin_dir }}/step
+    msg:
+      - "❌ step CLI binary not found"
+      - "Expected location: {{ bin_dir }}/step"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step.tar.gz -C /tmp"
+      - "   cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step"
+      - "   chmod 755 {{ bin_dir }}/step"
   when: not step_cli_installed.stat.exists
 
 - name: Check if CA already initialized
@@ -298,25 +298,35 @@
         that:
           - all_ca_fingerprints | length > 0
           - all_ca_fingerprints | unique | length == 1
-        fail_msg: |
-          ❌ CA FINGERPRINT MISMATCH across cert-managers!
-          
-          This means backup cert-managers have different CA keys than primary.
-          
-          Fingerprints:
-          {% for host in groups[etcd_certmanagers_group] %}
-          {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}
-          {% endfor %}
-          
-          This should never happen during deployment.
-          Contact support or check logs.
+        fail_msg:
+          - "❌ CA FINGERPRINT MISMATCH across cert-managers!"
+          - ""
+          - "This means backup cert-managers have different CA keys than primary."
+          - ""
+          - "Fingerprints:"
+          - "{% for host in groups[etcd_certmanagers_group] %}{{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
+          - ""
+          - "This should never happen during deployment."
+          - "Contact support or check logs."
         success_msg: "✅ All cert-managers have identical CA (fingerprint: {{ all_ca_fingerprints[0] }})"
       run_once: true
       when: all_ca_fingerprints | length > 0
 
     - name: Display HA configuration status (successful replication)
       debug:
-        msg: "{{ ['✅ HA Configuration Complete', '', 'CA backed up to: s3://' + step_ca_backup_s3_bucket + '/' + step_ca_backup_s3_prefix + '/', 'Encryption: ' + step_ca_backup_encryption_method, '', 'Backup cert-managers: ' + (groups[etcd_certmanagers_group][1:] | join(', ')), 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'Benefits:', '- CA keys transmitted encrypted via ' + step_ca_backup_encryption_method, '- Backup/restore tested during deployment', '- Ready for disaster recovery'] }}"
+        msg:
+          - "✅ HA Configuration Complete"
+          - ""
+          - "CA backed up to: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/"
+          - "Encryption: {{ step_ca_backup_encryption_method }}"
+          - ""
+          - "Backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}"
+          - "CA fingerprint: {{ ca_fingerprint.stdout }}"
+          - ""
+          - "Benefits:"
+          - "- CA keys transmitted encrypted via {{ step_ca_backup_encryption_method }}"
+          - "- Backup/restore tested during deployment"
+          - "- Ready for disaster recovery"
       when: 
         - inventory_hostname == groups[etcd_certmanagers_group][0]
         - all_ca_fingerprints | length > 1
@@ -324,7 +334,22 @@
 
     - name: Display HA configuration status (initial deployment)
       debug:
-        msg: "{{ ['⚠️  HA Configuration - Initial Deployment', '', 'Primary cert-manager: ' + groups[etcd_certmanagers_group][0] + ' (step-ca RUNNING)', 'Backup cert-managers: ' + (groups[etcd_certmanagers_group][1:] | join(', ')), '', 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'NOTE: This is the first deployment, so backup cert-managers do not have CA keys yet.', '', 'CA backup is being created and will be available for replication soon.', '', 'To manually replicate CA keys to backup nodes later:', '  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml', '', 'Automated CA backup will run every 5 minutes (checks for changes).'] }}"
+        msg:
+          - "⚠️  HA Configuration - Initial Deployment"
+          - ""
+          - "Primary cert-manager: {{ groups[etcd_certmanagers_group][0] }} (step-ca RUNNING)"
+          - "Backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}"
+          - ""
+          - "CA fingerprint: {{ ca_fingerprint.stdout }}"
+          - ""
+          - "NOTE: This is the first deployment, so backup cert-managers do not have CA keys yet."
+          - ""
+          - "CA backup is being created and will be available for replication soon."
+          - ""
+          - "To manually replicate CA keys to backup nodes later:"
+          - "  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+          - ""
+          - "Automated CA backup will run every 5 minutes (checks for changes)."
       when: 
         - inventory_hostname == groups[etcd_certmanagers_group][0]
         - all_ca_fingerprints | length <= 1

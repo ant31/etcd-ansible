@@ -127,7 +127,8 @@
 
 - name: Display restore status
   debug:
-    msg: "{{ ['CA keys restored from ' + source_node + ' to ' + target_node + ' - step-ca is running'] }}"
+    msg:
+      - "CA keys restored from {{ source_node }} to {{ target_node }} - step-ca is running"
   when: inventory_hostname == target_node
   tags:
     - restore

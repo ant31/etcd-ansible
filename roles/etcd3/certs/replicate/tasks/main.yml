@@ -86,15 +86,13 @@
     that:
       - all_ca_fingerprints | length > 0
       - all_ca_fingerprints | unique | length == 1
-    fail_msg: |
-      ❌ CA FINGERPRINT MISMATCH across cert-managers!
-      
-      Fingerprints:
-      {% for host in groups[etcd_certmanagers_group] %}
-      {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND or FAILED') }}
-      {% endfor %}
-      
-      Manual replication failed. Check logs and S3 backup.
+    fail_msg:
+      - "❌ CA FINGERPRINT MISMATCH across cert-managers!"
+      - ""
+      - "Fingerprints:"
+      - "{% for host in groups[etcd_certmanagers_group] %}{{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND or FAILED') }}{% endfor %}"
+      - ""
+      - "Manual replication failed. Check logs and S3 backup."
     success_msg: "✅ All cert-managers have identical CA (fingerprint: {{ all_ca_fingerprints[0] }})"
   run_once: true
   when: all_ca_fingerprints | length > 0
@@ -103,7 +101,18 @@
 
 - name: Display replication status
   debug:
-    msg: "{{ ['✅ CA Replication Complete', '', 'Method: Encrypted backup/restore via S3', 'Encryption: ' + step_ca_backup_encryption_method, '', 'Primary: ' + groups[etcd_certmanagers_group][0] + ' (step-ca RUNNING)', 'Backups: ' + (groups[etcd_certmanagers_group][1:] | join(', ')) + ' (step-ca STOPPED)', '', 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'All cert-managers now have identical CA keys.'] }}"
+    msg:
+      - "✅ CA Replication Complete"
+      - ""
+      - "Method: Encrypted backup/restore via S3"
+      - "Encryption: {{ step_ca_backup_encryption_method }}"
+      - ""
+      - "Primary: {{ groups[etcd_certmanagers_group][0] }} (step-ca RUNNING)"
+      - "Backups: {{ groups[etcd_certmanagers_group][1:] | join(', ') }} (step-ca STOPPED)"
+      - ""
+      - "CA fingerprint: {{ ca_fingerprint.stdout }}"
+      - ""
+      - "All cert-managers now have identical CA keys."
   when: inventory_hostname == groups[etcd_certmanagers_group][0]
   tags:
     - verify

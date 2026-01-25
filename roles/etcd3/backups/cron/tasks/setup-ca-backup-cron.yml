@@ -63,14 +63,14 @@
 
 - name: Display CA backup schedule
   debug:
-    msg: |
-      ✅ CA backup cron configured (change-based)
-      {{ ca_backup_schedule.stdout }}
-      Log file: {{ backup_log_dir }}/ca-backup.log
-      
-      Note: CA only backs up when files change (checks every {{ ca_backup_check_interval }} minutes)
-      
-      To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
+    msg:
+      - "✅ CA backup cron configured (change-based)"
+      - "{{ ca_backup_schedule.stdout }}"
+      - "Log file: {{ backup_log_dir }}/ca-backup.log"
+      - ""
+      - "Note: CA only backs up when files change (checks every {{ ca_backup_check_interval }} minutes)"
+      - ""
+      - "To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml"
   when: 
     - ca_backup_cron_enabled | default(true) | bool
     - ca_backup_schedule is defined

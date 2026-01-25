@@ -133,32 +133,32 @@
   tasks:
     - name: Show success message
       debug:
-        msg: |
-          ✅ Node certificate regeneration complete!
-          
-          Process summary:
-          1. ✅ Cluster backup created (safety measure)
-          2. ✅ Old node certificates removed
-          3. ✅ New node certificates generated from existing CA
-          4. ✅ Etcd services restarted one-by-one (quorum maintained)
-          5. ✅ Automatic renewal reconfigured
-          
-          CA Status: UNCHANGED (same root CA, same passwords)
-          Quorum: MAINTAINED throughout (rolling restart with serial: 1)
-          Downtime: ZERO
-          
-          What changed:
-          - ✅ New peer certificates (fresh 2-year expiration)
-          - ✅ New server certificates (fresh 2-year expiration)
-          - ✅ New client certificates (fresh 2-year expiration)
-          
-          What stayed the same:
-          - ✅ CA root certificate (unchanged)
-          - ✅ CA passwords (unchanged)
-          - ✅ Cluster data (unchanged)
-          
-          Next steps:
-          1. Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
-          2. Schedule next rotation in ~6-9 months (quarterly recommended)
-          
-          Recommendation: Run this playbook quarterly for certificate hygiene
+        msg:
+          - "✅ Node certificate regeneration complete!"
+          - ""
+          - "Process summary:"
+          - "1. ✅ Cluster backup created (safety measure)"
+          - "2. ✅ Old node certificates removed"
+          - "3. ✅ New node certificates generated from existing CA"
+          - "4. ✅ Etcd services restarted one-by-one (quorum maintained)"
+          - "5. ✅ Automatic renewal reconfigured"
+          - ""
+          - "CA Status: UNCHANGED (same root CA, same passwords)"
+          - "Quorum: MAINTAINED throughout (rolling restart with serial: 1)"
+          - "Downtime: ZERO"
+          - ""
+          - "What changed:"
+          - "- ✅ New peer certificates (fresh 2-year expiration)"
+          - "- ✅ New server certificates (fresh 2-year expiration)"
+          - "- ✅ New client certificates (fresh 2-year expiration)"
+          - ""
+          - "What stayed the same:"
+          - "- ✅ CA root certificate (unchanged)"
+          - "- ✅ CA passwords (unchanged)"
+          - "- ✅ Cluster data (unchanged)"
+          - ""
+          - "Next steps:"
+          - "1. Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+          - "2. Schedule next rotation in ~6-9 months (quarterly recommended)"
+          - ""
+          - "Recommendation: Run this playbook quarterly for certificate hygiene"

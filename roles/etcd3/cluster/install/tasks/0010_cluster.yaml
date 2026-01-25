@@ -15,16 +15,16 @@
   assert:
     that:
       - disk_space_gb.stdout | int >= 10
-    fail_msg: |
-      ❌ INSUFFICIENT DISK SPACE on {{ inventory_hostname }}
-      Available: {{ disk_space_gb.stdout }}GB
-      Required: At least 10GB free in {{ etcd_home }}
-      
-      Recommendation:
-      1. Clean up old backups: find {{ etcd_home }}/backups -mtime +30 -delete
-      2. Check etcd database size: etcdctl endpoint status --write-out=table
-      3. Consider compaction: etcdctl compact $(etcdctl endpoint status -w json | jq -r '.[0].Status.header.revision')
-      4. If needed, expand disk: resize2fs /dev/sdX (after extending volume)
+    fail_msg:
+      - "❌ INSUFFICIENT DISK SPACE on {{ inventory_hostname }}"
+      - "Available: {{ disk_space_gb.stdout }}GB"
+      - "Required: At least 10GB free in {{ etcd_home }}"
+      - ""
+      - "Recommendation:"
+      - "1. Clean up old backups: find {{ etcd_home }}/backups -mtime +30 -delete"
+      - "2. Check etcd database size: etcdctl endpoint status --write-out=table"
+      - "3. Consider compaction: etcdctl compact $(etcdctl endpoint status -w json | jq -r '.[0].Status.header.revision')"
+      - "4. If needed, expand disk: resize2fs /dev/sdX (after extending volume)"
   when: 
     - etcd_action in ['create', 'upgrade', 'deploy']
     - disk_space_gb.stdout is defined
@@ -44,17 +44,17 @@
   assert:
     that:
       - (current_etcd_version.stdout | string) is version(etcd_version | string, '<=')
-    fail_msg: |
-      ❌ VERSION DOWNGRADE NOT ALLOWED on {{ inventory_hostname }}
-      Current version: {{ current_etcd_version.stdout }}
-      Target version: {{ etcd_version }}
-      
-      etcd does not support version downgrades.
-      
-      Options:
-      1. Keep current version (remove -e etcd_version={{ etcd_version }})
-      2. Upgrade to newer version (change etcd_version to >= {{ current_etcd_version.stdout }})
-      3. Restore from backup if you need to go back
+    fail_msg:
+      - "❌ VERSION DOWNGRADE NOT ALLOWED on {{ inventory_hostname }}"
+      - "Current version: {{ current_etcd_version.stdout }}"
+      - "Target version: {{ etcd_version }}"
+      - ""
+      - "etcd does not support version downgrades."
+      - ""
+      - "Options:"
+      - "1. Keep current version (remove -e etcd_version={{ etcd_version }})"
+      - "2. Upgrade to newer version (change etcd_version to >= {{ current_etcd_version.stdout }})"
+      - "3. Restore from backup if you need to go back"
   when:
     - etcd_action == 'upgrade'
     - current_etcd_version.stdout != ''
@@ -70,23 +70,23 @@
 - name: CREATE | fail if it exists
   assert:
     that: not etcd_data.stat.exists
-    fail_msg: |
-      ❌ ETCD DATA ALREADY EXISTS on {{ inventory_hostname }}
-      Cannot create new cluster: {{ etcd_cluster_name }}
-      Data directory: {{ etcd_data_dir }}
-      
-      This indicates etcd was already initialized on this node.
-      
-      Options:
-      1. Use 'upgrade' or 'deploy' action instead of 'create'
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy
-      
-      2. Force recreation (DESTROYS DATA):
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create -e etcd_force_create=true
-      
-      3. Delete cluster first, then recreate:
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_delete_cluster=true
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
+    fail_msg:
+      - "❌ ETCD DATA ALREADY EXISTS on {{ inventory_hostname }}"
+      - "Cannot create new cluster: {{ etcd_cluster_name }}"
+      - "Data directory: {{ etcd_data_dir }}"
+      - ""
+      - "This indicates etcd was already initialized on this node."
+      - ""
+      - "Options:"
+      - "1. Use 'upgrade' or 'deploy' action instead of 'create'"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
+      - ""
+      - "2. Force recreation (DESTROYS DATA):"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create -e etcd_force_create=true"
+      - ""
+      - "3. Delete cluster first, then recreate:"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_delete_cluster=true"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create"
   when:
     - etcd_action == "create"
     - not etcd_force_create |default(false) | bool
@@ -94,23 +94,23 @@
 - name: UPDATE | fail if not data dir exists
   assert:
     that: etcd_data.stat.exists
-    fail_msg: |
-      ❌ ETCD DATA NOT FOUND on {{ inventory_hostname }}
-      Cannot upgrade cluster: {{ etcd_cluster_name }}
-      Data directory: {{ etcd_data_dir }} does not exist
-      
-      This indicates etcd was never initialized on this node.
-      
-      Options:
-      1. Use 'create' action to deploy new cluster:
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
-      
-      2. Check if data directory path is correct:
-         Current setting: {{ etcd_data_dir }}
-         Override if needed: -e etcd_home=/your/custom/path
-      
-      3. Restore from backup if this is a disaster recovery:
-         ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml
+    fail_msg:
+      - "❌ ETCD DATA NOT FOUND on {{ inventory_hostname }}"
+      - "Cannot upgrade cluster: {{ etcd_cluster_name }}"
+      - "Data directory: {{ etcd_data_dir }} does not exist"
+      - ""
+      - "This indicates etcd was never initialized on this node."
+      - ""
+      - "Options:"
+      - "1. Use 'create' action to deploy new cluster:"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create"
+      - ""
+      - "2. Check if data directory path is correct:"
+      - "   Current setting: {{ etcd_data_dir }}"
+      - "   Override if needed: -e etcd_home=/your/custom/path"
+      - ""
+      - "3. Restore from backup if this is a disaster recovery:"
+      - "   ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml"
   when:
     - etcd_action == "upgrade"
 
@@ -144,34 +144,34 @@
 
 - name: Fail if cluster is unhealthy
   fail:
-    msg: |
-      ❌ ETCD CLUSTER IS UNHEALTHY
-      Cluster: {{ etcd_cluster_name }}
-      
-      Health check failed:
-      {{ etcd_cluster_is_healthy.stderr }}
-      
-      Cannot proceed with {{ etcd_action }} on unhealthy cluster.
-      
-      Troubleshooting:
-      1. Check cluster status:
-         ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
-      
-      2. Check logs on all nodes:
-         ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b
-      
-      3. Verify connectivity between nodes:
-         ansible etcd -i inventory.ini -m shell -a 'etcdctl member list' -b
-      
-      4. Check certificate expiration:
-         ansible etcd -i inventory.ini -m shell -a 'step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep "Not After"' -b
-      
-      Recovery options:
-      1. Fix the issue and retry
-      2. Force deploy (RISKY - may cause data loss):
-         ansible-playbook -i inventory.ini etcd.yaml -e etcd_action={{ etcd_action }} -e etcd_force_deploy=true
-      3. Restore from backup:
-         ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml
+    msg:
+      - "❌ ETCD CLUSTER IS UNHEALTHY"
+      - "Cluster: {{ etcd_cluster_name }}"
+      - ""
+      - "Health check failed:"
+      - "{{ etcd_cluster_is_healthy.stderr }}"
+      - ""
+      - "Cannot proceed with {{ etcd_action }} on unhealthy cluster."
+      - ""
+      - "Troubleshooting:"
+      - "1. Check cluster status:"
+      - "   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+      - ""
+      - "2. Check logs on all nodes:"
+      - "   ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b"
+      - ""
+      - "3. Verify connectivity between nodes:"
+      - "   ansible etcd -i inventory.ini -m shell -a 'etcdctl member list' -b"
+      - ""
+      - "4. Check certificate expiration:"
+      - "   ansible etcd -i inventory.ini -m shell -a 'step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep \"Not After\"' -b"
+      - ""
+      - "Recovery options:"
+      - "1. Fix the issue and retry"
+      - "2. Force deploy (RISKY - may cause data loss):"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action={{ etcd_action }} -e etcd_force_deploy=true"
+      - "3. Restore from backup:"
+      - "   ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml"
   when:
     - etcd_cluster_state == "existing"
     - etcd_cluster_is_healthy.rc != 0

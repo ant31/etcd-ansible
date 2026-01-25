@@ -99,14 +99,14 @@
 
 - name: Display downloaded file info
   debug:
-    msg: |
-      ✅ File downloaded from S3
-      
-      Source: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
-      Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
-      Filename preserved: {{ etcd_backup_filename }}
-      
-      Download complete. Ready for decryption.
+    msg:
+      - "✅ File downloaded from S3"
+      - ""
+      - "Source: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}"
+      - "Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}"
+      - "Filename preserved: {{ etcd_backup_filename }}"
+      - ""
+      - "Download complete. Ready for decryption."
   when:
     - restore_etcd_local_file == ''
     - not (restore_skip_download | default(false) | bool)
@@ -151,13 +151,13 @@
 
 - name: Display local file copy info
   debug:
-    msg: |
-      ✅ Local file copied to restore directory
-      
-      Source: {{ restore_etcd_local_file }}
-      Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-      
-      Ready for restore.
+    msg:
+      - "✅ Local file copied to restore directory"
+      - ""
+      - "Source: {{ restore_etcd_local_file }}"
+      - "Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - ""
+      - "Ready for restore."
   when:
     - restore_etcd_local_file != ''
     - copy_local is changed
@@ -184,48 +184,53 @@
 
 - name: Display snapshot validation details
   debug:
-    msg: "{{ ['✅ Snapshot validation PASSED', '', 'Original S3 file: ' + (etcd_backup_filename | default('local file')), 'Restore directory: ' + backup_tmp_dir | default('/opt/backups/tmp') + '/restore/', 'Snapshot file: ' + backup_tmp_dir | default('/opt/backups/tmp') + '/restore/etcd-restore-' + etcd_cluster_name + '.db', 'Size: ' + ((restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) | string) + ' MB', '', 'Snapshot details:', (snapshot_validation.stdout | from_json | to_nice_json)] }}"
+    msg:
+      - "✅ Snapshot validation PASSED"
+      - ""
+      - "Original S3 file: {{ etcd_backup_filename | default('local file') }}"
+      - "Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - "Snapshot file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - "Size: {{ (restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) }} MB"
+      - ""
+      - "Snapshot details:"
+      - "{{ snapshot_validation.stdout | from_json | to_nice_json }}"
   when: snapshot_validation.rc == 0
   tags:
     - restore-etcd
 
 - name: Fail with helpful message if snapshot is invalid
   fail:
-    msg: |
-      ❌ SNAPSHOT FILE IS INVALID OR CORRUPTED
-      
-      Original S3 file: {{ etcd_backup_filename | default('unknown') }}
-      Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/
-      Snapshot file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-      Size: {{ restore_snapshot_ready.stat.size | default(0) }} bytes
-      
-      Validation error:
-      {{ snapshot_validation.stderr }}
-      
-      Common causes:
-      1. Decryption failed (wrong encryption method or password)
-      2. Incomplete download from S3
-      3. Corrupted backup file in S3
-      
-      Troubleshooting steps:
-      
-      1. Verify encryption method matches backup:
-         aws s3api head-object --bucket {{ etcd_upload_backup.bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}
-      
-      2. Check S3 file integrity:
-         aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable
-      
-      3. Try manual download and decrypt:
-         aws s3 cp s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test
-         {% if backup_encryption_method == 'aws-kms' %}
-         aws kms decrypt --ciphertext-blob fileb:///tmp/manual-test --output text --query Plaintext | base64 -d > /tmp/manual-test.db
-         {% elif backup_encryption_method == 'symmetric' %}
-         openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in /tmp/manual-test -out /tmp/manual-test.db -pass pass:YOUR_PASSWORD
-         {% endif %}
-         etcdutl snapshot status /tmp/manual-test.db
-      
-      4. List available backups and try different one:
-         aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/ --recursive
+    msg:
+      - "❌ SNAPSHOT FILE IS INVALID OR CORRUPTED"
+      - ""
+      - "Original S3 file: {{ etcd_backup_filename | default('unknown') }}"
+      - "Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - "Snapshot file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - "Size: {{ restore_snapshot_ready.stat.size | default(0) }} bytes"
+      - ""
+      - "Validation error:"
+      - "{{ snapshot_validation.stderr }}"
+      - ""
+      - "Common causes:"
+      - "1. Decryption failed (wrong encryption method or password)"
+      - "2. Incomplete download from S3"
+      - "3. Corrupted backup file in S3"
+      - ""
+      - "Troubleshooting steps:"
+      - ""
+      - "1. Verify encryption method matches backup:"
+      - "   aws s3api head-object --bucket {{ etcd_upload_backup.bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}"
+      - ""
+      - "2. Check S3 file integrity:"
+      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable"
+      - ""
+      - "3. Try manual download and decrypt:"
+      - "   aws s3 cp s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test"
+      - "   {% if backup_encryption_method == 'aws-kms' %}aws kms decrypt --ciphertext-blob fileb:///tmp/manual-test --output text --query Plaintext | base64 -d > /tmp/manual-test.db{% elif backup_encryption_method == 'symmetric' %}openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in /tmp/manual-test -out /tmp/manual-test.db -pass pass:YOUR_PASSWORD{% endif %}"
+      - "   etcdutl snapshot status /tmp/manual-test.db"
+      - ""
+      - "4. List available backups and try different one:"
+      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/ --recursive"
   when: snapshot_validation.rc != 0
   tags:
     - restore-etcd
@@ -304,13 +309,13 @@
 
 - name: Display cleanup info
   debug:
-    msg: |
-      ✅ Restore cleanup complete
-      
-      Removed temporary restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/
-      
-      Files cleaned up:
-      - Downloaded encrypted file: {{ etcd_backup_filename | default('N/A') }}
-      - Decrypted snapshot: etcd-restore-{{ etcd_cluster_name }}.db
+    msg:
+      - "✅ Restore cleanup complete"
+      - ""
+      - "Removed temporary restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - ""
+      - "Files cleaned up:"
+      - "- Downloaded encrypted file: {{ etcd_backup_filename | default('N/A') }}"
+      - "- Decrypted snapshot: etcd-restore-{{ etcd_cluster_name }}.db"
   tags:
     - restore-etcd

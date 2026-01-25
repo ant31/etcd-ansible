@@ -93,32 +93,24 @@
       
     - name: Display setup complete message
       debug:
-        msg: |
-          ✅ KMS key setup complete!
-          
-          KMS Key Alias: {{ kms_key_alias }}
-          {% if kms_key_check.rc != 0 %}
-          KMS Key ID: {{ kms_key_id }}
-          {% else %}
-          KMS Key ID: {{ (kms_key_check.stdout | from_json).KeyMetadata.KeyId }}
-          {% endif %}
-          
-          Add to your vault.yml:
-            step_ca_backup_kms_key_id: "{{ kms_key_alias }}"
-          
-          {% if kms_principal_arn %}
-          IAM Principal: {{ kms_principal_arn }}
-          {% else %}
-          Note: No IAM principal specified. Update key policy manually if needed.
-          To grant access to etcd nodes:
-            step_ca_backup_kms_principal: "arn:aws:iam::ACCOUNT:role/etcd-nodes"
-          Then re-run this playbook.
-          {% endif %}
-          
-          Test encryption:
-            echo "test" | aws kms encrypt --key-id {{ kms_key_alias }} --plaintext fileb:///dev/stdin --output text --query CiphertextBlob
-          
-          Next steps:
-          1. Update group_vars/all/vault.yml with KMS key alias
-          2. Deploy etcd cluster: ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create
-          3. Setup automated backups: add playbooks/backup-ca.yaml to cron
+        msg:
+          - "✅ KMS key setup complete!"
+          - ""
+          - "KMS Key Alias: {{ kms_key_alias }}"
+          - "{% if kms_key_check.rc != 0 %}KMS Key ID: {{ kms_key_id }}{% else %}KMS Key ID: {{ (kms_key_check.stdout | from_json).KeyMetadata.KeyId }}{% endif %}"
+          - ""
+          - "Add to your vault.yml:"
+          - "  step_ca_backup_kms_key_id: \"{{ kms_key_alias }}\""
+          - ""
+          - "{% if kms_principal_arn %}IAM Principal: {{ kms_principal_arn }}{% else %}Note: No IAM principal specified. Update key policy manually if needed.{% endif %}"
+          - "{% if not kms_principal_arn %}To grant access to etcd nodes:{% endif %}"
+          - "{% if not kms_principal_arn %}  step_ca_backup_kms_principal: \"arn:aws:iam::ACCOUNT:role/etcd-nodes\"{% endif %}"
+          - "{% if not kms_principal_arn %}Then re-run this playbook.{% endif %}"
+          - ""
+          - "Test encryption:"
+          - "  echo \"test\" | aws kms encrypt --key-id {{ kms_key_alias }} --plaintext fileb:///dev/stdin --output text --query CiphertextBlob"
+          - ""
+          - "Next steps:"
+          - "1. Update group_vars/all/vault.yml with KMS key alias"
+          - "2. Deploy etcd cluster: ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create"
+          - "3. Setup automated backups: add playbooks/backup-ca.yaml to cron"

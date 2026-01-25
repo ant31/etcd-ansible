@@ -2,17 +2,26 @@
 Description=Renew {{ cert_name }} certificate
 After=network-online.target
 Wants=network-online.target
+{% if step_cert_renewal_healthcheck_url %}
+OnFailure=step-renew-failure-notify@%n.service
+{% endif %}
 
 [Service]
 Type=oneshot
 User={{ etcd_user.name }}
 Group={{ etcd_user.name }}
 Environment=STEPPATH={{ etcd_cert_dir }}/.step
+
 ExecStart={{ bin_dir }}/step ca renew --force {{ cert_path }} {{ key_path }} --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt
 ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
 ExecStartPost=/bin/chown {{ etcd_user.name }}:{{ etcd_user.name }} {{ cert_path }} {{ key_path }}
 {% if exec_start_post %}
 ExecStartPost={{ exec_start_post }}
+{% endif %}
+
+# Send success healthcheck ping (if configured)
+{% if step_cert_renewal_healthcheck_url %}
+ExecStartPost=/usr/bin/curl -fsS --retry 3 "{{ step_cert_renewal_healthcheck_url }}?cert={{ cert_name }}&status=success" || true
 {% endif %}
 
 [Install]

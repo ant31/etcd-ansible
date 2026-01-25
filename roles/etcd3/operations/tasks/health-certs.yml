@@ -5,36 +5,60 @@
   set_fact:
     output_format: "{{ output_format | default('text') }}"
 
+
+- name: Check if peer certificate file exists
+  stat:
+    path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
+  register: peer_cert_file
+  changed_when: false
+
 - name: Check peer certificate expiration
   shell: >
     {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt
-    --format json | jq -r '.validity.end'
+    --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: peer_cert_expiry
   changed_when: false
   failed_when: false
+  when: peer_cert_file.stat.exists
+
+- name: Check if server certificate file exists
+  stat:
+    path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
+  register: server_cert_file
+  changed_when: false
 
 - name: Check server certificate expiration
   shell: >
     {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt
-    --format json | jq -r '.validity.end'
+    --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: server_cert_expiry
   changed_when: false
   failed_when: false
+  when: server_cert_file.stat.exists
+
+- name: Check if client certificate file exists
+  stat:
+    path: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
+  register: client_cert_file
+  changed_when: false
 
 - name: Check client certificate expiration
   shell: >
     {{ bin_dir }}/step certificate inspect {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt
-    --format json | jq -r '.validity.end'
+    --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: client_cert_expiry
   changed_when: false
   failed_when: false
+  when: client_cert_file.stat.exists
 
 - name: Calculate days until peer cert expiration
   shell: >
     echo $(( ( $(date -d "{{ peer_cert_expiry.stdout }}" +%s) - $(date +%s) ) / 86400 ))
   register: peer_days_left
   changed_when: false
-  when: peer_cert_expiry.rc == 0
+  when: 
+    - peer_cert_file.stat.exists
+    - peer_cert_expiry.rc == 0
 
 - name: Check renewal timer status
   command: systemctl list-timers 'step-renew-*' --no-pager --no-legend
@@ -48,7 +72,65 @@
   changed_when: false
   failed_when: false
 
+- name: Build peer certificate status message
+  set_fact:
+    peer_cert_msg: |
+      {%- if not peer_cert_file.stat.exists -%}
+      ["❌ Peer certificate file NOT FOUND", "Expected: {{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"]
+      {%- elif peer_cert_expiry.rc != 0 -%}
+      ["❌ Failed to inspect peer certificate", "File exists but inspection failed", "Error: {{ peer_cert_expiry.stderr | default('Unknown error') }}"]
+      {%- else -%}
+      {%- set days = peer_days_left.stdout | int -%}
+      ["Peer certificate expires:   {{ peer_cert_expiry.stdout }}", "Days until expiration:      {{ peer_days_left.stdout }}", "{% if days < 30 %}⚠️  WARNING: Certificate expires in less than 30 days!{% elif days < 90 %}⚠️  NOTICE: Certificate expires in less than 90 days{% else %}✅ Certificate valid for {{ peer_days_left.stdout }} days{% endif %}"]
+      {%- endif -%}
+
+- name: Build server certificate status message
+  set_fact:
+    server_cert_msg: |
+      {%- if not server_cert_file.stat.exists -%}
+      ["Server cert:                FILE NOT FOUND ({{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt)"]
+      {%- elif server_cert_expiry.rc != 0 -%}
+      ["Server cert:                INSPECTION FAILED"]
+      {%- else -%}
+      ["Server cert expires:        {{ server_cert_expiry.stdout }}"]
+      {%- endif -%}
+
+- name: Build client certificate status message
+  set_fact:
+    client_cert_msg: |
+      {%- if not client_cert_file.stat.exists -%}
+      ["Client cert:                FILE NOT FOUND ({{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt)"]
+      {%- elif client_cert_expiry.rc != 0 -%}
+      ["Client cert:                INSPECTION FAILED"]
+      {%- else -%}
+      ["Client cert expires:        {{ client_cert_expiry.stdout }}"]
+      {%- endif -%}
+
+- name: Build renewal timer status message
+  set_fact:
+    timer_msg: |
+      {%- set count = active_timers_count.stdout | int -%}
+      ["Active renewal timers:      {{ active_timers_count.stdout }}", "{% if count != 3 %}⚠️  WARNING: Expected 3 renewal timers, found {{ active_timers_count.stdout }}{% else %}✅ All renewal timers active{% endif %}"]
+
+- name: Build troubleshooting message for missing certs
+  set_fact:
+    missing_certs_msg: |
+      {%- if not peer_cert_file.stat.exists or not server_cert_file.stat.exists or not client_cert_file.stat.exists -%}
+      ["", "", "Troubleshooting missing certificates:", "1. Check if certificates were generated:", "   ls -la {{ etcd_cert_dir }}/", "", "2. Verify cluster name matches:", "   echo \"{{ etcd_cluster_name }}\"", "", "3. Check certificate generation logs:", "   journalctl -u etcd-* -n 100 | grep -i cert", "", "4. Regenerate certificates if needed:", "   ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml --limit {{ inventory_hostname }}"]
+      {%- else -%}
+      []
+      {%- endif -%}
+
+- name: Build troubleshooting message for inspection failures
+  set_fact:
+    inspection_failed_msg: |
+      {%- if peer_cert_expiry.rc != 0 or server_cert_expiry.rc != 0 or client_cert_expiry.rc != 0 -%}
+      ["", "Troubleshooting inspection failures:", "1. Verify step CLI is working:", "   {{ bin_dir }}/step version", "", "2. Check certificate file permissions:", "   ls -la {{ etcd_cert_dir }}/etcd-*-peer.crt", "", "3. Check Python is available:", "   python3 --version"]
+      {%- else -%}
+      []
+      {%- endif -%}
+
 - name: Display certificate status (text)
   debug:
-    msg: "{{ ['', '┌─ CERTIFICATE STATUS - ' + inventory_hostname + ' ──────────┐'] + (['Peer certificate expires:   ' + peer_cert_expiry.stdout, 'Days until expiration:      ' + peer_days_left.stdout] + (['⚠️  WARNING: Certificate expires in less than 30 days!'] if peer_days_left.stdout | int < 30 else (['⚠️  NOTICE: Certificate expires in less than 90 days'] if peer_days_left.stdout | int < 90 else ['✅ Certificate valid for ' + peer_days_left.stdout + ' days'])) if peer_cert_expiry.rc == 0 else ['❌ Failed to read certificate']) + ['', 'Server cert expires:        ' + (server_cert_expiry.stdout if server_cert_expiry.rc == 0 else 'UNKNOWN'), 'Client cert expires:        ' + (client_cert_expiry.stdout if client_cert_expiry.rc == 0 else 'UNKNOWN'), '', 'Active renewal timers:      ' + active_timers_count.stdout] + (['⚠️  WARNING: Expected 3 renewal timers, found ' + active_timers_count.stdout] if active_timers_count.stdout | int != 3 else ['✅ All renewal timers active']) + ['└────────────────────────────────────────────────────────────┘'] }}"
+    msg: "{{ (['', '┌─ CERTIFICATE STATUS - ' + inventory_hostname + ' ──────────┐'] + (peer_cert_msg | from_json) + [''] + (server_cert_msg | from_json) + (client_cert_msg | from_json) + [''] + (timer_msg | from_json) + (missing_certs_msg | from_json) + (inspection_failed_msg | from_json) + ['└────────────────────────────────────────────────────────────┘']) }}"
   when: output_format == 'text'

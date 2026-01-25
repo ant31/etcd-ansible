@@ -44,6 +44,13 @@
 
 - name: Display node cert cleanup status
   debug:
-    msg: "{{ ['✅ Old node certificates removed from ' + inventory_hostname, '', 'CA certificates intact:', '- Root CA: ' + etcd_cert_dir + '/root_ca.crt ✓', '- step-ca running: ' + ('YES' if inventory_hostname in groups[etcd_certmanagers_group] else 'N/A'), '', 'Ready to generate new node certificates from existing CA'] }}"
+    msg:
+      - "✅ Old node certificates removed from {{ inventory_hostname }}"
+      - ""
+      - "CA certificates intact:"
+      - "- Root CA: {{ etcd_cert_dir }}/root_ca.crt ✓"
+      - "- step-ca running: {{ 'YES' if inventory_hostname in groups[etcd_certmanagers_group] else 'N/A' }}"
+      - ""
+      - "Ready to generate new node certificates from existing CA"
   tags:
     - regenerate-nodes-clean

@@ -22,4 +22,5 @@
 
 - name: Display cleanup result
   debug:
-    msg: "{{ ['Local backups older than 30 days cleaned'] }}"
+    msg:
+      - "Local backups older than 30 days cleaned"

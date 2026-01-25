@@ -155,18 +155,14 @@
 
 - name: Display backup location and method
   debug:
-    msg: |
-      ✅ Backup uploaded to s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
-      
-      Encryption method: {{ step_ca_backup_encryption_method }}
-      {% if step_ca_backup_encryption_method == 'aws-kms' %}
-      KMS Key: {{ step_ca_backup_kms_key_id }}
-      {% elif step_ca_backup_encryption_method == 'symmetric' %}
-      Decryption: Use password from ansible-vault
-      {% endif %}
-      
-      To restore:
-        ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=TARGET_NODE --vault-password-file ~/.vault-pass
+    msg:
+      - "✅ Backup uploaded to s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
+      - ""
+      - "Encryption method: {{ step_ca_backup_encryption_method }}"
+      - "{% if step_ca_backup_encryption_method == 'aws-kms' %}KMS Key: {{ step_ca_backup_kms_key_id }}{% elif step_ca_backup_encryption_method == 'symmetric' %}Decryption: Use password from ansible-vault{% endif %}"
+      - ""
+      - "To restore:"
+      - "  ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=TARGET_NODE --vault-password-file ~/.vault-pass"
   when: step_ca_backup_s3_enabled
   tags:
     - backup

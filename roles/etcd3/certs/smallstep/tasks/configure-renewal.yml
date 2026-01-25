@@ -101,6 +101,13 @@
     exec_start_post: "/bin/systemctl reload {{ etcd_name }}.service"
   when: inventory_hostname in groups[etcd_cluster_group]
 
+- name: Create failure notification service template
+  template:
+    src: step-renew-failure-notify.service.j2
+    dest: /etc/systemd/system/step-renew-failure-notify@.service
+    mode: 0644
+  when: step_cert_renewal_healthcheck_url | default('')
+
 - name: Create certificate renewal timer for peer cert
   template:
     src: step-renew.timer.j2

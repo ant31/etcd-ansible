@@ -153,41 +153,37 @@
   tasks:
     - name: Show success message
       debug:
-        msg: |
-          ✅ Certificate regeneration complete!
-          
-          ⚠️  DISASTER RECOVERY COMPLETE
-          
-          Process summary:
-          1. ✅ Cluster backup created (before any changes)
-          2. ✅ Old CA COMPLETELY DELETED (root + intermediate keys)
-          3. ✅ New CA initialized with NEW passwords from vault.yml
-          4. ✅ All certificates regenerated from new CA
-          {% if groups[etcd_certmanagers_group] | length > 1 %}
-          5. ✅ New CA replicated to backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}
-          {% endif %}
-          6. ✅ Etcd services restarted one-by-one (quorum maintained)
-          7. ✅ Automatic renewal reconfigured
-          
-          Impact assessment:
-          - CA: COMPLETELY NEW (different root CA fingerprint)
-          - All certificates: NEW (generated from new CA)
-          - External clients: MUST GET NEW certificates
-          - Quorum: MAINTAINED throughout (rolling restart)
-          - Downtime: ZERO
-          
-          CRITICAL NEXT STEPS:
-          1. 🔐 Save new vault.yml passwords SECURELY (different from old!)
-          2. 📋 Update ALL external systems with new certificates:
-             - Kubernetes API servers
-             - Monitoring systems
-             - Backup tools
-             - Any other etcd clients
-          3. ✅ Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
-          {% if groups[etcd_certmanagers_group] | length > 1 %}
-          4. 🔍 Verify CA fingerprints match: ansible etcd-cert-managers -i inventory.ini -m shell -a 'step certificate fingerprint /etc/step-ca/certs/root_ca.crt' -b
-          {% endif %}
-          5. 📧 Notify team about CA change (new root CA fingerprint)
-          
-          For routine certificate rotation (keeping same CA):
-            Use: ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml
+        msg:
+          - "✅ Certificate regeneration complete!"
+          - ""
+          - "⚠️  DISASTER RECOVERY COMPLETE"
+          - ""
+          - "Process summary:"
+          - "1. ✅ Cluster backup created (before any changes)"
+          - "2. ✅ Old CA COMPLETELY DELETED (root + intermediate keys)"
+          - "3. ✅ New CA initialized with NEW passwords from vault.yml"
+          - "4. ✅ All certificates regenerated from new CA"
+          - "{% if groups[etcd_certmanagers_group] | length > 1 %}5. ✅ New CA replicated to backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}{% endif %}"
+          - "6. ✅ Etcd services restarted one-by-one (quorum maintained)"
+          - "7. ✅ Automatic renewal reconfigured"
+          - ""
+          - "Impact assessment:"
+          - "- CA: COMPLETELY NEW (different root CA fingerprint)"
+          - "- All certificates: NEW (generated from new CA)"
+          - "- External clients: MUST GET NEW certificates"
+          - "- Quorum: MAINTAINED throughout (rolling restart)"
+          - "- Downtime: ZERO"
+          - ""
+          - "CRITICAL NEXT STEPS:"
+          - "1. 🔐 Save new vault.yml passwords SECURELY (different from old!)"
+          - "2. 📋 Update ALL external systems with new certificates:"
+          - "   - Kubernetes API servers"
+          - "   - Monitoring systems"
+          - "   - Backup tools"
+          - "   - Any other etcd clients"
+          - "3. ✅ Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+          - "{% if groups[etcd_certmanagers_group] | length > 1 %}4. 🔍 Verify CA fingerprints match: ansible etcd-cert-managers -i inventory.ini -m shell -a 'step certificate fingerprint /etc/step-ca/certs/root_ca.crt' -b{% endif %}"
+          - "5. 📧 Notify team about CA change (new root CA fingerprint)"
+          - ""
+          - "For routine certificate rotation (keeping same CA):"
+          - "  Use: ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml"

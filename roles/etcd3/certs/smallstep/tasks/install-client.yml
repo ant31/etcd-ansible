@@ -6,22 +6,22 @@
 
 - name: Fail if step CLI binary not installed
   fail:
-    msg: |
-      ❌ step CLI binary not found
-      Expected location: {{ bin_dir }}/step
-      
-      The download role should have installed this already.
-      
-      Troubleshooting:
-      1. Ensure download role ran on this node
-      2. Check if download was skipped: ansible-playbook -vvv
-      3. Verify inventory groups are correct
-      
-      Manual installation:
-         curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz
-         tar -xzf /tmp/step.tar.gz -C /tmp
-         cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step
-         chmod 755 {{ bin_dir }}/step
+    msg:
+      - "❌ step CLI binary not found"
+      - "Expected location: {{ bin_dir }}/step"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Troubleshooting:"
+      - "1. Ensure download role ran on this node"
+      - "2. Check if download was skipped: ansible-playbook -vvv"
+      - "3. Verify inventory groups are correct"
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step.tar.gz -C /tmp"
+      - "   cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step"
+      - "   chmod 755 {{ bin_dir }}/step"
   when: not step_cli_installed.stat.exists
 
 - name: Create etcd cert directory
@@ -68,7 +68,15 @@
 
 - name: Fail if root CA missing or empty immediately after install
   fail:
-    msg: "{{ ['Root CA missing or empty at ' + etcd_cert_dir + '/root_ca.crt', 'Exists: ' + (root_ca_stat_check.stat.exists | string), 'Size: ' + (root_ca_stat_check.stat.size | default(0) | string) + ' bytes', 'Expected owner: ' + etcd_user.name, 'Expected group: ' + etcd_user.name, '', 'Directory listing of ' + etcd_cert_dir + ':'] + (cert_dir_ls.stdout_lines | default(['Unable to list directory'])) }}"
+    msg:
+      - "Root CA missing or empty at {{ etcd_cert_dir }}/root_ca.crt"
+      - "Exists: {{ root_ca_stat_check.stat.exists | string }}"
+      - "Size: {{ root_ca_stat_check.stat.size | default(0) }} bytes"
+      - "Expected owner: {{ etcd_user.name }}"
+      - "Expected group: {{ etcd_user.name }}"
+      - ""
+      - "Directory listing of {{ etcd_cert_dir }}:"
+      - "{{ cert_dir_ls.stdout_lines | default(['Unable to list directory']) | join('\n') }}"
   when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
 
 - name: Wait for step-ca health endpoint
@@ -104,7 +112,8 @@
 
 - name: Display provisioner check result
   debug:
-    msg: "{{ ['Provisioner endpoint status: ' + (provisioners_check.status | default('NOT CHECKED') | string)] }}"
+    msg:
+      - "Provisioner endpoint status: {{ provisioners_check.status | default('NOT CHECKED') }}"
   when: provisioners_check is defined
 
 
@@ -145,27 +154,27 @@
 
 - name: Display bootstrap error if failed
   debug:
-    msg: |
-      ❌ Bootstrap failed after 3 retries
-      
-      Error: {{ bootstrap_result.stderr | default('No error message') }}
-      
-      Troubleshooting:
-      1. Check step-ca logs on cert-manager:
-         ssh {{ step_ca_dns }} 'journalctl -u step-ca -n 100'
-      
-      2. Verify step-ca is running:
-         curl -k {{ step_ca_url }}/health
-      
-      3. Check provisioner configuration:
-         curl -k {{ step_ca_url }}/provisioners
-      
-      4. Verify root CA fingerprint matches:
-         On cert-manager: step certificate fingerprint /etc/step-ca/certs/root_ca.crt
-         On this node: step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt
-      
-      5. Check if root_ca.crt exists and is readable:
-         ls -la {{ etcd_cert_dir }}/root_ca.crt
+    msg:
+      - "❌ Bootstrap failed after 3 retries"
+      - ""
+      - "Error: {{ bootstrap_result.stderr | default('No error message') }}"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check step-ca logs on cert-manager:"
+      - "   ssh {{ step_ca_dns }} 'journalctl -u step-ca -n 100'"
+      - ""
+      - "2. Verify step-ca is running:"
+      - "   curl -k {{ step_ca_url }}/health"
+      - ""
+      - "3. Check provisioner configuration:"
+      - "   curl -k {{ step_ca_url }}/provisioners"
+      - ""
+      - "4. Verify root CA fingerprint matches:"
+      - "   On cert-manager: step certificate fingerprint /etc/step-ca/certs/root_ca.crt"
+      - "   On this node: step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
+      - ""
+      - "5. Check if root_ca.crt exists and is readable:"
+      - "   ls -la {{ etcd_cert_dir }}/root_ca.crt"
   when: 
     - bootstrap_result is defined
     - bootstrap_result.rc != 0

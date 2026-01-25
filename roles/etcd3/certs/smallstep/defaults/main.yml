@@ -67,3 +67,12 @@ step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
 # - aws-kms: Best for AWS users, integrates with IAM, audit logs, key rotation
 # - symmetric: Simple password-based, works anywhere, no cloud dependencies
 # - none: No encryption (not recommended for production)
+
+# Certificate renewal monitoring (optional)
+# Healthcheck URL for certificate renewal success/failure notifications
+# Examples:
+#   - Healthchecks.io: https://hc-ping.com/your-uuid
+#   - Deadman's Snitch: https://nosnch.in/your-snitch-id
+#   - Custom webhook: https://your-monitoring.example.com/webhook
+# Leave empty to disable
+step_cert_renewal_healthcheck_url: ""

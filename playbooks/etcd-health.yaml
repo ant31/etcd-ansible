@@ -54,22 +54,22 @@
   tasks:
     - name: Show completion message
       debug:
-        msg: |
-          
-          ════════════════════════════════════════════════════════════════
-          HEALTH CHECK COMPLETE
-          ════════════════════════════════════════════════════════════════
-          
-          For machine-readable output:
-            ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
-          
-          To check specific components:
-            --tags health      : Cluster health only
-            --tags certs       : Certificate status only  
-            --tags step-ca     : step-ca status only
-          
-          For detailed troubleshooting:
-            Cluster logs:  ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b
-            step-ca logs:  ansible etcd-cert-managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b
-          
+        msg:
+          - ""
+          - "════════════════════════════════════════════════════════════════"
+          - "HEALTH CHECK COMPLETE"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "For machine-readable output:"
+          - "  ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json"
+          - ""
+          - "To check specific components:"
+          - "  --tags health      : Cluster health only"
+          - "  --tags certs       : Certificate status only"
+          - "  --tags step-ca     : step-ca status only"
+          - ""
+          - "For detailed troubleshooting:"
+          - "  Cluster logs:  ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b"
+          - "  step-ca logs:  ansible etcd-cert-managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b"
+          - ""
       when: output_format | default('text') == 'text'
