@@ -2,6 +2,10 @@
 # Manual backup - scripts installed via cron role dependency
 # This ensures identical behavior: encryption validation, naming convention, etc.
 
+- name: Set flag to skip initial backup (manual backup in progress)
+  set_fact:
+    skip_initial_backup: true
+
 - name: Run backup script (always independent mode, runs as root)
   command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--online-only' if etcd_backup_online_only | default(false) | bool else '' }}"
   become: yes

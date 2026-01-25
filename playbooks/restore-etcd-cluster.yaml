@@ -49,6 +49,16 @@
   roles:
     - etcd3/facts
   tasks:
+    - name: Ensure backup tmp restore directory exists
+      file:
+        path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore"
+        state: directory
+        owner: root
+        group: root
+        mode: 0755
+      tags:
+        - restore-download
+
     - name: Find latest etcd backup in S3
       command: >
         {{ bin_dir }}/aws s3api list-objects-v2
@@ -97,7 +107,8 @@
           
           Backup: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
           Encryption: {{ backup_encryption_method }}
-          Target: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+          Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/
+          Target file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
           
           This happens BEFORE stopping etcd to minimize downtime.
       when: restore_etcd_local_file | default('') == ''
@@ -109,7 +120,7 @@
       command: >
         {{ bin_dir }}/aws s3 cp
         s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
-        /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
+        {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}
       environment:
         AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -121,13 +132,15 @@
     - name: Decrypt etcd backup with AWS KMS (parallel on all nodes)
       shell: |
         {{ bin_dir }}/aws kms decrypt \
-          --ciphertext-blob fileb:///tmp/etcd-restore-encrypted-{{ etcd_cluster_name }} \
+          --ciphertext-blob fileb://{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }} \
           --output text \
-          --query Plaintext | base64 -d > /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+          --query Plaintext | base64 -d > {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
       environment:
         AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
         AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
         AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+      args:
+        executable: /bin/bash
       when: 
         - restore_etcd_local_file | default('') == ''
         - backup_encryption_method == 'aws-kms'
@@ -137,9 +150,11 @@
     - name: Decrypt etcd backup with symmetric encryption (parallel on all nodes)
       shell: >
         openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
-        -in /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
-        -out /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+        -in {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}
+        -out {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
         -pass pass:"{{ step_ca_backup_password }}"
+      args:
+        executable: /bin/bash
       when:
         - restore_etcd_local_file | default('') == ''
         - backup_encryption_method == 'symmetric'
@@ -149,8 +164,10 @@
 
     - name: Copy unencrypted backup
       shell: >
-        mv /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
-        /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+        cp {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}
+        {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
+      args:
+        executable: /bin/bash
       when:
         - restore_etcd_local_file | default('') == ''
         - backup_encryption_method == 'none'
@@ -160,7 +177,7 @@
     - name: Use local snapshot file
       copy:
         src: "{{ restore_etcd_local_file }}"
-        dest: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+        dest: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
         remote_src: yes
       when: restore_etcd_local_file | default('') != ''
       tags:
@@ -168,7 +185,7 @@
 
     - name: Verify snapshot is ready on all nodes
       stat:
-        path: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
+        path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
       register: snapshot_ready
       failed_when: not snapshot_ready.stat.exists
       tags:
@@ -176,14 +193,15 @@
 
     - name: Cleanup encrypted temp file
       file:
-        path: /tmp/etcd-restore-encrypted-{{ etcd_cluster_name }}
+        path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}"
         state: absent
+      when: etcd_backup_file_path is defined
       tags:
         - restore-download
 
     - name: Display download complete
       debug:
-        msg: "{{ ['✅ Backup downloaded and decrypted on all nodes', '', 'File: /tmp/etcd-restore-' + etcd_cluster_name + '.db', 'Size: ' + ((snapshot_ready.stat.size / 1024 / 1024) | round(2) | string) + ' MB', '', 'Ready for fast restore operation.', 'etcd is still running - downtime starts now.'] }}"
+        msg: "{{ ['✅ Backup downloaded and decrypted on all nodes', '', 'Original S3 file: ' + (etcd_backup_file_path | basename if etcd_backup_file_path is defined else 'local file'), 'Restore directory: ' + backup_tmp_dir | default('/opt/backups/tmp') + '/restore/', 'Snapshot file: ' + backup_tmp_dir | default('/opt/backups/tmp') + '/restore/etcd-restore-' + etcd_cluster_name + '.db', 'Size: ' + ((snapshot_ready.stat.size / 1024 / 1024) | round(2) | string) + ' MB', '', 'Ready for fast restore operation.', 'etcd is still running - downtime starts now.'] }}"
       run_once: true
       tags:
         - restore-download
