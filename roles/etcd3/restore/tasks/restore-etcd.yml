@@ -114,48 +114,27 @@
   tags:
     - restore-etcd
 
-- name: Decrypt etcd backup with AWS KMS
-  shell: |
-    {{ bin_dir }}/aws kms decrypt \
-      --ciphertext-blob fileb://{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }} \
-      --output text \
-      --query Plaintext | base64 -d > {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  register: kms_decrypt
+- name: Decrypt etcd backup using backup script (reuses encryption logic)
+  command: >
+    /usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py
+    --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
+    --decrypt
+    --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
+    --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
+    --encryption {{ backup_encryption_method }}
+  register: decrypt_result
   when: 
     - restore_etcd_local_file == ''
-    - backup_encryption_method == 'aws-kms'
     - not (restore_skip_download | default(false) | bool)
   tags:
     - restore-etcd
 
-- name: Decrypt etcd backup with symmetric encryption
-  shell: >
-    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
-    -in {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
-    -out {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-    -pass pass:"{{ step_ca_backup_password }}"
-  register: openssl_decrypt
+- name: Display decryption result
+  debug:
+    msg: "{{ decrypt_result.stdout_lines }}"
   when:
-    - restore_etcd_local_file == ''
-    - backup_encryption_method == 'symmetric'
-    - not (restore_skip_download | default(false) | bool)
-  no_log: true
-  tags:
-    - restore-etcd
-
-- name: Copy unencrypted backup
-  shell: >
-    cp {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
-    {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-  register: copy_unencrypted
-  when:
-    - restore_etcd_local_file == ''
-    - backup_encryption_method == 'none'
-    - not (restore_skip_download | default(false) | bool)
+    - decrypt_result is defined
+    - decrypt_result is changed
   tags:
     - restore-etcd
 
