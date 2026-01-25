@@ -57,6 +57,11 @@ ca_backup_healthcheck_url: ""
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365
 
+# Restore checksum verification
+# If true, verify SHA256 checksum of decrypted backups during restore
+# If false, skip verification (faster but less safe)
+restore_verify_checksum: true
+
 # Paths (all root-owned, organized under /opt/backups)
 etcd_backup_dir: "/opt/backups"  # Root directory for all backups
 backup_scripts_dir: "/opt/backups"  # Scripts in backup root

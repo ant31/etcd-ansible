@@ -751,7 +751,8 @@ def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
         logger.warning(f"Healthcheck ping failed (non-fatal): {e}")
 
 
-def decrypt_file(config: dict, input_file: str, output_file: str, encryption_method: str) -> int:
+def decrypt_file(config: dict, input_file: str, output_file: str, encryption_method: str, 
+                sha256_value: str = None, sha256_file: str = None, verify_checksum: bool = True) -> int:
     """
     Decrypt a file using the configured encryption method
     
@@ -760,6 +761,9 @@ def decrypt_file(config: dict, input_file: str, output_file: str, encryption_met
         input_file: Path to encrypted file
         output_file: Path for decrypted output
         encryption_method: Encryption method (auto-detected from extension if 'auto')
+        sha256_value: Expected SHA256 checksum (hex string)
+        sha256_file: Path to .sha256 file containing expected checksum
+        verify_checksum: If True, verify decrypted content against checksum
     
     Returns:
         0 on success, 1 on failure
@@ -771,6 +775,7 @@ def decrypt_file(config: dict, input_file: str, output_file: str, encryption_met
     logger.info("DECRYPT MODE")
     logger.info(f"Input:  {input_path}")
     logger.info(f"Output: {output_path}")
+    logger.info(f"Verify checksum: {verify_checksum}")
     logger.info("=" * 72)
     sys.stdout.flush()
     
@@ -785,6 +790,46 @@ def decrypt_file(config: dict, input_file: str, output_file: str, encryption_met
         else:
             encryption_method = 'none'
             logger.info("Auto-detected encryption: none (unencrypted)")
+    
+    # Determine expected checksum
+    expected_checksum = None
+    if verify_checksum:
+        if sha256_value:
+            expected_checksum = sha256_value.lower().strip()
+            logger.info(f"Using provided SHA256: {expected_checksum}")
+        elif sha256_file:
+            try:
+                sha256_path = Path(sha256_file)
+                if sha256_path.exists():
+                    content = sha256_path.read_text().strip()
+                    # Parse SHA256 file format: "checksum  filename" or just "checksum"
+                    parts = content.split()
+                    if parts:
+                        expected_checksum = parts[0].lower()
+                        logger.info(f"Loaded SHA256 from file: {expected_checksum}")
+                else:
+                    logger.error(f"SHA256 file not found: {sha256_file}")
+                    return 1
+            except Exception as e:
+                logger.error(f"Failed to read SHA256 file: {e}")
+                return 1
+        else:
+            # Try to auto-detect .sha256 file next to input
+            auto_sha256_file = input_path.with_suffix('.db.sha256')
+            if auto_sha256_file.exists():
+                try:
+                    content = auto_sha256_file.read_text().strip()
+                    parts = content.split()
+                    if parts:
+                        expected_checksum = parts[0].lower()
+                        logger.info(f"Auto-detected SHA256 file: {auto_sha256_file}")
+                        logger.info(f"Expected checksum: {expected_checksum}")
+                except Exception as e:
+                    logger.warning(f"Failed to read auto-detected SHA256 file (non-fatal): {e}")
+            else:
+                logger.warning("No SHA256 checksum provided or auto-detected")
+                logger.warning("Checksum verification will be skipped")
+                verify_checksum = False
     
     try:
         if encryption_method == 'aws-kms':
@@ -822,6 +867,32 @@ def decrypt_file(config: dict, input_file: str, output_file: str, encryption_met
         logger.info(f"✓ Decryption successful")
         logger.info(f"Output: {output_path}")
         logger.info(f"Size: {output_path.stat().st_size} bytes ({(output_path.stat().st_size / 1024 / 1024):.2f} MB)")
+        
+        # Verify checksum if requested
+        if verify_checksum and expected_checksum:
+            logger.info("")
+            logger.info("Verifying decrypted file checksum...")
+            sys.stdout.flush()
+            
+            actual_checksum = calculate_sha256(output_path)
+            logger.info(f"Expected: {expected_checksum}")
+            logger.info(f"Actual:   {actual_checksum}")
+            
+            if actual_checksum == expected_checksum:
+                logger.info("✓ Checksum verification PASSED")
+            else:
+                logger.error("✗ Checksum verification FAILED")
+                logger.error("The decrypted file does NOT match the expected checksum")
+                logger.error("This may indicate:")
+                logger.error("  - Corrupted backup file")
+                logger.error("  - Wrong encryption key/password")
+                logger.error("  - File was tampered with")
+                logger.info("=" * 72)
+                sys.stdout.flush()
+                return 1
+        elif verify_checksum and not expected_checksum:
+            logger.warning("Checksum verification requested but no checksum available")
+        
         logger.info("=" * 72)
         sys.stdout.flush()
         
@@ -863,6 +934,12 @@ def main():
     parser.add_argument('--encryption', type=str, default='auto',
                        choices=['auto', 'aws-kms', 'symmetric', 'none'],
                        help='Encryption method (default: auto-detect from file extension)')
+    parser.add_argument('--sha256', type=str,
+                       help='Expected SHA256 checksum (hex string) for verification')
+    parser.add_argument('--sha256-file', type=str,
+                       help='Path to .sha256 file containing expected checksum')
+    parser.add_argument('--no-verify', action='store_true',
+                       help='Skip checksum verification (not recommended)')
     
     args = parser.parse_args()
     
@@ -891,7 +968,10 @@ def main():
         if 'aws_region' in config_dict:
             os.environ['AWS_DEFAULT_REGION'] = config_dict['aws_region']
         
-        return decrypt_file(config, args.input, args.output, args.encryption)
+        return decrypt_file(config, args.input, args.output, args.encryption,
+                          sha256_value=args.sha256,
+                          sha256_file=args.sha256_file,
+                          verify_checksum=not args.no_verify)
     
     args = parser.parse_args()
     

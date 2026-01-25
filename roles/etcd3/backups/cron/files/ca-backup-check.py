@@ -581,6 +581,160 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
     return s3_path
 
 
+def decrypt_file(config: dict, input_file: str, output_file: str, encryption_method: str,
+                sha256_value: str = None, sha256_file: str = None, verify_checksum: bool = True) -> int:
+    """
+    Decrypt a CA backup file
+    
+    Args:
+        config: Configuration dict
+        input_file: Path to encrypted file
+        output_file: Path for decrypted output
+        encryption_method: Encryption method (auto-detected from extension if 'auto')
+        sha256_value: Expected SHA256 checksum (hex string)
+        sha256_file: Path to .sha256 file containing expected checksum
+        verify_checksum: If True, verify decrypted content against checksum
+    
+    Returns:
+        0 on success, 1 on failure
+    """
+    input_path = Path(input_file)
+    output_path = Path(output_file)
+    
+    logger.info("=" * 72)
+    logger.info("DECRYPT MODE")
+    logger.info(f"Input:  {input_path}")
+    logger.info(f"Output: {output_path}")
+    logger.info(f"Verify checksum: {verify_checksum}")
+    logger.info("=" * 72)
+    sys.stdout.flush()
+    
+    # Auto-detect encryption method from file extension
+    if encryption_method == 'auto':
+        if input_path.suffix == '.kms':
+            encryption_method = 'aws-kms'
+            logger.info("Auto-detected encryption: aws-kms")
+        elif input_path.suffix == '.enc':
+            encryption_method = 'symmetric'
+            logger.info("Auto-detected encryption: symmetric")
+        else:
+            encryption_method = 'none'
+            logger.info("Auto-detected encryption: none (unencrypted)")
+    
+    # Determine expected checksum
+    expected_checksum = None
+    if verify_checksum:
+        if sha256_value:
+            expected_checksum = sha256_value.lower().strip()
+            logger.info(f"Using provided SHA256: {expected_checksum}")
+        elif sha256_file:
+            try:
+                sha256_path = Path(sha256_file)
+                if sha256_path.exists():
+                    content = sha256_path.read_text().strip()
+                    parts = content.split()
+                    if parts:
+                        expected_checksum = parts[0].lower()
+                        logger.info(f"Loaded SHA256 from file: {expected_checksum}")
+                else:
+                    logger.error(f"SHA256 file not found: {sha256_file}")
+                    return 1
+            except Exception as e:
+                logger.error(f"Failed to read SHA256 file: {e}")
+                return 1
+        else:
+            # Try to auto-detect .sha256 file next to input
+            auto_sha256_file = input_path.with_suffix('.tar.gz.sha256')
+            if auto_sha256_file.exists():
+                try:
+                    content = auto_sha256_file.read_text().strip()
+                    parts = content.split()
+                    if parts:
+                        expected_checksum = parts[0].lower()
+                        logger.info(f"Auto-detected SHA256 file: {auto_sha256_file}")
+                        logger.info(f"Expected checksum: {expected_checksum}")
+                except Exception as e:
+                    logger.warning(f"Failed to read auto-detected SHA256 file (non-fatal): {e}")
+            else:
+                logger.warning("No SHA256 checksum provided or auto-detected")
+                logger.warning("Checksum verification will be skipped")
+                verify_checksum = False
+    
+    try:
+        if encryption_method == 'aws-kms':
+            logger.info("Decrypting with AWS KMS envelope encryption...")
+            sys.stdout.flush()
+            
+            if not HAS_CRYPTOGRAPHY:
+                logger.error("cryptography library not available")
+                logger.error("Install with: pip3 install cryptography")
+                return 1
+            
+            decrypt_with_kms(config, input_path, output_path)
+            
+        elif encryption_method == 'symmetric':
+            logger.info("Decrypting with OpenSSL AES-256-CBC...")
+            sys.stdout.flush()
+            decrypt_with_openssl(config, input_path, output_path, config['backup_password'])
+            
+        elif encryption_method == 'none':
+            logger.info("No encryption, copying file...")
+            sys.stdout.flush()
+            import shutil
+            shutil.copy2(input_path, output_path)
+            
+        else:
+            logger.error(f"Unknown encryption method: {encryption_method}")
+            return 1
+        
+        # Verify output file exists and has content
+        if not output_path.exists() or output_path.stat().st_size == 0:
+            logger.error("Decryption produced empty or missing file")
+            return 1
+        
+        logger.info("=" * 72)
+        logger.info(f"✓ Decryption successful")
+        logger.info(f"Output: {output_path}")
+        logger.info(f"Size: {output_path.stat().st_size} bytes ({(output_path.stat().st_size / 1024 / 1024):.2f} MB)")
+        
+        # Verify checksum if requested
+        if verify_checksum and expected_checksum:
+            logger.info("")
+            logger.info("Verifying decrypted file checksum...")
+            sys.stdout.flush()
+            
+            actual_checksum = calculate_sha256(output_path)
+            logger.info(f"Expected: {expected_checksum}")
+            logger.info(f"Actual:   {actual_checksum}")
+            
+            if actual_checksum == expected_checksum:
+                logger.info("✓ Checksum verification PASSED")
+            else:
+                logger.error("✗ Checksum verification FAILED")
+                logger.error("The decrypted file does NOT match the expected checksum")
+                logger.error("This may indicate:")
+                logger.error("  - Corrupted backup file")
+                logger.error("  - Wrong encryption key/password")
+                logger.error("  - File was tampered with")
+                logger.info("=" * 72)
+                sys.stdout.flush()
+                return 1
+        elif verify_checksum and not expected_checksum:
+            logger.warning("Checksum verification requested but no checksum available")
+        
+        logger.info("=" * 72)
+        sys.stdout.flush()
+        
+        return 0
+        
+    except Exception as e:
+        logger.error("=" * 72)
+        logger.error(f"Decryption FAILED: {e}")
+        logger.error("=" * 72)
+        sys.stdout.flush()
+        return 1
+
+
 def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
     """Send healthcheck ping if configured"""
     if not config.get('healthcheck_url'):
@@ -611,6 +765,55 @@ def main():
                        help='Show what would be done without making changes')
     parser.add_argument('--timeout', type=int, default=1800,
                        help='Overall script timeout in seconds (default: 1800 = 30 minutes)')
+    
+    # Decrypt mode arguments
+    parser.add_argument('--decrypt', action='store_true',
+                       help='Decrypt mode: decrypt an encrypted CA backup file')
+    parser.add_argument('--input', type=str,
+                       help='Input file to decrypt (required with --decrypt)')
+    parser.add_argument('--output', type=str,
+                       help='Output file for decrypted data (required with --decrypt)')
+    parser.add_argument('--encryption', type=str, default='auto',
+                       choices=['auto', 'aws-kms', 'symmetric', 'none'],
+                       help='Encryption method (default: auto-detect from file extension)')
+    parser.add_argument('--sha256', type=str,
+                       help='Expected SHA256 checksum (hex string) for verification')
+    parser.add_argument('--sha256-file', type=str,
+                       help='Path to .sha256 file containing expected checksum')
+    parser.add_argument('--no-verify', action='store_true',
+                       help='Skip checksum verification (not recommended)')
+    
+    args = parser.parse_args()
+    
+    # Handle decrypt mode
+    if args.decrypt:
+        if not args.input or not args.output:
+            logger.error("--decrypt requires both --input and --output arguments")
+            return 1
+        
+        # Load config for credentials and settings
+        config_dict = load_config(args.config)
+        
+        config = {
+            'backup_tmp_dir': Path(config_dict['backup_tmp_dir']),
+            'bin_dir': Path(config_dict['bin_dir']),
+            'encryption_method': args.encryption,
+            'kms_key_id': config_dict.get('kms_key_id', ''),
+            'backup_password': config_dict.get('backup_password', ''),
+        }
+        
+        # Set AWS credentials
+        if 'aws_access_key_id' in config_dict:
+            os.environ['AWS_ACCESS_KEY_ID'] = config_dict['aws_access_key_id']
+        if 'aws_secret_access_key' in config_dict:
+            os.environ['AWS_SECRET_ACCESS_KEY'] = config_dict['aws_secret_access_key']
+        if 'aws_region' in config_dict:
+            os.environ['AWS_DEFAULT_REGION'] = config_dict['aws_region']
+        
+        return decrypt_file(config, args.input, args.output, args.encryption,
+                          sha256_value=args.sha256,
+                          sha256_file=args.sha256_file,
+                          verify_checksum=not args.no_verify)
     
     args = parser.parse_args()
     
