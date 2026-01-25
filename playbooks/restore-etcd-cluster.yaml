@@ -46,8 +46,11 @@
 - name: Download and decrypt backup (etcd still running - minimize downtime)
   hosts: etcd
   gather_facts: yes
+  vars:
+    skip_initial_backup: true
   roles:
     - etcd3/facts
+    - etcd3/backups/cron
   tasks:
     - name: Ensure backup tmp restore directory exists
       file:

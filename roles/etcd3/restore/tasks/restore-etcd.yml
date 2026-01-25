@@ -246,6 +246,16 @@
   tags:
     - restore-etcd
 
+- name: Remove old backup directory if exists
+  file:
+    path: "{{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}"
+    state: absent
+  when: 
+    - restore_backup_existing | bool
+    - etcd_data_dir_stat.stat.exists
+  tags:
+    - restore-etcd
+
 - name: Backup current etcd data
   command: >
     mv {{ etcd_data_dir }}

@@ -96,14 +96,12 @@
   shell: "crontab -l -u root | grep -c 'etcd-backup.py' || true"
   register: etcd_cron_check
   changed_when: false
-  when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
 
 - name: Display etcd backup cron status
   debug:
     msg: "{{ ['Etcd backup cron job: ' + ('INSTALLED' if etcd_cron_check.stdout|int > 0 else 'NOT FOUND')] }}"
-  when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
 
@@ -120,7 +118,6 @@
   changed_when: false
   when: 
     - etcd_backup_cron_enabled | default(true) | bool
-    - inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron
 
@@ -227,6 +224,5 @@
     owner: root
     group: root
     mode: 0644
-  when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron

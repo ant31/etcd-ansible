@@ -1,4 +1,7 @@
 ---
+# Note: Initial backups are automatically skipped during restore operations
+# (skip_initial_backup=true is set in meta/main.yml for the cron dependency)
+
 - name: Restore CA from node (direct copy)
   include_tasks: restore-ca-from-node-direct.yml
   when: restore_action | default('') == 'ca-from-node'

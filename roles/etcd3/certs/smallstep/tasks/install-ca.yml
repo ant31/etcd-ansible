@@ -324,7 +324,7 @@
 
     - name: Display HA configuration status (initial deployment)
       debug:
-        msg: "{{ ['⚠️  HA Configuration - Initial Deployment', '', 'Primary cert-manager: ' + groups[etcd_certmanagers_group][0] + ' (step-ca RUNNING)', 'Backup cert-managers: ' + (groups[etcd_certmanagers_group][1:] | join(', ')), '', 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'NOTE: This is the first deployment, so backup cert-managers don\'t have CA keys yet.', '', 'CA backup is being created and will be available for replication soon.', '', 'To manually replicate CA keys to backup nodes later:', '  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml', '', 'Automated CA backup will run every 5 minutes (checks for changes).'] }}"
+        msg: "{{ ['⚠️  HA Configuration - Initial Deployment', '', 'Primary cert-manager: ' + groups[etcd_certmanagers_group][0] + ' (step-ca RUNNING)', 'Backup cert-managers: ' + (groups[etcd_certmanagers_group][1:] | join(', ')), '', 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'NOTE: This is the first deployment, so backup cert-managers do not have CA keys yet.', '', 'CA backup is being created and will be available for replication soon.', '', 'To manually replicate CA keys to backup nodes later:', '  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml', '', 'Automated CA backup will run every 5 minutes (checks for changes).'] }}"
       when: 
         - inventory_hostname == groups[etcd_certmanagers_group][0]
         - all_ca_fingerprints | length <= 1

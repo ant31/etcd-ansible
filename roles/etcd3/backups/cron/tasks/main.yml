@@ -74,7 +74,7 @@
     - ca_backup_initial_run | default(true) | bool
     - ca_backup_cron_enabled | bool
     - inventory_hostname in groups[etcd_certmanagers_group]
-    - not (skip_initial_backup | default(false) | bool)
+    - skip_initial_backup is not defined or not skip_initial_backup | bool
   ignore_errors: yes
   register: initial_ca_backup
   tags:
@@ -100,7 +100,7 @@
     - etcd_backup_initial_run | default(true) | bool
     - etcd_backup_cron_enabled | bool
     - inventory_hostname == groups[etcd_cluster_group][0]
-    - not (skip_initial_backup | default(false) | bool)
+    - skip_initial_backup is not defined or not skip_initial_backup | bool
   ignore_errors: yes
   register: initial_etcd_backup
   tags:
