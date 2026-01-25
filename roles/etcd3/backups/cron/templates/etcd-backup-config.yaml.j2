@@ -19,6 +19,8 @@ bin_dir: "{{ bin_dir }}"
 
 # S3 configuration
 s3_bucket: "{{ etcd_upload_backup.bucket }}"
+# Note: prefix should already include cluster name (e.g., "etcd/cluster-name/")
+# Don't append cluster name again in Python script
 s3_prefix: "{{ etcd_upload_backup.prefix | default('') }}"
 
 # Encryption configuration

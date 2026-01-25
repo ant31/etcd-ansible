@@ -34,6 +34,10 @@ etcd_backup_cron_hour: "*"
 etcd_backup_distributed: true  # Enable multi-node backups
 etcd_backup_independent: false  # If true, skip deduplication (each node always creates backup)
 
+# Online-only backup mode (abort if cluster unhealthy)
+# Default: false (always backup, filename indicates online/offline status)
+etcd_backup_online_only: false
+
 # CA backup - only when changed - ENABLED BY DEFAULT
 ca_backup_cron_enabled: true
 ca_backup_check_interval: "*/5"  # Check every 5 minutes if CA changed
@@ -53,6 +57,7 @@ ca_backup_healthcheck_url: ""
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365
 
-# Paths
+# Paths (all root-owned)
+etcd_backup_dir: "/opt/backups"  # Root directory for all backups
 backup_scripts_dir: "/opt/etcd-backup-scripts"
 backup_log_dir: "/var/log/etcd-backups"

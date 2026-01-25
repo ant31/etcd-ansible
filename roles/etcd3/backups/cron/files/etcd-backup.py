@@ -6,10 +6,12 @@ Loads configuration from YAML file
 Usage: etcd-backup.py --config /path/to/config.yaml [OPTIONS]
 
 OPTIONS:
-  --config PATH   Configuration file (required)
-  --force         Force backup even if cluster is unhealthy
-  --dry-run       Show what would be done without making changes
-  --independent   Skip recent backup check (independent mode)
+  --config PATH      Configuration file (required)
+  --online-only      Only backup if cluster is healthy (abort if unhealthy)
+  --dry-run          Show what would be done without making changes
+  --independent      Skip recent backup check (independent mode)
+
+Default behavior: Always backup (online or offline), filename indicates cluster health
 
 Exit codes:
   0 - Success (backup completed)
@@ -265,7 +267,7 @@ def check_recent_backup(config: dict) -> bool:
         result = run_command([
             config['bin_dir'] / 'aws', 's3api', 'list-objects-v2',
             '--bucket', config['s3_bucket'],
-            '--prefix', f"{config['s3_prefix']}{config['cluster_name']}/",
+            '--prefix', f"{config['s3_prefix']}/",
             '--query', f"Contents[?LastModified>=`{cutoff_datetime}`].{{Key:Key,Modified:LastModified}}",
             '--output', 'text'
         ], check=False)
@@ -286,9 +288,14 @@ def check_recent_backup(config: dict) -> bool:
         return False
 
 
-def create_snapshot(config: dict, dry_run: bool = False) -> Optional[Tuple[Path, str]]:
+def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -> Optional[Tuple[Path, str]]:
     """
     Create etcd snapshot and upload to S3
+    
+    Args:
+        config: Configuration dict
+        cluster_online: True if cluster was healthy, False if unhealthy
+        dry_run: If True, don't actually create backup
     
     Returns:
         Tuple of (snapshot_file, s3_path) on success, None on failure
@@ -297,7 +304,9 @@ def create_snapshot(config: dict, dry_run: bool = False) -> Optional[Tuple[Path,
     year = datetime.now().strftime('%Y')
     month = datetime.now().strftime('%m')
     
-    snapshot_file = config['backup_dir'] / year / month / f"{config['cluster_name']}-{timestamp}-snapshot.db"
+    # Include cluster health status in filename
+    health_suffix = "online" if cluster_online else "offline"
+    snapshot_file = config['backup_dir'] / year / month / f"{config['cluster_name']}-{timestamp}-{health_suffix}-snapshot.db"
     
     logger.info("Starting etcd snapshot creation...")
     logger.info(f"Timestamp: {timestamp}")
@@ -397,8 +406,8 @@ def create_snapshot(config: dict, dry_run: bool = False) -> Optional[Tuple[Path,
     final_checksum = calculate_sha256(final_file)
     logger.info(f"Final file checksum: {final_checksum}")
     
-    # Upload to S3
-    s3_path = f"{config['s3_prefix']}{config['cluster_name']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
+    # Upload to S3 (s3_prefix already includes cluster name from template)
+    s3_path = f"{config['s3_prefix']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
     logger.info(f"Uploading backup to S3: s3://{config['s3_bucket']}/{s3_path}")
     
     try:
@@ -436,9 +445,9 @@ def create_snapshot(config: dict, dry_run: bool = False) -> Optional[Tuple[Path,
     
     logger.info("✓ Upload verification PASSED")
     
-    # Update latest pointer
+    # Update latest pointer (s3_prefix already includes cluster name)
     logger.info("Updating 'latest' pointer...")
-    latest_path = f"{config['s3_prefix']}{config['cluster_name']}/latest-snapshot.db{s3_suffix}"
+    latest_path = f"{config['s3_prefix']}/latest-snapshot.db{s3_suffix}"
     try:
         run_command([
             config['bin_dir'] / 'aws', 's3', 'cp',
@@ -545,8 +554,8 @@ def main():
     )
     parser.add_argument('--config', required=True,
                        help='Path to configuration YAML file')
-    parser.add_argument('--force', action='store_true',
-                       help='Force backup even if cluster is unhealthy')
+    parser.add_argument('--online-only', action='store_true',
+                       help='Only backup if cluster is healthy (abort if unhealthy)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be done without making changes')
     parser.add_argument('--independent', action='store_true',
@@ -595,25 +604,30 @@ def main():
     logger.info(f"Cluster: {config['cluster_name']}")
     logger.info(f"Endpoints: {config['etcd_endpoints']}")
     logger.info(f"Encryption: {config['encryption_method']}")
-    logger.info(f"S3 Bucket: s3://{config['s3_bucket']}/{config['s3_prefix']}{config['cluster_name']}")
+    logger.info(f"S3 Bucket: s3://{config['s3_bucket']}/{config['s3_prefix']}")
     logger.info(f"Distributed backup: {config['distributed_backup']}")
-    logger.info(f"Force backup: {args.force}")
+    logger.info(f"Online-only mode: {args.online_only}")
     logger.info(f"Dry run: {args.dry_run}")
     logger.info("=" * 72)
     
     try:
-        # Check etcd health
-        if not check_etcd_health(config):
-            if args.force:
-                logger.warning("Etcd cluster is unhealthy, but force backup requested")
-            else:
-                logger.error("Etcd cluster is unhealthy, aborting backup")
-                logger.error("Use --force to backup anyway (may result in inconsistent data)")
+        # Check etcd health (always check, result goes in filename)
+        cluster_online = check_etcd_health(config)
+        
+        if not cluster_online:
+            if args.online_only:
+                logger.error("Etcd cluster is unhealthy, aborting backup (--online-only mode)")
+                logger.error("Remove --online-only flag to backup anyway")
                 send_healthcheck_ping(config, 'cluster-unhealthy')
                 return 1
+            else:
+                logger.warning("Etcd cluster is UNHEALTHY - backup will be marked as 'offline'")
+                logger.warning("Offline backups may contain inconsistent data if cluster was not in quorum")
+        else:
+            logger.info("Etcd cluster is HEALTHY - backup will be marked as 'online'")
         
         # Check for recent backups (distributed coordination)
-        if config['distributed_backup'] and not args.force and not args.independent:
+        if config['distributed_backup'] and not args.independent:
             if check_recent_backup(config):
                 logger.info("=" * 72)
                 logger.info("Recent backup already exists (created by another node)")
@@ -631,7 +645,7 @@ def main():
         
         # Create snapshot
         logger.info("Starting snapshot operation...")
-        result = create_snapshot(config, dry_run=args.dry_run)
+        result = create_snapshot(config, cluster_online, dry_run=args.dry_run)
         
         if result and not args.dry_run:
             # Cleanup old backups

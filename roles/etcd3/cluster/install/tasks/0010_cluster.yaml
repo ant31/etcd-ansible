@@ -180,8 +180,6 @@
 - name: Create a backup on upgrade, deploy
   import_role:
     name: etcd3/backups
-  vars:
-    etcd_backup_offline: true
   when:
     - etcd_backup | d(true) | bool
     - etcd_action | d('none') in ['upgrade', 'deploy']

@@ -1,12 +1,13 @@
 ---
-- name: Create backup directories
+- name: Create backup directories (root-owned)
   file:
     path: "{{ item }}"
     state: directory
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: root
+    group: root
     mode: 0755
   loop:
+    - "{{ etcd_backup_dir }}"
     - "{{ backup_scripts_dir }}"
     - "{{ backup_log_dir }}"
   tags:
@@ -58,7 +59,7 @@
 - name: Run initial etcd backup after deployment
   command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
   become: yes
-  become_user: "{{ etcd_user.name }}"
+  become_user: root
   when:
     - etcd_backup_initial_run | default(true) | bool
     - etcd_backup_cron_enabled | bool

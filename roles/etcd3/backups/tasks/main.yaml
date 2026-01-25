@@ -2,30 +2,44 @@
 # Manual backup - call the same script as cron for consistency
 # This ensures identical behavior: encryption validation, naming convention, etc.
 
-- name: Ensure backup script exists
-  stat:
-    path: "{{ backup_scripts_dir }}/etcd-backup.py"
-  register: backup_script_check
+- name: Ensure backup directories exist (root-owned)
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  loop:
+    - "{{ etcd_backup_dir }}"
+    - "{{ backup_scripts_dir }}"
   tags:
     - backup
 
-- name: Fail if backup script missing
-  fail:
-    msg: |
-      ❌ Backup script not found: {{ backup_scripts_dir }}/etcd-backup.py
-      
-      The backup cron role must be applied first to install the script.
-      
-      To fix:
-        ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy --tags backup-cron -b
-  when: not backup_script_check.stat.exists
+- name: Install/update etcd backup script (ensure latest version, root-owned)
+  copy:
+    src: "{{ role_path }}/cron/files/etcd-backup.py"
+    dest: "{{ backup_scripts_dir }}/etcd-backup.py"
+    owner: root
+    group: root
+    mode: 0755
   tags:
     - backup
 
-- name: Run backup script (always independent mode)
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--force' if etcd_backup_offline | default(false) | bool else '' }}"
+- name: Install/update etcd backup configuration (root-owned)
+  template:
+    src: "{{ role_path }}/cron/templates/etcd-backup-config.yaml.j2"
+    dest: "{{ backup_scripts_dir }}/etcd-backup-config.yaml"
+    owner: root
+    group: root
+    mode: 0600
+    backup: yes
+  tags:
+    - backup
+
+- name: Run backup script (always independent mode, runs as root)
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--online-only' if etcd_backup_online_only | default(false) | bool else '' }}"
   become: yes
-  become_user: "{{ etcd_user.name }}"
+  become_user: root
   environment:
     ETCDCTL_API: "3"
   register: manual_backup_result
@@ -40,9 +54,14 @@
       {{ manual_backup_result.stdout }}
       
       Mode: INDEPENDENT (always creates new backup, no deduplication)
-      {% if etcd_backup_offline | default(false) | bool %}
-      Force mode: ENABLED (backed up even if cluster unhealthy)
-      ⚠️  This backup may contain inconsistent data if cluster was not in quorum.
+      Behavior: ALWAYS BACKUP (default - backups even if cluster unhealthy)
+      
+      Filename indicates cluster health status:
+      - *-online-snapshot.db = Cluster was healthy during backup
+      - *-offline-snapshot.db = Cluster was unhealthy during backup
+      
+      {% if etcd_backup_online_only | default(false) | bool %}
+      ⚠️  Online-only mode: Would have aborted if cluster was unhealthy
       {% endif %}
       
       The backup was created using the same process as automated cron backups.
@@ -64,11 +83,16 @@
       Troubleshooting:
       1. Check backup logs: tail -f {{ backup_log_dir }}/etcd-backup.log
       2. Check config: cat {{ backup_scripts_dir }}/etcd-backup-config.yaml
-      3. Verify cluster health: etcdctl endpoint health
-      4. Check if etcd is running: systemctl status etcd-*
+      3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}
+      4. Verify cluster health: etcdctl endpoint health
+      5. Check if etcd is running: systemctl status etcd-*
+      6. Check AWS credentials: aws s3 ls s3://{{ etcd_upload_backup.bucket }}
       
-      To force backup even when cluster is unhealthy:
-        ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=backup -e etcd_backup_offline=true -b
+      Note: Default behavior is to backup regardless of cluster health.
+      {% if etcd_backup_online_only | default(false) | bool %}
+      You have --online-only enabled, which aborts if cluster is unhealthy.
+      Remove -e etcd_backup_online_only=true to allow offline backups.
+      {% endif %}
   when: manual_backup_result.rc != 0
   tags:
     - backup

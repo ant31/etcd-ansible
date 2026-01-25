@@ -67,12 +67,6 @@
     - role: etcd3/backups
       tags:
         - backup
-  vars:
-    # Try online backup first, but will automatically fallback to offline if:
-    # - Certificates don't exist (haven't been generated yet)
-    # - Cluster is unhealthy
-    # - Online backup fails for any reason
-    etcd_backup_offline: false  # Let backup role handle fallback automatically
 
 - name: Cleanup old CA and certificates (etcd keeps running with old certs)
   hosts: etcd,etcd-clients,etcd-cert-managers
