@@ -122,9 +122,7 @@
     
     - name: Display node restart status
       debug:
-        msg: |
-          ✅ Node {{ inventory_hostname }} restarted with new certificates
-          Remaining nodes: {{ groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1) }}
+        msg: "{{ ['✅ Node ' + inventory_hostname + ' restarted with new certificates', 'Remaining nodes: ' + ((groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1)) | string)] }}"
 
 - name: Replicate new CA to backup cert-managers
   hosts: etcd-cert-managers

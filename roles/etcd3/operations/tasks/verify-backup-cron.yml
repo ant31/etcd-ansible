@@ -166,9 +166,11 @@
       └────────────────────────────────────────────────────────────┘
       {% endif %}
       
-      {% if recent_logs.stdout is defined and recent_logs.stdout | length > 0 %}
+      {% if recent_logs.stdout_lines is defined and recent_logs.stdout_lines | length > 0 %}
       ┌─ RECENT BACKUP LOGS ──────────────────────────────────────┐
-      {{ recent_logs.stdout }}
+      {% for line in recent_logs.stdout_lines %}
+      {{ line }}
+      {% endfor %}
       └────────────────────────────────────────────────────────────┘
       {% endif %}
       

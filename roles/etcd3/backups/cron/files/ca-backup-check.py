@@ -21,6 +21,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import subprocess
 import sys
 import tarfile
@@ -30,6 +31,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Optional: cryptography for KMS envelope encryption
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
+
 
 class BackupError(Exception):
     """Custom exception for backup errors"""
@@ -37,7 +45,10 @@ class BackupError(Exception):
 
 
 def setup_logging() -> logging.Logger:
-    """Setup logging configuration"""
+    """Setup logging configuration with unbuffered output"""
+    # Force unbuffered stdout for immediate log visibility
+    sys.stdout.reconfigure(line_buffering=True)
+    
     logger = logging.getLogger('ca-backup')
     logger.setLevel(logging.INFO)
     
@@ -48,6 +59,7 @@ def setup_logging() -> logging.Logger:
     
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+    handler.setLevel(logging.INFO)
     logger.addHandler(handler)
     
     return logger
@@ -68,22 +80,30 @@ def load_config(config_path: str) -> dict:
         sys.exit(1)
 
 
-def run_command(cmd: list, check: bool = True, capture_output: bool = True) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result"""
+def run_command(cmd: list, check: bool = True, capture_output: bool = True, timeout: int = 900) -> subprocess.CompletedProcess:
+    """Run a shell command and return the result (default 15 minute timeout)"""
     try:
         logger.debug(f"Running command: {' '.join(str(c) for c in cmd)}")
+        sys.stdout.flush()
+        
         result = subprocess.run(
             cmd,
             check=check,
             capture_output=capture_output,
-            text=True
+            text=True,
+            timeout=timeout
         )
         return result
+    except subprocess.TimeoutExpired as e:
+        logger.error(f"Command timed out after {timeout}s: {' '.join(str(c) for c in cmd)}")
+        sys.stdout.flush()
+        raise BackupError(f"Command timed out after {timeout}s")
     except subprocess.CalledProcessError as e:
         logger.error(f"Command failed: {' '.join(str(c) for c in cmd)}")
         logger.error(f"Exit code: {e.returncode}")
         if e.stderr:
             logger.error(f"Error output: {e.stderr}")
+        sys.stdout.flush()
         raise
 
 
@@ -161,38 +181,102 @@ def create_archive(config: dict, archive_path: Path) -> str:
 
 
 def encrypt_with_kms(config: dict, input_file: Path, output_file: Path) -> None:
-    """Encrypt file with AWS KMS"""
-    logger.info(f"Encrypting with AWS KMS (key: {config['kms_key_id']})...")
+    """Encrypt file with AWS KMS using envelope encryption (supports large files)"""
+    logger.info(f"Encrypting with AWS KMS envelope encryption (key: {config['kms_key_id']})...")
+    logger.info("Generating data encryption key from KMS...")
+    sys.stdout.flush()
     
+    # Generate a data encryption key from KMS
     result = run_command([
-        config['bin_dir'] / 'aws', 'kms', 'encrypt',
+        config['bin_dir'] / 'aws', 'kms', 'generate-data-key',
         '--key-id', config['kms_key_id'],
-        '--plaintext', f"fileb://{input_file}",
-        '--output', 'text',
-        '--query', 'CiphertextBlob'
+        '--key-spec', 'AES_256',
+        '--output', 'json'
     ], check=True)
     
-    ciphertext = base64.b64decode(result.stdout.strip())
-    with open(output_file, 'wb') as f:
-        f.write(ciphertext)
+    kms_response = json.loads(result.stdout)
+    plaintext_key = base64.b64decode(kms_response['Plaintext'])
+    encrypted_key = base64.b64decode(kms_response['CiphertextBlob'])
     
-    logger.info("✓ KMS encryption completed")
+    logger.info("✓ Data encryption key generated")
+    logger.info("Encrypting file with AES-256-GCM...")
+    sys.stdout.flush()
+    
+    # Encrypt file with AES-256-GCM
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import secrets
+    
+    aesgcm = AESGCM(plaintext_key)
+    nonce = secrets.token_bytes(12)
+    
+    with open(input_file, 'rb') as f:
+        plaintext_data = f.read()
+    
+    ciphertext_data = aesgcm.encrypt(nonce, plaintext_data, None)
+    
+    # Write envelope format
+    with open(output_file, 'wb') as f:
+        f.write(len(encrypted_key).to_bytes(4, byteorder='big'))
+        f.write(encrypted_key)
+        f.write(nonce)
+        f.write(ciphertext_data)
+    
+    del plaintext_key
+    del plaintext_data
+    
+    logger.info("✓ KMS envelope encryption completed")
+    sys.stdout.flush()
 
 
 def decrypt_with_kms(config: dict, input_file: Path, output_file: Path) -> None:
-    """Decrypt file with AWS KMS"""
-    logger.info("Test decrypting with AWS KMS...")
+    """Decrypt file with AWS KMS envelope encryption"""
+    logger.info("Test decrypting with AWS KMS envelope encryption...")
+    sys.stdout.flush()
     
-    result = run_command([
-        config['bin_dir'] / 'aws', 'kms', 'decrypt',
-        '--ciphertext-blob', f"fileb://{input_file}",
-        '--output', 'text',
-        '--query', 'Plaintext'
-    ], check=True)
+    # Read envelope
+    with open(input_file, 'rb') as f:
+        encrypted_key_length = int.from_bytes(f.read(4), byteorder='big')
+        encrypted_key = f.read(encrypted_key_length)
+        nonce = f.read(12)
+        ciphertext_data = f.read()
     
-    plaintext = base64.b64decode(result.stdout.strip())
+    logger.info("Decrypting data encryption key with KMS...")
+    sys.stdout.flush()
+    
+    # Decrypt data key
+    temp_key_file = config['backup_tmp_dir'] / f"temp-key-{os.getpid()}.bin"
+    try:
+        with open(temp_key_file, 'wb') as f:
+            f.write(encrypted_key)
+        
+        result = run_command([
+            config['bin_dir'] / 'aws', 'kms', 'decrypt',
+            '--ciphertext-blob', f"fileb://{temp_key_file}",
+            '--output', 'text',
+            '--query', 'Plaintext'
+        ], check=True)
+        
+        plaintext_key = base64.b64decode(result.stdout.strip())
+    finally:
+        temp_key_file.unlink(missing_ok=True)
+    
+    logger.info("✓ Data key decrypted, decrypting file...")
+    sys.stdout.flush()
+    
+    # Decrypt file
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    
+    aesgcm = AESGCM(plaintext_key)
+    plaintext_data = aesgcm.decrypt(nonce, ciphertext_data, None)
+    
     with open(output_file, 'wb') as f:
-        f.write(plaintext)
+        f.write(plaintext_data)
+    
+    del plaintext_key
+    del plaintext_data
+    
+    logger.info("✓ Decryption completed")
+    sys.stdout.flush()
 
 
 def encrypt_with_openssl(config: dict, input_file: Path, output_file: Path, password: str) -> None:
@@ -224,7 +308,7 @@ def decrypt_with_openssl(config: dict, input_file: Path, output_file: Path, pass
 def validate_encryption(config: dict, encrypted_file: Path, original_checksum: str, encryption_method: str) -> bool:
     """Validate encryption by test-decrypting and comparing checksums"""
     logger.info("Validating encryption (test decrypt)...")
-    test_decrypt = Path(f"/tmp/ca-decrypt-test-{os.getpid()}.tar.gz")
+    test_decrypt = config['backup_tmp_dir'] / f"ca-decrypt-test-{os.getpid()}.tar.gz"
     
     try:
         if encryption_method == 'aws-kms':
@@ -267,7 +351,7 @@ def verify_s3_file_exists(config: dict, s3_path: str) -> bool:
 def verify_s3_checksum(config: dict, s3_path: str, expected_checksum: str) -> bool:
     """Download and verify S3 file checksum"""
     logger.info("Downloading file from S3 for verification...")
-    temp_file = Path(f"/tmp/ca-verify-{int(time.time())}.tar.gz")
+    temp_file = config['backup_tmp_dir'] / f"ca-verify-{int(time.time())}.tar.gz"
     
     try:
         run_command([
@@ -303,7 +387,7 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
     year = datetime.now().strftime('%Y')
     month = datetime.now().strftime('%m')
     
-    archive_file = Path(f"/tmp/ca-backup-{timestamp}.tar.gz")
+    archive_file = config['backup_tmp_dir'] / f"ca-backup-{timestamp}.tar.gz"
     
     logger.info("Starting CA backup process...")
     logger.info(f"Timestamp: {timestamp}")
@@ -471,7 +555,7 @@ def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
 
 
 def main():
-    """Main backup logic"""
+    """Main backup logic with overall timeout"""
     parser = argparse.ArgumentParser(
         description='CA backup script',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -483,8 +567,24 @@ def main():
                        help='Force backup even if files haven\'t changed')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be done without making changes')
+    parser.add_argument('--timeout', type=int, default=1800,
+                       help='Overall script timeout in seconds (default: 1800 = 30 minutes)')
     
     args = parser.parse_args()
+    
+    # Set up signal handler for timeout
+    import signal
+    
+    def timeout_handler(signum, frame):
+        logger.error("=" * 72)
+        logger.error(f"SCRIPT TIMEOUT: Exceeded {args.timeout}s overall execution time")
+        logger.error("The backup operation took too long and was killed")
+        logger.error("=" * 72)
+        sys.stdout.flush()
+        sys.exit(1)
+    
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(args.timeout)
     
     # Load configuration
     config_dict = load_config(args.config)
@@ -492,6 +592,8 @@ def main():
     # Convert paths to Path objects
     config = {
         'state_file': Path(config_dict['state_file']),
+        'ca_backup_dir': Path(config_dict['ca_backup_dir']),
+        'backup_tmp_dir': Path(config_dict['backup_tmp_dir']),
         'ca_secrets_dir': Path(config_dict['ca_secrets_dir']),
         'ca_config_dir': Path(config_dict['ca_config_dir']),
         'bin_dir': Path(config_dict['bin_dir']),
@@ -522,6 +624,18 @@ def main():
     logger.info(f"Force backup: {args.force}")
     logger.info(f"Dry run: {args.dry_run}")
     logger.info("=" * 72)
+    sys.stdout.flush()
+    
+    # Validate cryptography is available for KMS encryption
+    if config['encryption_method'] == 'aws-kms' and not HAS_CRYPTOGRAPHY:
+        logger.error("=" * 72)
+        logger.error("ERROR: cryptography library not installed")
+        logger.error("AWS KMS encryption requires the 'cryptography' package")
+        logger.error("Install with: pip3 install cryptography")
+        logger.error("Or use symmetric encryption instead")
+        logger.error("=" * 72)
+        sys.stdout.flush()
+        return 1
     
     try:
         # Calculate current checksum
@@ -573,6 +687,7 @@ def main():
         logger.error("=" * 72)
         logger.error(f"CA Backup FAILED: {e}")
         logger.error("=" * 72)
+        sys.stdout.flush()
         
         if not args.dry_run:
             send_healthcheck_ping(config, 'failure')
@@ -582,7 +697,17 @@ def main():
     except Exception as e:
         logger.error("=" * 72)
         logger.error(f"Unexpected error: {e}")
+        logger.error(f"Type: {type(e).__name__}")
+        
+        # Show stack trace for debugging
+        import traceback
+        logger.error("Stack trace:")
+        for line in traceback.format_exc().split('\n'):
+            if line:
+                logger.error(line)
+        
         logger.error("=" * 72)
+        sys.stdout.flush()
         
         if not args.dry_run:
             send_healthcheck_ping(config, 'failure')
@@ -591,4 +716,7 @@ def main():
 
 
 if __name__ == '__main__':
+    # Ensure unbuffered output from the start
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
     sys.exit(main())

@@ -89,7 +89,7 @@
 
 - name: Display configuration result
   debug:
-    var: configure_durations_result.stdout
+    msg: "{{ configure_durations_result.stdout_lines | default(['No output']) }}"
   when: 
     - not step_ca_config_stat.stat.exists
     - configure_durations_result is defined
@@ -165,18 +165,7 @@
 
 - name: Display step-ca runtime configuration
   debug:
-    msg: |
-      step-ca runtime limit: {{ 'INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes' }}
-      {% if step_ca_runtime_minutes | int > 0 %}
-      
-      Security note: step-ca will automatically stop after {{ step_ca_runtime_minutes }} minutes.
-      This minimizes attack surface by only running the CA when needed.
-      
-      To restart step-ca manually:
-        systemctl start step-ca
-      
-      step-ca will also restart automatically when certificates are renewed.
-      {% endif %}
+    msg: "{{ ['step-ca runtime limit: ' + ('INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes')] + (['', 'Security note: step-ca will automatically stop after ' + (step_ca_runtime_minutes | string) + ' minutes.', 'This minimizes attack surface by only running the CA when needed.', '', 'To restart step-ca manually:', '  systemctl start step-ca', '', 'step-ca will also restart automatically when certificates are renewed.'] if step_ca_runtime_minutes | int > 0 else []) }}"
 
 - name: Check step-ca service status
   command: systemctl status step-ca

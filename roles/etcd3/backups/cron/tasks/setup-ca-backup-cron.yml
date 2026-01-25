@@ -20,15 +20,6 @@
   tags:
     - ca-backup-cron
 
-- name: Create CA backup state directory
-  file:
-    path: /var/lib/etcd-ca-backup
-    state: directory
-    owner: root
-    group: root
-    mode: 0700
-  tags:
-    - ca-backup-cron
 
 - name: Setup CA backup cron job (runs as root - CA files are root-only)
   cron:
@@ -51,7 +42,7 @@
 
 - name: Display CA backup cron status
   debug:
-    msg: "CA backup cron job: {{ 'INSTALLED' if ca_cron_check.stdout|int > 0 else 'NOT FOUND' }}"
+    msg: "{{ ['CA backup cron job: ' + ('INSTALLED' if ca_cron_check.stdout|int > 0 else 'NOT FOUND')] }}"
   tags:
     - ca-backup-cron
 

@@ -103,18 +103,7 @@
 
 - name: Display replication status
   debug:
-    msg: |
-      ✅ CA Replication Complete
-      
-      Method: Encrypted backup/restore via S3
-      Encryption: {{ step_ca_backup_encryption_method }}
-      
-      Primary: {{ groups[etcd_certmanagers_group][0] }} (step-ca RUNNING)
-      Backups: {{ groups[etcd_certmanagers_group][1:] | join(', ') }} (step-ca STOPPED)
-      
-      CA fingerprint: {{ ca_fingerprint.stdout }}
-      
-      All cert-managers now have identical CA keys.
+    msg: "{{ ['✅ CA Replication Complete', '', 'Method: Encrypted backup/restore via S3', 'Encryption: ' + step_ca_backup_encryption_method, '', 'Primary: ' + groups[etcd_certmanagers_group][0] + ' (step-ca RUNNING)', 'Backups: ' + (groups[etcd_certmanagers_group][1:] | join(', ')) + ' (step-ca STOPPED)', '', 'CA fingerprint: ' + ca_fingerprint.stdout, '', 'All cert-managers now have identical CA keys.'] }}"
   when: inventory_hostname == groups[etcd_certmanagers_group][0]
   tags:
     - verify

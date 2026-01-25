@@ -114,9 +114,7 @@
     
     - name: Display node restart status
       debug:
-        msg: |
-          ✅ Node {{ inventory_hostname }} restarted with new certificates
-          Remaining nodes: {{ groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1) }}
+        msg: "{{ ['✅ Node ' + inventory_hostname + ' restarted with new certificates', 'Remaining nodes: ' + ((groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1)) | string)] }}"
 
 - name: Verify cluster health
   hosts: etcd[0]

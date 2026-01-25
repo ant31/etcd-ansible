@@ -123,25 +123,6 @@
 
     - name: Display upgrade results
       debug:
-        msg: |
-          ════════════════════════════════════════════════════════════════
-          UPGRADE COMPLETE - {{ etcd_cluster_name }}
-          ════════════════════════════════════════════════════════════════
-          
-          ✅ All nodes upgraded to {{ etcd_version }}
-          
-          Cluster Health:
-          {{ post_upgrade_health.stdout }}
-          
-          Member List:
-          {{ member_list.stdout }}
-          
-          Endpoint Status:
-          {{ endpoint_status.stdout }}
-          
-          Next steps:
-          1. Verify applications can still connect
-          2. Monitor logs: ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 20' -b
-          3. Run health check: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+        msg: "{{ ['════════════════════════════════════════════════════════════════', 'UPGRADE COMPLETE - ' + etcd_cluster_name, '════════════════════════════════════════════════════════════════', '', '✅ All nodes upgraded to ' + etcd_version, '', 'Cluster Health:'] + post_upgrade_health.stdout_lines + ['', 'Member List:'] + member_list.stdout_lines + ['', 'Endpoint Status:'] + endpoint_status.stdout_lines + ['', 'Next steps:', '1. Verify applications can still connect', '2. Monitor logs: ansible etcd -i inventory.ini -m shell -a journalctl -u etcd-* -n 20 -b', '3. Run health check: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml'] }}"
       tags:
         - verify

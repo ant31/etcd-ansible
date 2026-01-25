@@ -4,10 +4,10 @@ etcd_clients_group: etcd-clients
 etcd_certmanagers_group: etcd
 etcd_all_hosts: "{{groups[etcd_cluster_group] + groups[etcd_clients_group] + groups[etcd_certmanagers_group] | unique}}"
 etcd_clusters: {}
-# Backup directory (root-owned, shared by etcd and CA backups)
+# Backup directory (root-owned, everything under /opt/backups)
 etcd_backup_dir: "/opt/backups"
 etcd_cluster_backup:
-  directory: "{{etcd_backup_dir}}/{{etcd_cluster_name}}"
+  directory: "{{etcd_backup_dir}}/etcd/{{etcd_cluster_name}}"
 
 etcd_action: none
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
@@ -275,9 +275,10 @@ backup_healthcheck_enabled: false
 backup_healthcheck_url: ""
 ca_backup_healthcheck_url: ""
 
-# Backup paths
-backup_scripts_dir: "/opt/etcd-backup-scripts"
+# Backup paths (all organized under /opt/backups)
+backup_scripts_dir: "/opt/backups"
 backup_log_dir: "/var/log/etcd-backups"
+backup_tmp_dir: "/opt/backups/tmp"
 
 # Backup retention
 etcd_backup_retention_days: 90

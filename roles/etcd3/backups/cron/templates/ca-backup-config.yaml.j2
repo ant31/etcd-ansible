@@ -5,7 +5,13 @@
 node_name: "{{ inventory_hostname }}"
 
 # State file (tracks last backup checksum)
-state_file: "/var/lib/etcd-ca-backup/last-backup-checksum"
+state_file: "{{ etcd_backup_dir }}/ca/last-backup-checksum"
+
+# CA backup directory
+ca_backup_dir: "{{ etcd_backup_dir }}/ca"
+
+# Temporary directory for backup operations
+backup_tmp_dir: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}"
 
 # CA directories
 ca_secrets_dir: "/etc/step-ca/secrets"

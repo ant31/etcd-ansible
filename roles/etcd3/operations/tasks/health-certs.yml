@@ -50,31 +50,5 @@
 
 - name: Display certificate status (text)
   debug:
-    msg: |
-      
-      ┌─ CERTIFICATE STATUS - {{ inventory_hostname }} ──────────┐
-      {% if peer_cert_expiry.rc == 0 %}
-      Peer certificate expires:   {{ peer_cert_expiry.stdout }}
-      Days until expiration:      {{ peer_days_left.stdout }}
-      {% if peer_days_left.stdout | int < 30 %}
-      ⚠️  WARNING: Certificate expires in less than 30 days!
-      {% elif peer_days_left.stdout | int < 90 %}
-      ⚠️  NOTICE: Certificate expires in less than 90 days
-      {% else %}
-      ✅ Certificate valid for {{ peer_days_left.stdout }} days
-      {% endif %}
-      {% else %}
-      ❌ Failed to read certificate
-      {% endif %}
-      
-      Server cert expires:        {{ server_cert_expiry.stdout if server_cert_expiry.rc == 0 else 'UNKNOWN' }}
-      Client cert expires:        {{ client_cert_expiry.stdout if client_cert_expiry.rc == 0 else 'UNKNOWN' }}
-      
-      Active renewal timers:      {{ active_timers_count.stdout }}
-      {% if active_timers_count.stdout | int != 3 %}
-      ⚠️  WARNING: Expected 3 renewal timers, found {{ active_timers_count.stdout }}
-      {% else %}
-      ✅ All renewal timers active
-      {% endif %}
-      └────────────────────────────────────────────────────────────┘
+    msg: "{{ ['', '┌─ CERTIFICATE STATUS - ' + inventory_hostname + ' ──────────┐'] + (['Peer certificate expires:   ' + peer_cert_expiry.stdout, 'Days until expiration:      ' + peer_days_left.stdout] + (['⚠️  WARNING: Certificate expires in less than 30 days!'] if peer_days_left.stdout | int < 30 else (['⚠️  NOTICE: Certificate expires in less than 90 days'] if peer_days_left.stdout | int < 90 else ['✅ Certificate valid for ' + peer_days_left.stdout + ' days'])) if peer_cert_expiry.rc == 0 else ['❌ Failed to read certificate']) + ['', 'Server cert expires:        ' + (server_cert_expiry.stdout if server_cert_expiry.rc == 0 else 'UNKNOWN'), 'Client cert expires:        ' + (client_cert_expiry.stdout if client_cert_expiry.rc == 0 else 'UNKNOWN'), '', 'Active renewal timers:      ' + active_timers_count.stdout] + (['⚠️  WARNING: Expected 3 renewal timers, found ' + active_timers_count.stdout] if active_timers_count.stdout | int != 3 else ['✅ All renewal timers active']) + ['└────────────────────────────────────────────────────────────┘'] }}"
   when: output_format == 'text'

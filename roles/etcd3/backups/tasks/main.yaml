@@ -1,40 +1,6 @@
 ---
-# Manual backup - call the same script as cron for consistency
+# Manual backup - scripts installed via cron role dependency
 # This ensures identical behavior: encryption validation, naming convention, etc.
-
-- name: Ensure backup directories exist (root-owned)
-  file:
-    path: "{{ item }}"
-    state: directory
-    owner: root
-    group: root
-    mode: 0755
-  loop:
-    - "{{ etcd_backup_dir }}"
-    - "{{ backup_scripts_dir }}"
-  tags:
-    - backup
-
-- name: Install/update etcd backup script (ensure latest version, root-owned)
-  copy:
-    src: "{{ role_path }}/cron/files/etcd-backup.py"
-    dest: "{{ backup_scripts_dir }}/etcd-backup.py"
-    owner: root
-    group: root
-    mode: 0755
-  tags:
-    - backup
-
-- name: Install/update etcd backup configuration (root-owned)
-  template:
-    src: "{{ role_path }}/cron/templates/etcd-backup-config.yaml.j2"
-    dest: "{{ backup_scripts_dir }}/etcd-backup-config.yaml"
-    owner: root
-    group: root
-    mode: 0600
-    backup: yes
-  tags:
-    - backup
 
 - name: Run backup script (always independent mode, runs as root)
   command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--online-only' if etcd_backup_online_only | default(false) | bool else '' }}"
@@ -48,51 +14,14 @@
 
 - name: Display backup result
   debug:
-    msg: |
-      ✅ Backup completed
-      
-      {{ manual_backup_result.stdout }}
-      
-      Mode: INDEPENDENT (always creates new backup, no deduplication)
-      Behavior: ALWAYS BACKUP (default - backups even if cluster unhealthy)
-      
-      Filename indicates cluster health status:
-      - *-online-snapshot.db = Cluster was healthy during backup
-      - *-offline-snapshot.db = Cluster was unhealthy during backup
-      
-      {% if etcd_backup_online_only | default(false) | bool %}
-      ⚠️  Online-only mode: Would have aborted if cluster was unhealthy
-      {% endif %}
-      
-      The backup was created using the same process as automated cron backups.
-      This ensures consistent encryption validation and naming conventions.
-      
-      Check logs: {{ backup_log_dir }}/etcd-backup.log
+    msg: "{{ ['✅ Backup completed', ''] + manual_backup_result.stdout_lines + ['', 'Mode: INDEPENDENT (always creates new backup, no deduplication)', 'Behavior: ALWAYS BACKUP (default - backups even if cluster unhealthy)', '', 'Filename indicates cluster health status:', '- *-online-snapshot.db = Cluster was healthy during backup', '- *-offline-snapshot.db = Cluster was unhealthy during backup', '', 'The backup was created using the same process as automated cron backups.', 'This ensures consistent encryption validation and naming conventions.', '', 'Check logs: ' + backup_log_dir + '/etcd-backup.log'] }}"
   when: manual_backup_result.rc == 0
   tags:
     - backup
 
 - name: Display backup failure
   debug:
-    msg: |
-      ❌ Backup FAILED
-      
-      Error:
-      {{ manual_backup_result.stderr }}
-      
-      Troubleshooting:
-      1. Check backup logs: tail -f {{ backup_log_dir }}/etcd-backup.log
-      2. Check config: cat {{ backup_scripts_dir }}/etcd-backup-config.yaml
-      3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}
-      4. Verify cluster health: etcdctl endpoint health
-      5. Check if etcd is running: systemctl status etcd-*
-      6. Check AWS credentials: aws s3 ls s3://{{ etcd_upload_backup.bucket }}
-      
-      Note: Default behavior is to backup regardless of cluster health.
-      {% if etcd_backup_online_only | default(false) | bool %}
-      You have --online-only enabled, which aborts if cluster is unhealthy.
-      Remove -e etcd_backup_online_only=true to allow offline backups.
-      {% endif %}
+    msg: "{{ ['❌ Backup FAILED', '', 'Error:'] + (manual_backup_result.stderr_lines | default(manual_backup_result.stdout_lines | default(['No error output']))) + ['', 'Troubleshooting:', '1. Check backup logs: tail -f ' + backup_log_dir + '/etcd-backup.log', '2. Check config: cat ' + backup_scripts_dir + '/etcd-backup-config.yaml', '3. Check backup directory permissions: ls -la ' + etcd_backup_dir, '4. Verify cluster health: etcdctl endpoint health', '5. Check if etcd is running: systemctl status etcd-*', '6. Check AWS credentials: aws s3 ls s3://' + etcd_upload_backup.bucket, '', 'Note: Default behavior is to backup regardless of cluster health.'] }}"
   when: manual_backup_result.rc != 0
   tags:
     - backup

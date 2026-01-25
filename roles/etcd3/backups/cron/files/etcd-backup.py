@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import subprocess
 import sys
 import time
@@ -32,6 +33,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
 
+# Optional: cryptography for KMS envelope encryption (install if using KMS)
+try:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    HAS_CRYPTOGRAPHY = True
+except ImportError:
+    HAS_CRYPTOGRAPHY = False
+
 
 class BackupError(Exception):
     """Custom exception for backup errors"""
@@ -39,7 +47,10 @@ class BackupError(Exception):
 
 
 def setup_logging() -> logging.Logger:
-    """Setup logging configuration"""
+    """Setup logging configuration with unbuffered output"""
+    # Force unbuffered stdout for immediate log visibility
+    sys.stdout.reconfigure(line_buffering=True)
+    
     logger = logging.getLogger('etcd-backup')
     logger.setLevel(logging.INFO)
     
@@ -50,6 +61,7 @@ def setup_logging() -> logging.Logger:
     
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
+    handler.setLevel(logging.INFO)
     logger.addHandler(handler)
     
     return logger
@@ -70,22 +82,30 @@ def load_config(config_path: str) -> dict:
         sys.exit(1)
 
 
-def run_command(cmd: list, check: bool = True, capture_output: bool = True) -> subprocess.CompletedProcess:
-    """Run a shell command and return the result"""
+def run_command(cmd: list, check: bool = True, capture_output: bool = True, timeout: int = 900) -> subprocess.CompletedProcess:
+    """Run a shell command and return the result (default 15 minute timeout)"""
     try:
         logger.debug(f"Running command: {' '.join(str(c) for c in cmd)}")
+        sys.stdout.flush()  # Ensure logs appear immediately
+        
         result = subprocess.run(
             cmd,
             check=check,
             capture_output=capture_output,
-            text=True
+            text=True,
+            timeout=timeout
         )
         return result
+    except subprocess.TimeoutExpired as e:
+        logger.error(f"Command timed out after {timeout}s: {' '.join(str(c) for c in cmd)}")
+        sys.stdout.flush()
+        raise BackupError(f"Command timed out after {timeout}s")
     except subprocess.CalledProcessError as e:
         logger.error(f"Command failed: {' '.join(str(c) for c in cmd)}")
         logger.error(f"Exit code: {e.returncode}")
         if e.stderr:
             logger.error(f"Error output: {e.stderr}")
+        sys.stdout.flush()
         raise
 
 
@@ -117,7 +137,7 @@ def verify_s3_file_exists(config: dict, s3_path: str) -> bool:
 def verify_s3_checksum(config: dict, s3_path: str, expected_checksum: str) -> bool:
     """Download and verify S3 file checksum"""
     logger.info("Downloading file from S3 for verification...")
-    temp_file = Path(f"/tmp/etcd-verify-{int(time.time())}.db")
+    temp_file = config['backup_tmp_dir'] / f"etcd-verify-{int(time.time())}.db"
     
     try:
         run_command([
@@ -143,38 +163,106 @@ def verify_s3_checksum(config: dict, s3_path: str, expected_checksum: str) -> bo
 
 
 def encrypt_with_kms(config: dict, input_file: Path, output_file: Path) -> None:
-    """Encrypt file with AWS KMS"""
-    logger.info(f"Encrypting with AWS KMS (key: {config['kms_key_id']})...")
+    """Encrypt file with AWS KMS using envelope encryption (supports large files)"""
+    logger.info(f"Encrypting with AWS KMS envelope encryption (key: {config['kms_key_id']})...")
+    logger.info("Generating data encryption key from KMS...")
+    sys.stdout.flush()
     
+    # Generate a data encryption key from KMS (returns plaintext + encrypted key)
     result = run_command([
-        config['bin_dir'] / 'aws', 'kms', 'encrypt',
+        config['bin_dir'] / 'aws', 'kms', 'generate-data-key',
         '--key-id', config['kms_key_id'],
-        '--plaintext', f"fileb://{input_file}",
-        '--output', 'text',
-        '--query', 'CiphertextBlob'
+        '--key-spec', 'AES_256',
+        '--output', 'json'
     ], check=True)
     
-    ciphertext = base64.b64decode(result.stdout.strip())
-    with open(output_file, 'wb') as f:
-        f.write(ciphertext)
+    kms_response = json.loads(result.stdout)
+    plaintext_key = base64.b64decode(kms_response['Plaintext'])
+    encrypted_key = base64.b64decode(kms_response['CiphertextBlob'])
     
-    logger.info("✓ KMS encryption completed")
+    logger.info("✓ Data encryption key generated")
+    logger.info("Encrypting file with AES-256-GCM...")
+    sys.stdout.flush()
+    
+    # Encrypt file with AES-256-GCM using the plaintext data key
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import secrets
+    
+    aesgcm = AESGCM(plaintext_key)
+    nonce = secrets.token_bytes(12)  # 96-bit nonce for GCM
+    
+    # Read and encrypt file
+    with open(input_file, 'rb') as f:
+        plaintext_data = f.read()
+    
+    ciphertext_data = aesgcm.encrypt(nonce, plaintext_data, None)
+    
+    # Write envelope: encrypted_key_length (4 bytes) + encrypted_key + nonce (12 bytes) + ciphertext
+    with open(output_file, 'wb') as f:
+        f.write(len(encrypted_key).to_bytes(4, byteorder='big'))
+        f.write(encrypted_key)
+        f.write(nonce)
+        f.write(ciphertext_data)
+    
+    # Clear sensitive data from memory
+    del plaintext_key
+    del plaintext_data
+    
+    logger.info("✓ KMS envelope encryption completed")
+    sys.stdout.flush()
 
 
 def decrypt_with_kms(config: dict, input_file: Path, output_file: Path) -> None:
-    """Decrypt file with AWS KMS"""
-    logger.info("Test decrypting with AWS KMS...")
+    """Decrypt file with AWS KMS envelope encryption"""
+    logger.info("Test decrypting with AWS KMS envelope encryption...")
+    sys.stdout.flush()
     
-    result = run_command([
-        config['bin_dir'] / 'aws', 'kms', 'decrypt',
-        '--ciphertext-blob', f"fileb://{input_file}",
-        '--output', 'text',
-        '--query', 'Plaintext'
-    ], check=True)
+    # Read envelope: encrypted_key_length + encrypted_key + nonce + ciphertext
+    with open(input_file, 'rb') as f:
+        encrypted_key_length = int.from_bytes(f.read(4), byteorder='big')
+        encrypted_key = f.read(encrypted_key_length)
+        nonce = f.read(12)
+        ciphertext_data = f.read()
     
-    plaintext = base64.b64decode(result.stdout.strip())
+    logger.info("Decrypting data encryption key with KMS...")
+    sys.stdout.flush()
+    
+    # Decrypt the data encryption key using KMS
+    temp_key_file = config['backup_tmp_dir'] / f"temp-key-{os.getpid()}.bin"
+    try:
+        with open(temp_key_file, 'wb') as f:
+            f.write(encrypted_key)
+        
+        result = run_command([
+            config['bin_dir'] / 'aws', 'kms', 'decrypt',
+            '--ciphertext-blob', f"fileb://{temp_key_file}",
+            '--output', 'text',
+            '--query', 'Plaintext'
+        ], check=True)
+        
+        plaintext_key = base64.b64decode(result.stdout.strip())
+    finally:
+        temp_key_file.unlink(missing_ok=True)
+    
+    logger.info("✓ Data key decrypted, decrypting file...")
+    sys.stdout.flush()
+    
+    # Decrypt file with AES-256-GCM
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    
+    aesgcm = AESGCM(plaintext_key)
+    plaintext_data = aesgcm.decrypt(nonce, ciphertext_data, None)
+    
+    # Write decrypted data
     with open(output_file, 'wb') as f:
-        f.write(plaintext)
+        f.write(plaintext_data)
+    
+    # Clear sensitive data from memory
+    del plaintext_key
+    del plaintext_data
+    
+    logger.info("✓ Decryption completed")
+    sys.stdout.flush()
 
 
 def encrypt_with_openssl(config: dict, input_file: Path, output_file: Path, password: str) -> None:
@@ -206,7 +294,7 @@ def decrypt_with_openssl(config: dict, input_file: Path, output_file: Path, pass
 def validate_encryption(config: dict, encrypted_file: Path, original_checksum: str, encryption_method: str) -> bool:
     """Validate encryption by test-decrypting and comparing checksums"""
     logger.info("Validating encryption (test decrypt)...")
-    test_decrypt = Path(f"/tmp/etcd-decrypt-test-{os.getpid()}.db")
+    test_decrypt = config['backup_tmp_dir'] / f"etcd-decrypt-test-{os.getpid()}.db"
     
     try:
         if encryption_method == 'aws-kms':
@@ -233,23 +321,30 @@ def validate_encryption(config: dict, encrypted_file: Path, original_checksum: s
 def check_etcd_health(config: dict) -> bool:
     """Check if etcd cluster is healthy"""
     logger.info("Checking etcd cluster health...")
+    sys.stdout.flush()
     
     try:
         first_endpoint = config['etcd_endpoints'].split(',')[0]
+        logger.info(f"Testing endpoint: {first_endpoint}")
+        sys.stdout.flush()
         
+        # Use 1 minute timeout for health check
         run_command([
             config['bin_dir'] / 'etcdctl',
             '--endpoints', first_endpoint,
             '--cert', str(config['cert']),
             '--cacert', str(config['cacert']),
             '--key', str(config['key']),
+            '--command-timeout=60s',
             'endpoint', 'health'
-        ], check=True, capture_output=True)
+        ], check=True, capture_output=True, timeout=90)
         
         logger.info("✓ Etcd cluster is healthy")
+        sys.stdout.flush()
         return True
-    except subprocess.CalledProcessError:
-        logger.error("✗ Etcd cluster is unhealthy")
+    except (subprocess.CalledProcessError, BackupError) as e:
+        logger.error(f"✗ Etcd cluster is unhealthy: {e}")
+        sys.stdout.flush()
         return False
 
 
@@ -310,45 +405,114 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     
     logger.info("Starting etcd snapshot creation...")
     logger.info(f"Timestamp: {timestamp}")
+    logger.info(f"Cluster status: {'ONLINE (using etcdctl API)' if cluster_online else 'OFFLINE (copying from disk)'}")
+    sys.stdout.flush()
     
     if dry_run:
-        logger.info(f"[DRY-RUN] Would create snapshot from {config['etcd_endpoints']}")
+        logger.info(f"[DRY-RUN] Would create snapshot from {config['etcd_endpoints'] if cluster_online else 'disk'}")
         return None
     
     # Create directory
     logger.info("Creating backup directory...")
-    snapshot_file.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f"✓ Directory created: {snapshot_file.parent}")
-    
-    # Create snapshot
-    first_endpoint = config['etcd_endpoints'].split(',')[0]
-    logger.info(f"Creating etcd snapshot from: {first_endpoint}")
+    sys.stdout.flush()
     
     try:
-        run_command([
-            config['bin_dir'] / 'etcdctl',
-            '--endpoints', first_endpoint,
-            '--cert', str(config['cert']),
-            '--cacert', str(config['cacert']),
-            '--key', str(config['key']),
-            'snapshot', 'save', str(snapshot_file)
-        ], check=True)
-        logger.info(f"✓ Snapshot created: {snapshot_file}")
-    except subprocess.CalledProcessError:
-        logger.error("Failed to create etcd snapshot")
-        raise BackupError("Snapshot creation failed")
+        snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"✓ Directory created: {snapshot_file.parent}")
+        sys.stdout.flush()
+    except PermissionError as e:
+        logger.error(f"Permission denied creating directory: {snapshot_file.parent}")
+        logger.error(f"Error: {e}")
+        logger.error(f"Check ownership of {config['backup_dir']}")
+        logger.error(f"Should be owned by root (script runs as root)")
+        sys.stdout.flush()
+        raise BackupError(f"Permission denied: {snapshot_file.parent}")
+    
+    if cluster_online:
+        # ONLINE BACKUP: Use etcdctl API
+        first_endpoint = config['etcd_endpoints'].split(',')[0]
+        logger.info(f"Creating etcd snapshot from API: {first_endpoint}")
+        sys.stdout.flush()
+        
+        try:
+            # Use 10 minute timeout for snapshot
+            run_command([
+                config['bin_dir'] / 'etcdctl',
+                '--endpoints', first_endpoint,
+                '--cert', str(config['cert']),
+                '--cacert', str(config['cacert']),
+                '--key', str(config['key']),
+                '--command-timeout=600s',
+                'snapshot', 'save', str(snapshot_file)
+            ], check=True, timeout=700)
+            logger.info(f"✓ Snapshot created: {snapshot_file}")
+            sys.stdout.flush()
+        except (subprocess.CalledProcessError, BackupError) as e:
+            logger.error(f"Failed to create etcd snapshot: {e}")
+            sys.stdout.flush()
+            raise BackupError("Snapshot creation failed")
+    else:
+        # OFFLINE BACKUP: Copy from disk (cluster is unhealthy, can't use API)
+        logger.info("OFFLINE backup: Copying snapshot from disk...")
+        logger.info("Note: Offline backups may be inconsistent if cluster lost quorum")
+        sys.stdout.flush()
+        
+        # Find etcd data directory with snap/db file
+        etcd_data_pattern = config.get('etcd_data_dir_pattern', '/var/lib/etcd/etcd-*')
+        logger.info(f"Searching for etcd data directories: {etcd_data_pattern}")
+        sys.stdout.flush()
+        
+        import glob
+        data_dirs = glob.glob(etcd_data_pattern)
+        
+        if not data_dirs:
+            logger.error(f"No etcd data directories found matching: {etcd_data_pattern}")
+            logger.error("Cannot perform offline backup")
+            sys.stdout.flush()
+            raise BackupError("No etcd data directory found for offline backup")
+        
+        # Use first matching directory
+        etcd_data_dir = data_dirs[0]
+        snap_db_file = Path(etcd_data_dir) / 'member' / 'snap' / 'db'
+        
+        logger.info(f"Data directory: {etcd_data_dir}")
+        logger.info(f"Source file: {snap_db_file}")
+        sys.stdout.flush()
+        
+        if not snap_db_file.exists():
+            logger.error(f"Snapshot file not found: {snap_db_file}")
+            logger.error("Etcd may not have been initialized or data directory is incorrect")
+            sys.stdout.flush()
+            raise BackupError(f"Snapshot file not found: {snap_db_file}")
+        
+        logger.info(f"Copying snapshot from disk: {snap_db_file}")
+        sys.stdout.flush()
+        
+        try:
+            import shutil
+            shutil.copy2(snap_db_file, snapshot_file)
+            logger.info(f"✓ Snapshot copied: {snapshot_file} ({snapshot_file.stat().st_size} bytes)")
+            sys.stdout.flush()
+        except Exception as e:
+            logger.error(f"Failed to copy snapshot: {e}")
+            sys.stdout.flush()
+            raise BackupError(f"Offline backup copy failed: {e}")
     
     # Verify snapshot integrity
     logger.info("Verifying snapshot integrity...")
+    sys.stdout.flush()
+    
     try:
         run_command([
             config['bin_dir'] / 'etcdutl',
             'snapshot', 'status', str(snapshot_file),
             '--write-out', 'table'
-        ], check=True)
+        ], check=True, timeout=30)
         logger.info("✓ Snapshot integrity verified")
-    except subprocess.CalledProcessError:
-        logger.error("Snapshot verification failed")
+        sys.stdout.flush()
+    except (subprocess.CalledProcessError, BackupError) as e:
+        logger.error(f"Snapshot verification failed: {e}")
+        sys.stdout.flush()
         snapshot_file.unlink(missing_ok=True)
         raise BackupError("Snapshot verification failed")
     
@@ -546,7 +710,7 @@ def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
 
 
 def main():
-    """Main backup logic"""
+    """Main backup logic with overall timeout"""
     parser = argparse.ArgumentParser(
         description='Etcd data backup script',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -560,8 +724,24 @@ def main():
                        help='Show what would be done without making changes')
     parser.add_argument('--independent', action='store_true',
                        help='Skip recent backup check (independent mode)')
+    parser.add_argument('--timeout', type=int, default=1800,
+                       help='Overall script timeout in seconds (default: 1800 = 30 minutes)')
     
     args = parser.parse_args()
+    
+    # Set up signal handler for timeout
+    import signal
+    
+    def timeout_handler(signum, frame):
+        logger.error("=" * 72)
+        logger.error(f"SCRIPT TIMEOUT: Exceeded {args.timeout}s overall execution time")
+        logger.error("The backup operation took too long and was killed")
+        logger.error("=" * 72)
+        sys.stdout.flush()
+        sys.exit(1)
+    
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(args.timeout)
     
     # Load configuration
     config_dict = load_config(args.config)
@@ -569,6 +749,7 @@ def main():
     # Convert paths to Path objects
     config = {
         'backup_dir': Path(config_dict['backup_dir']),
+        'backup_tmp_dir': Path(config_dict['backup_tmp_dir']),
         'bin_dir': Path(config_dict['bin_dir']),
         'cert': Path(config_dict['cert']),
         'key': Path(config_dict['key']),
@@ -585,6 +766,7 @@ def main():
         'backup_interval_minutes': config_dict['backup_interval_minutes'],
         'distributed_backup': config_dict.get('distributed_backup', True),
         'node_name': config_dict.get('node_name', 'unknown'),
+        'etcd_data_dir_pattern': config_dict.get('etcd_data_dir_pattern', '/var/lib/etcd/etcd-*'),
     }
     
     # Set AWS credentials
@@ -609,6 +791,19 @@ def main():
     logger.info(f"Online-only mode: {args.online_only}")
     logger.info(f"Dry run: {args.dry_run}")
     logger.info("=" * 72)
+    sys.stdout.flush()
+    
+    # Validate cryptography is available for KMS encryption
+    if config['encryption_method'] == 'aws-kms' and not HAS_CRYPTOGRAPHY:
+        logger.error("=" * 72)
+        logger.error("ERROR: cryptography library not installed")
+        logger.error("AWS KMS encryption requires the 'cryptography' package")
+        logger.error("Install with: pip3 install cryptography")
+        logger.error("Or use symmetric encryption instead:")
+        logger.error("  step_ca_backup_encryption_method: symmetric")
+        logger.error("=" * 72)
+        sys.stdout.flush()
+        return 1
     
     try:
         # Check etcd health (always check, result goes in filename)
@@ -663,6 +858,7 @@ def main():
         logger.error("=" * 72)
         logger.error(f"Etcd Backup FAILED: {e}")
         logger.error("=" * 72)
+        sys.stdout.flush()
         
         if not args.dry_run:
             send_healthcheck_ping(config, 'failure')
@@ -672,7 +868,17 @@ def main():
     except Exception as e:
         logger.error("=" * 72)
         logger.error(f"Unexpected error: {e}")
+        logger.error(f"Type: {type(e).__name__}")
+        
+        # Show stack trace for debugging
+        import traceback
+        logger.error("Stack trace:")
+        for line in traceback.format_exc().split('\n'):
+            if line:
+                logger.error(line)
+        
         logger.error("=" * 72)
+        sys.stdout.flush()
         
         if not args.dry_run:
             send_healthcheck_ping(config, 'failure')
@@ -681,4 +887,7 @@ def main():
 
 
 if __name__ == '__main__':
+    # Ensure unbuffered output from the start
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', buffering=1)
     sys.exit(main())

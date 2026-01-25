@@ -18,4 +18,4 @@
 
 - name: Display cleanup result
   debug:
-    msg: "Logs older than 7 days cleaned"
+    msg: "{{ ['Logs older than 7 days cleaned'] }}"

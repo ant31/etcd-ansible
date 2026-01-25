@@ -159,14 +159,7 @@
 
 - name: Display snapshot validation details
   debug:
-    msg: |
-      ✅ Snapshot validation PASSED
-      
-      File: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
-      Size: {{ (restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) }} MB
-      
-      Snapshot details:
-      {{ snapshot_validation.stdout | from_json }}
+    msg: "{{ ['✅ Snapshot validation PASSED', '', 'File: /tmp/etcd-restore-' + etcd_cluster_name + '.db', 'Size: ' + ((restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) | string) + ' MB', '', 'Snapshot details:', (snapshot_validation.stdout | from_json | to_nice_json)] }}"
   when: snapshot_validation.rc == 0
   tags:
     - restore-etcd

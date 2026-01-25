@@ -68,15 +68,7 @@
 
 - name: Fail if root CA missing or empty immediately after install
   fail:
-    msg: |
-      Root CA missing or empty at {{ etcd_cert_dir }}/root_ca.crt
-      Exists: {{ root_ca_stat_check.stat.exists }}
-      Size: {{ root_ca_stat_check.stat.size | default(0) }} bytes
-      Expected owner: {{ etcd_user.name }}
-      Expected group: {{ etcd_user.name }}
-      
-      Directory listing of {{ etcd_cert_dir }}:
-      {{ cert_dir_ls.stdout_lines | default('Unable to list directory') | join('\n') }}
+    msg: "{{ ['Root CA missing or empty at ' + etcd_cert_dir + '/root_ca.crt', 'Exists: ' + (root_ca_stat_check.stat.exists | string), 'Size: ' + (root_ca_stat_check.stat.size | default(0) | string) + ' bytes', 'Expected owner: ' + etcd_user.name, 'Expected group: ' + etcd_user.name, '', 'Directory listing of ' + etcd_cert_dir + ':'] + (cert_dir_ls.stdout_lines | default(['Unable to list directory'])) }}"
   when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
 
 - name: Wait for step-ca health endpoint
@@ -112,7 +104,7 @@
 
 - name: Display provisioner check result
   debug:
-    msg: "Provisioner endpoint status: {{ provisioners_check.status | default('NOT CHECKED') }}"
+    msg: "{{ ['Provisioner endpoint status: ' + (provisioners_check.status | default('NOT CHECKED') | string)] }}"
   when: provisioners_check is defined
 
 

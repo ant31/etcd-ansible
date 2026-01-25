@@ -102,7 +102,7 @@
 
 - name: Display etcd backup cron status
   debug:
-    msg: "Etcd backup cron job: {{ 'INSTALLED' if etcd_cron_check.stdout|int > 0 else 'NOT FOUND' }}"
+    msg: "{{ ['Etcd backup cron job: ' + ('INSTALLED' if etcd_cron_check.stdout|int > 0 else 'NOT FOUND')] }}"
   when: inventory_hostname == groups[etcd_cluster_group][0]
   tags:
     - etcd-backup-cron

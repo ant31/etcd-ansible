@@ -183,14 +183,7 @@
 
     - name: Display download complete
       debug:
-        msg: |
-          ✅ Backup downloaded and decrypted on all nodes
-          
-          File: /tmp/etcd-restore-{{ etcd_cluster_name }}.db
-          Size: {{ (snapshot_ready.stat.size / 1024 / 1024) | round(2) }} MB
-          
-          Ready for fast restore operation.
-          etcd is still running - downtime starts now.
+        msg: "{{ ['✅ Backup downloaded and decrypted on all nodes', '', 'File: /tmp/etcd-restore-' + etcd_cluster_name + '.db', 'Size: ' + ((snapshot_ready.stat.size / 1024 / 1024) | round(2) | string) + ' MB', '', 'Ready for fast restore operation.', 'etcd is still running - downtime starts now.'] }}"
       run_once: true
       tags:
         - restore-download
@@ -277,18 +270,6 @@
     
     - name: Display restore result
       debug:
-        msg: |
-          ✅ CLUSTER RESTORE COMPLETE
-          
-          {{ cluster_health.stdout }}
-          
-          All nodes restored from backup and restarted.
-          
-          Important notes:
-          - Revision was bumped by {{ restore_bump_revision | default(1000000000) }}
-          - All watches were invalidated (mark-compacted)
-          - Old revisions are not accessible
-          
-          If using Kubernetes, restart controllers to refresh caches.
+        msg: "{{ ['✅ CLUSTER RESTORE COMPLETE', ''] + cluster_health.stdout_lines + ['', 'All nodes restored from backup and restarted.', '', 'Important notes:', '- Revision was bumped by ' + (restore_bump_revision | default(1000000000) | string), '- All watches were invalidated (mark-compacted)', '- Old revisions are not accessible', '', 'If using Kubernetes, restart controllers to refresh caches.'] }}"
       tags:
         - restore-verify

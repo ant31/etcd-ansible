@@ -1,4 +1,13 @@
 ---
+- name: Install Python cryptography library (required for AWS KMS envelope encryption)
+  package:
+    name: python3-cryptography
+    state: present
+  when: step_ca_backup_encryption_method == 'aws-kms'
+  tags:
+    - backup-cron
+    - backup-deps
+
 - name: Create backup directories (root-owned)
   file:
     path: "{{ item }}"
@@ -8,8 +17,34 @@
     mode: 0755
   loop:
     - "{{ etcd_backup_dir }}"
-    - "{{ backup_scripts_dir }}"
-    - "{{ backup_log_dir }}"
+    - "{{ etcd_backup_dir }}/etcd"
+    - "{{ etcd_backup_dir }}/ca"
+    - "{{ etcd_backup_dir }}/tmp"
+  tags:
+    - backup-cron
+
+- name: Create backup log directory (root-owned)
+  file:
+    path: "{{ backup_log_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0755
+  tags:
+    - backup-cron
+
+- name: Create empty log files with proper permissions
+  file:
+    path: "{{ item }}"
+    state: touch
+    owner: root
+    group: root
+    mode: 0644
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - "{{ backup_log_dir }}/etcd-backup.log"
+    - "{{ backup_log_dir }}/ca-backup.log"
   tags:
     - backup-cron
 

@@ -57,7 +57,8 @@ ca_backup_healthcheck_url: ""
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365
 
-# Paths (all root-owned)
+# Paths (all root-owned, organized under /opt/backups)
 etcd_backup_dir: "/opt/backups"  # Root directory for all backups
-backup_scripts_dir: "/opt/etcd-backup-scripts"
-backup_log_dir: "/var/log/etcd-backups"
+backup_scripts_dir: "/opt/backups"  # Scripts in backup root
+backup_log_dir: "/var/log/etcd-backups"  # Logs stay in standard location
+backup_tmp_dir: "/opt/backups/tmp"  # Temp files under backup root

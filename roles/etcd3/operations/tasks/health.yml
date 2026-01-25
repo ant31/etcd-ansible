@@ -67,47 +67,7 @@
 
 - name: Display health check results (text)
   debug:
-    msg: |
-      
-      ════════════════════════════════════════════════════════════════
-      ETCD CLUSTER HEALTH CHECK - {{ etcd_cluster_name }}
-      ════════════════════════════════════════════════════════════════
-      
-      ┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐
-      {% if endpoint_health.rc == 0 %}
-      {{ endpoint_health.stdout }}
-      {% else %}
-      ❌ FAILED:
-      {{ endpoint_health.stderr }}
-      {% endif %}
-      └────────────────────────────────────────────────────────────┘
-      
-      ┌─ CLUSTER MEMBERS ─────────────────────────────────────────┐
-      {{ member_list.stdout }}
-      └────────────────────────────────────────────────────────────┘
-      
-      ┌─ ENDPOINT STATUS ─────────────────────────────────────────┐
-      {{ endpoint_status.stdout }}
-      └────────────────────────────────────────────────────────────┘
-      
-      {% if total_db_size_mb is defined %}
-      ┌─ DATABASE METRICS ────────────────────────────────────────┐
-      Total DB Size: {{ total_db_size_mb }} MB
-      {% if total_db_size_mb | float > 8000 %}
-      ⚠️  WARNING: Database size approaching quota limit!
-      {% endif %}
-      └────────────────────────────────────────────────────────────┘
-      {% endif %}
-      
-      ┌─ OVERALL STATUS ──────────────────────────────────────────┐
-      {% if endpoint_health.rc == 0 %}
-      ✅ Cluster is HEALTHY
-      {% else %}
-      ❌ Cluster has ISSUES - check endpoint health above
-      Recommendation: Run 'journalctl -u etcd-* -n 100' on affected nodes
-      {% endif %}
-      └────────────────────────────────────────────────────────────┘
-      
+    msg: "{{ ['', '════════════════════════════════════════════════════════════════', 'ETCD CLUSTER HEALTH CHECK - ' + etcd_cluster_name, '════════════════════════════════════════════════════════════════', '', '┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐'] + (endpoint_health.stdout_lines if endpoint_health.rc == 0 else ['❌ FAILED:'] + endpoint_health.stderr_lines) + ['└────────────────────────────────────────────────────────────┘', '', '┌─ CLUSTER MEMBERS ─────────────────────────────────────────┐'] + member_list.stdout_lines + ['└────────────────────────────────────────────────────────────┘', '', '┌─ ENDPOINT STATUS ─────────────────────────────────────────┐'] + endpoint_status.stdout_lines + ['└────────────────────────────────────────────────────────────┘'] + (['', '┌─ DATABASE METRICS ────────────────────────────────────────┐', 'Total DB Size: ' + (total_db_size_mb | string) + ' MB'] + (['⚠️  WARNING: Database size approaching quota limit!'] if total_db_size_mb | float > 8000 else []) + ['└────────────────────────────────────────────────────────────┘'] if total_db_size_mb is defined else []) + ['', '┌─ OVERALL STATUS ──────────────────────────────────────────┐', ('✅ Cluster is HEALTHY' if endpoint_health.rc == 0 else '❌ Cluster has ISSUES - check endpoint health above\nRecommendation: Run journalctl -u etcd-* -n 100 on affected nodes'), '└────────────────────────────────────────────────────────────┘', ''] }}"
   when: output_format == 'text'
 
 - name: Build JSON health report
