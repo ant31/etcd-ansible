@@ -253,6 +253,11 @@ etcd_backup_interval: "*/30"  # Alias for cron_minute
 etcd_backup_distributed: true  # Enable multi-node backups
 etcd_backup_independent: false  # If true, nodes don't check for existing backups (higher frequency)
 
+# Offline backup mode (force backup even if cluster unhealthy)
+# Used for manual backups and pre-delete/upgrade backups
+# Set to true with: -e etcd_backup_offline=true
+# etcd_backup_offline: false  # Default is false (only backup if healthy)
+
 # CA backup - only when changed - ENABLED BY DEFAULT
 ca_backup_cron_enabled: true
 ca_backup_cron_minute: "*/5"

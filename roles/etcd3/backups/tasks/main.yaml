@@ -22,8 +22,8 @@
   tags:
     - backup
 
-- name: Run backup script (same as cron)
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+- name: Run backup script (always independent mode)
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--force' if etcd_backup_offline | default(false) | bool else '' }}"
   become: yes
   become_user: "{{ etcd_user.name }}"
   environment:
@@ -39,6 +39,12 @@
       
       {{ manual_backup_result.stdout }}
       
+      Mode: INDEPENDENT (always creates new backup, no deduplication)
+      {% if etcd_backup_offline | default(false) | bool %}
+      Force mode: ENABLED (backed up even if cluster unhealthy)
+      ⚠️  This backup may contain inconsistent data if cluster was not in quorum.
+      {% endif %}
+      
       The backup was created using the same process as automated cron backups.
       This ensures consistent encryption validation and naming conventions.
       
@@ -52,13 +58,17 @@
     msg: |
       ❌ Backup FAILED
       
+      Error:
       {{ manual_backup_result.stderr }}
       
       Troubleshooting:
       1. Check backup logs: tail -f {{ backup_log_dir }}/etcd-backup.log
       2. Check config: cat {{ backup_scripts_dir }}/etcd-backup-config.yaml
-      3. Run manually for debugging: sudo -u {{ etcd_user.name }} python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
-      4. Verify cluster health: etcdctl endpoint health
+      3. Verify cluster health: etcdctl endpoint health
+      4. Check if etcd is running: systemctl status etcd-*
+      
+      To force backup even when cluster is unhealthy:
+        ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=backup -e etcd_backup_offline=true -b
   when: manual_backup_result.rc != 0
   tags:
     - backup
