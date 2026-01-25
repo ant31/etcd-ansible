@@ -590,6 +590,30 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
             final_file.unlink(missing_ok=True)
         raise BackupError("S3 upload failed")
     
+    # Create and upload SHA256 checksum file for decrypted data verification
+    logger.info("Creating SHA256 checksum file for verification...")
+    checksum_file = config['backup_tmp_dir'] / f"{snapshot_file.name}.sha256"
+    checksum_content = f"{snapshot_checksum}  {snapshot_file.name}\n"
+    checksum_file.write_text(checksum_content)
+    
+    sha256_s3_path = f"{s3_path}.sha256"
+    logger.info(f"Uploading checksum file to S3: s3://{config['s3_bucket']}/{sha256_s3_path}")
+    
+    try:
+        run_command([
+            config['bin_dir'] / 'aws', 's3', 'cp',
+            str(checksum_file),
+            f"s3://{config['s3_bucket']}/{sha256_s3_path}",
+            '--content-type', 'text/plain',
+            '--metadata',
+            f"backup-timestamp={timestamp},snapshot-file={snapshot_file.name}"
+        ], check=True)
+        logger.info("✓ Checksum file uploaded")
+        checksum_file.unlink()
+    except subprocess.CalledProcessError:
+        logger.warning("Failed to upload checksum file (non-fatal)")
+        checksum_file.unlink(missing_ok=True)
+    
     # Verify upload
     logger.info("Verifying upload...")
     if not verify_s3_file_exists(config, s3_path):
@@ -612,6 +636,8 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     # Update latest pointer (s3_prefix already includes cluster name)
     logger.info("Updating 'latest' pointer...")
     latest_path = f"{config['s3_prefix']}/latest-snapshot.db{s3_suffix}"
+    latest_sha256_path = f"{config['s3_prefix']}/latest-snapshot.db.sha256"
+    
     try:
         run_command([
             config['bin_dir'] / 'aws', 's3', 'cp',
@@ -621,6 +647,18 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
             f"backup-timestamp={timestamp},snapshot-checksum={snapshot_checksum},encrypted-checksum={final_checksum},retention=long-term"
         ], check=True)
         logger.info("✓ Latest pointer updated")
+        
+        # Also update latest checksum file
+        latest_checksum_file = config['backup_tmp_dir'] / "latest-snapshot.db.sha256"
+        latest_checksum_file.write_text(f"{snapshot_checksum}  latest-snapshot.db\n")
+        run_command([
+            config['bin_dir'] / 'aws', 's3', 'cp',
+            str(latest_checksum_file),
+            f"s3://{config['s3_bucket']}/{latest_sha256_path}",
+            '--content-type', 'text/plain'
+        ], check=True)
+        logger.info("✓ Latest checksum file updated")
+        latest_checksum_file.unlink()
     except subprocess.CalledProcessError:
         logger.warning("Failed to update latest pointer (non-fatal)")
     
@@ -665,6 +703,10 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     logger.info(f"Snapshot SUCCESS: s3://{config['s3_bucket']}/{s3_path}")
     logger.info(f"Snapshot checksum: {snapshot_checksum}")
     logger.info(f"Encrypted checksum: {final_checksum}")
+    logger.info(f"SHA256 file: s3://{config['s3_bucket']}/{sha256_s3_path}")
+    logger.info("")
+    logger.info("To verify after download and decrypt:")
+    logger.info(f"  sha256sum -c {snapshot_file.name}.sha256")
     logger.info("=" * 72)
     
     return snapshot_file, s3_path

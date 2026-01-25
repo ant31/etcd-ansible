@@ -469,6 +469,30 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
             final_file.unlink(missing_ok=True)
         raise BackupError("S3 upload failed")
     
+    # Create and upload SHA256 checksum file for decrypted data verification
+    logger.info("Creating SHA256 checksum file for verification...")
+    checksum_file = config['backup_tmp_dir'] / f"ca-backup-{timestamp}.tar.gz.sha256"
+    checksum_content = f"{archive_checksum}  ca-backup-{timestamp}.tar.gz\n"
+    checksum_file.write_text(checksum_content)
+    
+    sha256_s3_path = f"{s3_path}.sha256"
+    logger.info(f"Uploading checksum file to S3: s3://{config['s3_bucket']}/{sha256_s3_path}")
+    
+    try:
+        run_command([
+            config['bin_dir'] / 'aws', 's3', 'cp',
+            str(checksum_file),
+            f"s3://{config['s3_bucket']}/{sha256_s3_path}",
+            '--content-type', 'text/plain',
+            '--metadata',
+            f"backup-timestamp={timestamp},archive-file=ca-backup-{timestamp}.tar.gz"
+        ], check=True)
+        logger.info("✓ Checksum file uploaded")
+        checksum_file.unlink()
+    except subprocess.CalledProcessError:
+        logger.warning("Failed to upload checksum file (non-fatal)")
+        checksum_file.unlink(missing_ok=True)
+    
     # Verify upload
     logger.info("Verifying upload...")
     if not verify_s3_file_exists(config, s3_path):
@@ -491,6 +515,8 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
     # Update latest pointer
     logger.info("Updating 'latest' pointer...")
     latest_path = f"{config['s3_prefix']}/latest-ca-backup.tar.gz{s3_suffix}"
+    latest_sha256_path = f"{config['s3_prefix']}/latest-ca-backup.tar.gz.sha256"
+    
     try:
         run_command([
             config['bin_dir'] / 'aws', 's3', 'cp',
@@ -500,6 +526,18 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
             f"backup-timestamp={timestamp},original-checksum={archive_checksum},encrypted-checksum={final_checksum},retention=long-term"
         ], check=True)
         logger.info("✓ Latest pointer updated")
+        
+        # Also update latest checksum file
+        latest_checksum_file = config['backup_tmp_dir'] / "latest-ca-backup.tar.gz.sha256"
+        latest_checksum_file.write_text(f"{archive_checksum}  latest-ca-backup.tar.gz\n")
+        run_command([
+            config['bin_dir'] / 'aws', 's3', 'cp',
+            str(latest_checksum_file),
+            f"s3://{config['s3_bucket']}/{latest_sha256_path}",
+            '--content-type', 'text/plain'
+        ], check=True)
+        logger.info("✓ Latest checksum file updated")
+        latest_checksum_file.unlink()
     except subprocess.CalledProcessError:
         logger.warning("Failed to update latest pointer (non-fatal)")
     
@@ -534,6 +572,10 @@ def backup_ca(config: dict, dry_run: bool = False) -> Optional[str]:
     logger.info(f"Backup SUCCESS: s3://{config['s3_bucket']}/{s3_path}")
     logger.info(f"Archive checksum: {archive_checksum}")
     logger.info(f"Encrypted checksum: {final_checksum}")
+    logger.info(f"SHA256 file: s3://{config['s3_bucket']}/{sha256_s3_path}")
+    logger.info("")
+    logger.info("To verify after download and decrypt:")
+    logger.info(f"  sha256sum -c ca-backup-{timestamp}.tar.gz.sha256")
     logger.info("=" * 72)
     
     return s3_path
