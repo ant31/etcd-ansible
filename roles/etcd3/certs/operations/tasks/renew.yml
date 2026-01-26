@@ -1,16 +1,137 @@
 ---
+- name: Check if step-ca is running on cert-managers
+  command: systemctl is-active step-ca
+  register: step_ca_status
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Start step-ca if not running (needed for certificate renewal)
+  systemd:
+    name: step-ca
+    state: started
+  when: step_ca_status.stdout != 'active'
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Wait for step-ca to be ready
+  uri:
+    url: "{{ step_ca_url }}/health"
+    validate_certs: no
+    status_code: 200
+  register: step_ca_health
+  until: step_ca_health.status == 200
+  retries: 10
+  delay: 3
+  when: step_ca_status.stdout != 'active'
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Redeploy renewal services with correct certificate paths (fixes old deployments)
+  include_role:
+    name: etcd3/certs/smallstep
+    tasks_from: configure-renewal.yml
+
+- name: Reload systemd after redeploying services
+  systemd:
+    daemon_reload: yes
+
+- name: Fix step configuration directory permissions BEFORE renewal (ensures etcd user can access)
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+    recurse: yes
+
 - name: Trigger certificate renewal services
   systemd:
     name: "step-renew-{{ item }}"
     state: started
   loop:
-    - "{{ etcd_name }}-peer"
-    - "{{ etcd_name }}-server"
-    - "{{ etcd_name }}-client"
+    - "{{ etcd_cluster_name }}-peer"
+    - "{{ etcd_cluster_name }}-server"
+    - "{{ etcd_cluster_name }}-client"
   when: inventory_hostname in groups[etcd_cluster_group]
+  register: renewal_triggered
 
 - name: Trigger client certificate renewal
   systemd:
-    name: "step-renew-{{ etcd_name }}-client"
+    name: "step-renew-{{ etcd_cluster_name }}-client"
     state: started
   when: inventory_hostname in groups[etcd_clients_group]
+  register: client_renewal_triggered
+
+- name: Wait for renewal services to complete
+  systemd:
+    name: "step-renew-{{ item }}"
+    state: stopped
+  loop:
+    - "{{ etcd_cluster_name }}-peer"
+    - "{{ etcd_cluster_name }}-server"
+    - "{{ etcd_cluster_name }}-client"
+  when: 
+    - inventory_hostname in groups[etcd_cluster_group]
+    - renewal_triggered is changed
+  failed_when: false
+  register: renewal_wait
+  until: renewal_wait is not failed
+  retries: 10
+  delay: 3
+
+- name: Wait for client renewal service to complete
+  systemd:
+    name: "step-renew-{{ etcd_cluster_name }}-client"
+    state: stopped
+  when:
+    - inventory_hostname in groups[etcd_clients_group]
+    - client_renewal_triggered is changed
+  failed_when: false
+  register: client_renewal_wait
+  until: client_renewal_wait is not failed
+  retries: 10
+  delay: 3
+
+- name: Fix certificate permissions after renewal (etcd nodes)
+  file:
+    path: "{{ item }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0400
+  loop:
+    - "{{ etcd_cert_paths.peer.cert }}"
+    - "{{ etcd_cert_paths.peer.key }}"
+    - "{{ etcd_cert_paths.server.cert }}"
+    - "{{ etcd_cert_paths.server.key }}"
+    - "{{ etcd_cert_paths.client.cert }}"
+    - "{{ etcd_cert_paths.client.key }}"
+  when: inventory_hostname in groups[etcd_cluster_group]
+
+- name: Fix certificate permissions after renewal (client nodes)
+  file:
+    path: "{{ item }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0400
+  loop:
+    - "{{ etcd_cert_paths.client.cert }}"
+    - "{{ etcd_cert_paths.client.key }}"
+  when: inventory_hostname in groups[etcd_clients_group]
+
+- name: Display renewal completion
+  debug:
+    msg:
+      - "✅ Certificate renewal complete on {{ inventory_hostname }}"
+      - ""
+      - "Renewed certificates:"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Peer certificate: {{ etcd_cert_paths.peer.cert }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Server certificate: {{ etcd_cert_paths.server.cert }}{% endif %}"
+      - "- Client certificate: {{ etcd_cert_paths.client.cert }}"
+      - ""
+      - "Permissions verified:"
+      - "- Owner: {{ etcd_user.name }}:{{ etcd_user.name }}"
+      - "- Mode: 0400 (read-only by owner)"
+      - ""
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}Etcd service has been reloaded with new certificates{% endif %}"

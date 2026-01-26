@@ -35,6 +35,7 @@
   loop:
     - /etc/step-ca
     - /var/lib/step-ca
+    - /var/cache/step-ca
     - /root/.step
     - /root/.smallstep
   when: inventory_hostname in groups[etcd_certmanagers_group]

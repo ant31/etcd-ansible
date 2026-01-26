@@ -417,6 +417,30 @@ def backup_ca(dry_run: bool = False) -> Optional[str]:
             final_file.unlink(missing_ok=True)
         raise BackupError("S3 upload failed")
     
+    # Create and upload SHA256 checksum file for decrypted data verification
+    logger.info("Creating SHA256 checksum file for verification...")
+    checksum_file = config['backup_tmp_dir'] / f"ca-backup-{timestamp}.tar.gz.sha256"
+    checksum_content = f"{archive_checksum}  ca-backup-{timestamp}.tar.gz\n"
+    checksum_file.write_text(checksum_content)
+    
+    sha256_s3_path = f"{s3_path}.sha256"
+    logger.info(f"Uploading checksum file to S3: s3://{config['s3_bucket']}/{sha256_s3_path}")
+    
+    try:
+        run_command([
+            config['bin_dir'] / 'aws', 's3', 'cp',
+            str(checksum_file),
+            f"s3://{config['s3_bucket']}/{sha256_s3_path}",
+            '--content-type', 'text/plain',
+            '--metadata',
+            f"backup-timestamp={timestamp},archive-file=ca-backup-{timestamp}.tar.gz"
+        ], check=True)
+        logger.info("✓ Checksum file uploaded")
+        checksum_file.unlink()
+    except subprocess.CalledProcessError:
+        logger.warning("Failed to upload checksum file (non-fatal)")
+        checksum_file.unlink(missing_ok=True)
+    
     # Verify upload
     logger.info("Verifying upload...")
     if not verify_s3_file_exists(s3_path):
@@ -482,6 +506,10 @@ def backup_ca(dry_run: bool = False) -> Optional[str]:
     logger.info(f"Backup SUCCESS: s3://{CONFIG['s3_bucket']}/{s3_path}")
     logger.info(f"Archive checksum: {archive_checksum}")
     logger.info(f"Encrypted checksum: {final_checksum}")
+    logger.info(f"SHA256 file: s3://{CONFIG['s3_bucket']}/{sha256_s3_path}")
+    logger.info("")
+    logger.info("To verify after download and decrypt:")
+    logger.info(f"  sha256sum -c ca-backup-{timestamp}.tar.gz.sha256")
     logger.info("=" * 72)
     
     return s3_path
@@ -506,17 +534,70 @@ def send_healthcheck_ping(status: str = 'success') -> None:
 
 {% raw %}
 def main():
-    """Main backup logic"""
+    """Main backup logic with overall timeout"""
     parser = argparse.ArgumentParser(
 {% endraw %}
         description='CA backup script',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
+    parser.add_argument('--config', required=True,
+                       help='Path to configuration YAML file')
     parser.add_argument('--force', action='store_true',
                        help='Force backup even if files haven\'t changed')
     parser.add_argument('--dry-run', action='store_true',
                        help='Show what would be done without making changes')
+    parser.add_argument('--timeout', type=int, default=1800,
+                       help='Overall script timeout in seconds (default: 1800 = 30 minutes)')
+    
+    # Decrypt mode arguments
+    parser.add_argument('--decrypt', action='store_true',
+                       help='Decrypt mode: decrypt an encrypted CA backup file')
+    parser.add_argument('--input', type=str,
+                       help='Input file to decrypt (required with --decrypt)')
+    parser.add_argument('--output', type=str,
+                       help='Output file for decrypted data (required with --decrypt)')
+    parser.add_argument('--encryption', type=str, default='auto',
+                       choices=['auto', 'aws-kms', 'symmetric', 'none'],
+                       help='Encryption method (default: auto-detect from file extension)')
+    parser.add_argument('--sha256', type=str,
+                       help='Expected SHA256 checksum (hex string) for verification')
+    parser.add_argument('--sha256-file', type=str,
+                       help='Path to .sha256 file containing expected checksum')
+    parser.add_argument('--no-verify', action='store_true',
+                       help='Skip checksum verification (not recommended)')
+    
+    args = parser.parse_args()
+    
+    # Handle decrypt mode
+    if args.decrypt:
+        if not args.input or not args.output:
+            logger.error("--decrypt requires both --input and --output arguments")
+            return 1
+        
+        # Load config for credentials and settings
+        config_dict = load_config(args.config)
+        
+        config = {
+            'backup_tmp_dir': Path(config_dict['backup_tmp_dir']),
+            'bin_dir': Path(config_dict['bin_dir']),
+            'encryption_method': args.encryption,
+            'kms_key_id': config_dict.get('kms_key_id', ''),
+            'backup_password': config_dict.get('backup_password', ''),
+        }
+        
+        # Set AWS credentials
+        if 'aws_access_key_id' in config_dict:
+            os.environ['AWS_ACCESS_KEY_ID'] = config_dict['aws_access_key_id']
+        if 'aws_secret_access_key' in config_dict:
+            os.environ['AWS_SECRET_ACCESS_KEY'] = config_dict['aws_secret_access_key']
+        if 'aws_region' in config_dict:
+            os.environ['AWS_DEFAULT_REGION'] = config_dict['aws_region']
+        
+        return decrypt_file(config, args.input, args.output, args.encryption,
+                          sha256_value=args.sha256,
+                          sha256_file=args.sha256_file,
+                          verify_checksum=not args.no_verify)
     
     args = parser.parse_args()
     

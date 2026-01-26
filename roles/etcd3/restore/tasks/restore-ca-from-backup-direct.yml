@@ -5,12 +5,156 @@
 #   - restore_ca_from: s3
 #   - restore_ca_s3_file: S3 path or 'latest'
 
-- name: Find latest CA backup in S3
+- name: Confirm force CA replacement on ALL cert-managers (DANGEROUS - requires explicit confirmation)
+  pause:
+    prompt: |
+      ⚠️  EXTREME WARNING: FORCE CA REPLACEMENT ON ALL CERT-MANAGERS
+      
+      You have set etcd_force_ca_replacement=true
+      This will DELETE the CA on ALL cert-managers (including PRIMARY)!
+      
+      Affected nodes:
+      {% for host in groups[etcd_certmanagers_group] %}  - {{ host }}{% if host == groups[etcd_certmanagers_group][0] %} (PRIMARY - step-ca RUNNING){% else %} (backup){% endif %}
+      {% endfor %}
+      
+      This is EXTREMELY RARE and only used for:
+      - Complete CA rebuild during disaster recovery
+      - Replacing compromised CA on ALL nodes
+      
+      Normal operations use:
+      - etcd_force_ca_replication=true (backup nodes only)
+      - step_ca_force_cleanup=true (cleanup only)
+      
+      Are you ABSOLUTELY SURE? Type 'yes-force-replace-all' to continue
+  register: force_ca_replacement_confirm
+  when:
+    - etcd_force_ca_replacement | default(false) | bool
+    - restore_confirm | default(true) | bool
+  run_once: true
+  tags:
+    - restore-ca
+
+- name: Validate force CA replacement confirmation
+  assert:
+    that:
+      - not (etcd_force_ca_replacement | default(false) | bool and restore_confirm | default(true) | bool) or (force_ca_replacement_confirm.user_input is defined and force_ca_replacement_confirm.user_input == 'yes-force-replace-all')
+    fail_msg: "❌ Force CA replacement cancelled: user did not confirm with 'yes-force-replace-all' (entered: '{{ force_ca_replacement_confirm.user_input | default('no input') }}')"
+  when:
+    - etcd_force_ca_replacement | default(false) | bool
+    - restore_confirm | default(true) | bool
+  run_once: true
+  tags:
+    - restore-ca
+
+- name: Display warning about force CA replacement scope
+  debug:
+    msg:
+      - "⚠️  WARNING: etcd_force_ca_replacement=true is active"
+      - ""
+      - "This affects ALL cert-managers (including primary):"
+      - "{% for host in groups[etcd_certmanagers_group] %}  - {{ host }}{% endfor %}"
+      - ""
+      - "Normal replication only affects backup nodes (cert-managers[1:])."
+      - "This is a DISASTER RECOVERY operation."
+  when:
+    - etcd_force_ca_replacement | default(false) | bool
+  run_once: true
+  tags:
+    - restore-ca
+
+- name: Stop step-ca service if running (cleanup on backup cert-managers when force replication OR force cleanup)
+  systemd:
+    name: step-ca
+    state: stopped
+  failed_when: false
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool
+  tags:
+    - restore-ca
+
+- name: Kill any running step-ca processes (force cleanup on backup cert-managers when force replication OR force cleanup)
+  shell: |
+    # Kill step-ca processes
+    pkill -9 step-ca || true
+    
+    # Wait for processes to fully terminate
+    sleep 2
+    
+    # Clean up any leftover step-ca temporary files
+    rm -rf /tmp/step-ca-* 2>/dev/null || true
+    rm -rf /var/tmp/step-ca-* 2>/dev/null || true
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool
+  tags:
+    - restore-ca
+
+- name: Remove entire step-ca directory for clean restore (prevents key mismatch errors on backup cert-managers)
+  file:
+    path: /etc/step-ca
+    state: absent
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool
+  tags:
+    - restore-ca
+
+- name: Clean step-ca log files (prevents key mismatch errors on backup cert-managers)
+  find:
+    paths: /var/log
+    patterns: "step-ca*.log"
+    file_type: file
+  register: step_ca_log_files
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool
+  tags:
+    - restore-ca
+
+- name: Remove step-ca log files
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ step_ca_log_files.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - inventory_hostname in groups[etcd_certmanagers_group][1:]
+    - step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool
+    - step_ca_log_files.files is defined
+  tags:
+    - restore-ca
+
+- name: Display cleanup status
+  debug:
+    msg:
+      - "{% if step_ca_force_cleanup | default(false) | bool or etcd_force_ca_replication | default(false) | bool %}✅ step-ca cleanup completed on backup cert-manager{% else %}⏭️  step-ca cleanup SKIPPED (neither step_ca_force_cleanup nor etcd_force_ca_replication set){% endif %}"
+      - ""
+      - "Triggered by: {% if step_ca_force_cleanup | default(false) | bool %}step_ca_force_cleanup{% elif etcd_force_ca_replication | default(false) | bool %}etcd_force_ca_replication{% else %}NONE{% endif %}"
+      - ""
+      - "Cleanup includes:"
+      - "- Stopped step-ca service"
+      - "- Killed running processes"
+      - "- Removed badger database (/etc/step-ca/db)"
+      - "- Cleaned cache and temp files"
+      - ""
+      - "This prevents 'PrivateKey doesn't match parent's PublicKey' errors."
+      - ""
+      - "To enable cleanup during deploy:"
+      - "  ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e etcd_force_ca_replication=true -b"
+      - "  OR"
+      - "  ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e step_ca_force_cleanup=true -b"
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  tags:
+    - restore-ca
+
+- name: Find latest CA backup in S3 (exclude .sha256 files)
   shell: >
     {{ bin_dir }}/aws s3api list-objects-v2
     --bucket {{ step_ca_backup_s3_bucket }}
     --prefix {{ step_ca_backup_s3_prefix }}/
-    --query 'Contents[?!contains(Key, `latest-ca-backup`)] | reverse(sort_by(@, &LastModified))[0].Key'
+    --query 'Contents[?!contains(Key, `latest-ca-backup`) && !ends_with(Key, `.sha256`)] | reverse(sort_by(@, &LastModified))[0].Key'
     --output text 2>/dev/null || echo "NONE"
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
@@ -27,6 +171,17 @@
   set_fact:
     ca_backup_exists: "{{ latest_backup.stdout is defined and latest_backup.stdout != 'NONE' and latest_backup.stdout != 'None' and latest_backup.stdout | length > 0 }}"
   when: restore_ca_s3_file == 'latest'
+  tags:
+    - restore-ca
+
+- name: Ensure backup tmp restore directory exists
+  file:
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca
 
@@ -79,11 +234,34 @@
   tags:
     - restore-ca
 
-- name: Download CA backup from S3
-  shell: >
+- name: Set backup filename from S3 path
+  set_fact:
+    ca_backup_filename: "{{ ca_backup_s3_path | basename }}"
+  when: ca_backup_exists | default(true) | bool
+  tags:
+    - restore-ca
+
+- name: Display backup restore plan
+  debug:
+    msg:
+      - "📥 Restoring CA from S3 backup"
+      - ""
+      - "Node: {{ inventory_hostname }}"
+      - "S3 path: s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}"
+      - "Filename: {{ ca_backup_filename }}"
+      - "Encryption: {{ backup_encryption_method }}"
+      - "Force replace existing CA: {{ etcd_force_ca_replacement | default(true) }}"
+      - ""
+      - "This backup should match primary cert-manager: {{ groups[etcd_certmanagers_group][0] }}"
+  when: ca_backup_exists | default(true) | bool
+  tags:
+    - restore-ca
+
+- name: Download CA backup from S3 (preserving filename)
+  command: >
     {{ bin_dir }}/aws s3 cp
     s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
-    /tmp/ca-restore-encrypted
+    {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ ca_backup_filename }}
   environment:
     PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
@@ -93,45 +271,60 @@
   tags:
     - restore-ca
 
-- name: Decrypt CA backup with AWS KMS
-  shell: |
-    {{ bin_dir }}/aws kms decrypt \
-      --ciphertext-blob fileb:///tmp/ca-restore-encrypted \
-      --output text \
-      --query Plaintext | base64 -d > /tmp/ca-restore.tar.gz
-  environment:
-    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+- name: Decrypt CA backup using backup script (handles envelope encryption)
+  command: >
+    /usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py
+    --config {{ backup_scripts_dir }}/ca-backup-config.yaml
+    --decrypt
+    --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ ca_backup_filename }}
+    --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/ca-restore.tar.gz
+    --encryption {{ backup_encryption_method }}
+  register: decrypt_result
+  when: ca_backup_exists | default(true) | bool
+  tags:
+    - restore-ca
+
+- name: Display decryption result
+  debug:
+    msg: "{{ decrypt_result.stdout_lines }}"
   when: 
-    - ca_backup_exists | default(true) | bool
-    - backup_encryption_method == 'aws-kms'
+    - decrypt_result is defined
+    - decrypt_result is changed
   tags:
     - restore-ca
 
-- name: Decrypt CA backup with symmetric encryption
-  shell: >
-    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
-    -in /tmp/ca-restore-encrypted
-    -out /tmp/ca-restore.tar.gz
-    -pass pass:"{{ step_ca_backup_password }}"
-  environment:
-    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
+
+- name: Remove existing CA directories if force replacement enabled (ALL cert-managers - DISASTER RECOVERY ONLY)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/step-ca/secrets
+    - /etc/step-ca/certs
+    - /etc/step-ca/config
+    - /etc/step-ca/db
   when:
     - ca_backup_exists | default(true) | bool
-    - backup_encryption_method == 'symmetric'
-  no_log: true
+    - etcd_force_ca_replacement | default(false) | bool
   tags:
     - restore-ca
 
-- name: Copy unencrypted backup
-  shell: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
-  environment:
-    PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
+- name: Display force CA replacement status
+  debug:
+    msg:
+      - "⚠️  FORCE CA REPLACEMENT executed on {{ inventory_hostname }}"
+      - ""
+      - "Deleted CA directories:"
+      - "  - /etc/step-ca/secrets (private keys)"
+      - "  - /etc/step-ca/certs (certificates)"
+      - "  - /etc/step-ca/config (configuration)"
+      - "  - /etc/step-ca/db (database)"
+      - ""
+      - "This node's CA will be completely replaced from backup."
+      - "{% if inventory_hostname == groups[etcd_certmanagers_group][0] %}WARNING: This is the PRIMARY cert-manager - step-ca will have new CA after restore{% endif %}"
   when:
     - ca_backup_exists | default(true) | bool
-    - backup_encryption_method == 'none'
+    - etcd_force_ca_replacement | default(false) | bool
   tags:
     - restore-ca
 
@@ -152,7 +345,7 @@
 
 - name: Extract CA backup
   unarchive:
-    src: /tmp/ca-restore.tar.gz
+    src: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/ca-restore.tar.gz"
     dest: /
     remote_src: yes
   when: ca_backup_exists | default(true) | bool
@@ -182,13 +375,34 @@
   tags:
     - restore-ca
 
+- name: Get restored CA fingerprint for verification
+  shell: >
+    {{ bin_dir }}/step certificate fingerprint /etc/step-ca/certs/root_ca.crt
+  register: restored_ca_fingerprint
+  changed_when: false
+  failed_when: false
+  when: ca_backup_exists | default(true) | bool
+  tags:
+    - restore-ca
+
+- name: Display restore completion
+  debug:
+    msg:
+      - "✅ CA restored from S3 backup"
+      - ""
+      - "Backup file: {{ ca_backup_filename }}"
+      - "Restored CA fingerprint: {{ restored_ca_fingerprint.stdout | default('ERROR - could not read') }}"
+      - ""
+      - "This fingerprint should match primary: {{ groups[etcd_certmanagers_group][0] }}"
+      - "Verification will happen in next task..."
+  when: ca_backup_exists | default(true) | bool
+  tags:
+    - restore-ca
+
 - name: Cleanup temporary files
   file:
-    path: "{{ item }}"
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore"
     state: absent
-  loop:
-    - /tmp/ca-restore-encrypted
-    - /tmp/ca-restore.tar.gz
   when: ca_backup_exists | default(true) | bool
   tags:
     - restore-ca

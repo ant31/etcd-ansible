@@ -238,13 +238,14 @@
     - etcd-start
 
 
-# Note: Use serial=1 at play level for proper rolling restarts
-# This ensures one node restarts at a time with health checks between
-- name: UPDATE | Restart etcd if config changed
+# CRITICAL: Restart one node at a time to maintain quorum
+# throttle: 1 ensures only one host restarts at a time regardless of play-level serial setting
+- name: UPDATE | Restart etcd if config changed (SERIAL - maintains quorum)
   service:
     name: "{{ etcd_name }}"
     state: restarted
     enabled: yes
+  throttle: 1  # CRITICAL: Only 1 node at a time to maintain quorum
   register: restarted_etcd
   retries: 10
   delay: 20

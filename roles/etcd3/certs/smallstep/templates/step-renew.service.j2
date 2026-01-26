@@ -8,16 +8,24 @@ OnFailure=step-renew-failure-notify@%n.service
 
 [Service]
 Type=oneshot
-User={{ etcd_user.name }}
-Group={{ etcd_user.name }}
 Environment=STEPPATH={{ etcd_cert_dir }}/.step
 
-ExecStart={{ bin_dir }}/step ca renew --force {{ cert_path }} {{ key_path }} --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt
-ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
+# Renewal runs as root (step-ca runs as root)
+# Fix permissions before renewal
+ExecStartPre=/bin/chown -R {{ etcd_user.name }}:{{ etcd_user.name }} {{ etcd_cert_dir }}/.step
+ExecStartPre=/bin/chmod 0700 {{ etcd_cert_dir }}/.step
+
+# Renew certificate (runs as root)
+ExecStart={{ bin_dir }}/step ca renew --force --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt {{ cert_path }} {{ key_path }}
+
+# Set certificate ownership and permissions to etcd user after renewal
 ExecStartPost=/bin/chown {{ etcd_user.name }}:{{ etcd_user.name }} {{ cert_path }} {{ key_path }}
-{% if exec_start_post %}
-ExecStartPost={{ exec_start_post }}
-{% endif %}
+ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
+
+# NOTE: etcd is NOT automatically restarted after renewal
+# This requires manual intervention to ensure safe operations
+# To apply new certificates: systemctl restart {{ etcd_name }}.service
+# Or use rolling restart playbook to maintain quorum
 
 # Send success healthcheck ping (if configured)
 {% if step_cert_renewal_healthcheck_url %}

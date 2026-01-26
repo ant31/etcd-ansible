@@ -58,7 +58,7 @@
         state: directory
         owner: root
         group: root
-        mode: 0755
+        mode: 0700
       tags:
         - restore-download
 
@@ -215,6 +215,7 @@
         name: "{{ etcd_name }}"
         state: started
         enabled: yes
+      throttle: 1  # Start nodes serially to avoid race conditions during cluster formation
       register: etcd_start
       tags:
         - restore-start

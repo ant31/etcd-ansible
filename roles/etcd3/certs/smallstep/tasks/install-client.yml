@@ -30,7 +30,7 @@
     state: directory
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
-    mode: 0755
+    mode: 0700
 
 - name: Create step configuration directory
   file:
@@ -185,3 +185,15 @@
   when:
     - bootstrap_result is defined
     - bootstrap_result.rc != 0
+
+- name: Fix step configuration directory permissions (recursively - ensures etcd user can access)
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+    recurse: yes
+  when:
+    - bootstrap_result is defined
+    - bootstrap_result.rc == 0

@@ -41,6 +41,7 @@
     restore_ca_from: s3
     restore_ca_s3_file: latest
     restore_confirm: false  # No prompt for manual replication
+    step_ca_force_cleanup: true  # Always cleanup during manual replication
   when: inventory_hostname in groups[etcd_certmanagers_group][1:]
   tags:
     - ca-restore

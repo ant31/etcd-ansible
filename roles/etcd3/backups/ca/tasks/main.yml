@@ -1,168 +1,67 @@
 ---
-# CA backup tasks - moved from playbooks/backup-ca.yaml
-# Usage: Set ca_backup_action variable (manual or cron)
+# Manual CA backup - calls same script as cron
+# This ensures identical behavior: SHA256 files, encryption validation, etc.
 
-- name: Validate encryption method
-  assert:
-    that:
-      - step_ca_backup_encryption_method in ['aws-kms', 'symmetric', 'aws-s3-sse']
-    fail_msg: "Invalid encryption method. Choose: aws-kms, symmetric, or aws-s3-sse"
-  tags:
-    - backup
-    - validate
+# Note: Initial backups are automatically skipped during manual runs
+# (skip_initial_backup=true is set in meta/main.yaml)
 
-- name: Validate KMS configuration
-  assert:
-    that:
-      - step_ca_backup_kms_key_id is defined
-      - step_ca_backup_kms_key_id | length > 0
-    fail_msg: "KMS key ID must be set when using aws-kms encryption"
-  when: step_ca_backup_encryption_method == 'aws-kms'
-  tags:
-    - backup
-    - validate
-
-- name: Validate symmetric encryption password
-  assert:
-    that:
-      - step_ca_backup_password is defined
-      - step_ca_backup_password | length > 0
-    fail_msg: "Backup password must be set in ansible-vault when using symmetric encryption"
-  when: step_ca_backup_encryption_method == 'symmetric'
-  tags:
-    - backup
-    - validate
-
-- name: Gather date/time facts
-  setup:
-    filter: ansible_date_time
+- name: Run CA backup script (always force mode, runs as root)
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+  become: yes
+  become_user: root
+  register: manual_ca_backup_result
   tags:
     - backup
 
-- name: Set backup variables
-  set_fact:
-    backup_dir: /tmp
-    backup_file: "step-ca-backup-{{ ansible_date_time.date }}.tar.gz"
-  tags:
-    - backup
-
-- name: Create CA backup archive
-  archive:
-    path:
-      - /etc/step-ca/secrets
-      - /etc/step-ca/config
-    dest: "{{ backup_dir }}/{{ backup_file }}"
-    format: gz
-  tags:
-    - backup
-
-- name: Encrypt backup with AWS KMS
-  shell: |
-    {{ bin_dir }}/aws kms encrypt \
-      --key-id {{ step_ca_backup_kms_key_id }} \
-      --plaintext fileb://{{ backup_dir }}/{{ backup_file }} \
-      --output text \
-      --query CiphertextBlob | base64 -d > {{ backup_dir }}/{{ backup_file }}.kms
-  when: step_ca_backup_encryption_method == 'aws-kms'
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  tags:
-    - backup
-    - encrypt
-
-- name: Encrypt backup with symmetric encryption (AES-256)
-  shell: |
-    openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
-      -in {{ backup_dir }}/{{ backup_file }} \
-      -out {{ backup_dir }}/{{ backup_file }}.enc \
-      -pass pass:{{ step_ca_backup_password }}
-  when: step_ca_backup_encryption_method == 'symmetric'
-  no_log: true
-  tags:
-    - backup
-    - encrypt
-
-- name: Set encrypted backup filename
-  set_fact:
-    encrypted_file: >-
-      {%- if step_ca_backup_encryption_method == 'aws-kms' -%}
-      {{ backup_file }}.kms
-      {%- elif step_ca_backup_encryption_method == 'symmetric' -%}
-      {{ backup_file }}.enc
-      {%- else -%}
-      {{ backup_file }}
-      {%- endif -%}
-  tags:
-    - backup
-
-- name: Upload encrypted backup to S3 with KMS (timestamped)
-  shell: |
-    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
-      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: 
-    - step_ca_backup_s3_enabled
-    - step_ca_backup_encryption_method in ['aws-kms', 'aws-s3-sse']
-  tags:
-    - backup
-    - upload
-
-- name: Upload encrypted backup to S3 (symmetric encryption, timestamped)
-  shell: |
-    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
-      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when:
-    - step_ca_backup_s3_enabled
-    - step_ca_backup_encryption_method == 'symmetric'
-  tags:
-    - backup
-    - upload
-
-- name: Upload as latest pointer (for replication)
-  shell: |
-    {{ bin_dir }}/aws s3 cp {{ backup_dir }}/{{ encrypted_file }} \
-      s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz{{ '.kms' if step_ca_backup_encryption_method == 'aws-kms' else ('.enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: 
-    - step_ca_backup_s3_enabled
-  tags:
-    - backup
-    - upload
-
-- name: Cleanup local backup files
-  file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - "{{ backup_dir }}/{{ backup_file }}"
-    - "{{ backup_dir }}/{{ backup_file }}.kms"
-    - "{{ backup_dir }}/{{ backup_file }}.enc"
-  tags:
-    - backup
-    - cleanup
-
-- name: Display backup location and method
+- name: Display backup result
   debug:
     msg:
-      - "✅ Backup uploaded to s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/{{ ansible_date_time.year }}/{{ ansible_date_time.month }}/{{ encrypted_file }}"
+      - "✅ CA backup completed"
       - ""
-      - "Encryption method: {{ step_ca_backup_encryption_method }}"
-      - "{% if step_ca_backup_encryption_method == 'aws-kms' %}KMS Key: {{ step_ca_backup_kms_key_id }}{% elif step_ca_backup_encryption_method == 'symmetric' %}Decryption: Use password from ansible-vault{% endif %}"
+      - "{{ manual_ca_backup_result.stdout }}"
       - ""
-      - "To restore:"
-      - "  ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=TARGET_NODE --vault-password-file ~/.vault-pass"
-  when: step_ca_backup_s3_enabled
+      - "Mode: MANUAL (always creates new backup with --force flag)"
+      - ""
+      - "The backup was created using the same process as automated cron backups."
+      - "This ensures consistent encryption validation, SHA256 files, and naming conventions."
+      - ""
+      - "SHA256 checksum files are automatically created for verification:"
+      - "- Stored alongside backup: *.sha256"
+      - "- Can be used to verify decrypted backups"
+      - ""
+      - "To decrypt and verify a backup:"
+      - "  python3 {{ backup_scripts_dir }}/ca-backup-check.py \\"
+      - "    --config {{ backup_scripts_dir }}/ca-backup-config.yaml \\"
+      - "    --decrypt --input backup.tar.gz.kms --output backup.tar.gz"
+      - "  (Checksum verification is automatic if .sha256 file exists)"
+      - ""
+      - "To decrypt without verification:"
+      - "  python3 {{ backup_scripts_dir }}/ca-backup-check.py \\"
+      - "    --config {{ backup_scripts_dir }}/ca-backup-config.yaml \\"
+      - "    --decrypt --input backup.tar.gz.kms --output backup.tar.gz --no-verify"
+      - ""
+      - "Check logs: {{ backup_log_dir }}/ca-backup.log"
+  when: manual_ca_backup_result.rc == 0
+  tags:
+    - backup
+
+- name: Display backup failure
+  debug:
+    msg:
+      - "❌ CA backup FAILED"
+      - ""
+      - "Error:"
+      - "{{ manual_ca_backup_result.stderr | default(manual_ca_backup_result.stdout) | default('No error output') }}"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check backup logs: tail -f {{ backup_log_dir }}/ca-backup.log"
+      - "2. Check config: cat {{ backup_scripts_dir }}/ca-backup-config.yaml"
+      - "3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}"
+      - "4. Verify step-ca is running: systemctl status step-ca"
+      - "5. Check CA files exist: ls -la /etc/step-ca/secrets/"
+      - "6. Check AWS credentials: aws s3 ls s3://{{ step_ca_backup_s3_bucket }}"
+      - ""
+      - "Note: Manual backup always runs with --force (creates backup regardless of changes)."
+  when: manual_ca_backup_result.rc != 0
   tags:
     - backup

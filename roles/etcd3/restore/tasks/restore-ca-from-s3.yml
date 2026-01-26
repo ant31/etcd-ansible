@@ -1,10 +1,10 @@
 ---
-- name: Find latest CA backup in S3
+- name: Find latest CA backup in S3 (exclude .sha256 files)
   command: >
     aws s3api list-objects-v2
     --bucket {{ step_ca_backup_s3_bucket }}
     --prefix {{ step_ca_backup_s3_prefix }}/
-    --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
+    --query 'Contents[?!contains(Key, `latest-ca-backup`) && !ends_with(Key, `.sha256`)] | reverse(sort_by(@, &LastModified))[0].Key'
     --output text
   register: latest_backup
   when: restore_ca_s3_file == 'latest'
@@ -35,7 +35,7 @@
   command: >
     {{ bin_dir }}/aws s3 cp
     s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
-    /tmp/ca-restore-encrypted
+    /tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
     AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
@@ -43,34 +43,22 @@
   tags:
     - restore-ca
 
-- name: Decrypt CA backup with AWS KMS
+- name: Decrypt CA backup using backup script (handles envelope encryption)
   command: >
-    {{ bin_dir }}/aws kms decrypt
-    --ciphertext-blob fileb:///tmp/ca-restore-encrypted
-    --output text
-    --query Plaintext |
-    base64 -d > /tmp/ca-restore.tar.gz
-  environment:
-    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
-    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
-    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
-  when: backup_encryption_method == 'aws-kms'
+    /usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py
+    --config {{ backup_scripts_dir }}/ca-backup-config.yaml
+    --decrypt
+    --input /tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}
+    --output /tmp/ca-restore.tar.gz
+    --encryption {{ backup_encryption_method }}
+  register: decrypt_result
   tags:
     - restore-ca
 
-- name: Decrypt CA backup with symmetric encryption
-  command: >
-    openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000
-    -in /tmp/ca-restore-encrypted
-    -out /tmp/ca-restore.tar.gz
-    -pass pass:"{{ step_ca_backup_password }}"
-  when: backup_encryption_method == 'symmetric'
-  tags:
-    - restore-ca
-
-- name: Copy unencrypted backup
-  command: mv /tmp/ca-restore-encrypted /tmp/ca-restore.tar.gz
-  when: backup_encryption_method == 'none'
+- name: Display decryption result
+  debug:
+    msg: "{{ decrypt_result.stdout_lines }}"
+  when: decrypt_result is changed
   tags:
     - restore-ca
 
@@ -113,7 +101,7 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - /tmp/ca-restore-encrypted
+    - "/tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}"
     - /tmp/ca-restore.tar.gz
   tags:
     - restore-ca

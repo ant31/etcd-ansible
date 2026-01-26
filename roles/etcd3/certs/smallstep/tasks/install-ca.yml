@@ -124,10 +124,10 @@
     state: "{{ item.state }}"
     recurse: "{{ item.recurse | default(false) }}"
   loop:
-    - { path: "{{ step_path }}", mode: "0755", state: "directory", recurse: false }
+    - { path: "{{ step_path }}", mode: "0700", state: "directory", recurse: false }
     - { path: "{{ step_ca_secrets }}", mode: "0700", state: "directory", recurse: false }
-    - { path: "{{ step_ca_certs }}", mode: "0755", state: "directory", recurse: false }
-    - { path: "{{ step_ca_config }}", mode: "0640", state: "file" }
+    - { path: "{{ step_ca_certs }}", mode: "0700", state: "directory", recurse: false }
+    - { path: "{{ step_ca_config }}", mode: "0600", state: "file" }
     - { path: "{{ step_ca_db }}", mode: "0700", state: "directory", recurse: false }
   loop_control:
     label: "{{ item.path }}"
@@ -304,13 +304,61 @@
           - "This means backup cert-managers have different CA keys than primary."
           - ""
           - "Fingerprints:"
-          - "{% for host in groups[etcd_certmanagers_group] %}{{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
+          - "{% for host in groups[etcd_certmanagers_group] %}  {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
           - ""
-          - "This should never happen during deployment."
-          - "Contact support or check logs."
+          - "Root causes:"
+          - "1. Backup cert-manager has OLD CA from previous deployment"
+          - "2. S3 'latest' backup points to WRONG backup (old CA)"
+          - "3. Backup/restore race condition (backup not ready yet)"
+          - ""
+          - "Solutions:"
+          - ""
+          - "Option 1: Force CA replication (clean and retry - backup nodes only)"
+          - "  1. Clean old CA on backup nodes:"
+          - "     ansible etcd-cert-managers[1:] -i inventory.ini -m file -a 'path=/etc/step-ca state=absent' -b"
+          - "  2. Retry deployment:"
+          - "     ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e etcd_force_ca_replication=true -b"
+          - ""
+          - "Option 2: Manual CA replication (use timestamped backup)"
+          - "  1. Find the backup just created:"
+          - "     aws s3 ls s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/ --recursive | tail -5"
+          - "  2. Manually replicate using specific backup:"
+          - "     ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+          - ""
+          - "Option 3: Investigate S3 'latest' pointer"
+          - "  1. Check what 'latest' points to:"
+          - "     aws s3api head-object --bucket {{ step_ca_backup_s3_bucket }} --key {{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else 'enc' }}"
+          - "  2. List all backups chronologically:"
+          - "     aws s3 ls s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/ --recursive | grep -v '.sha256' | sort -k1,2"
+          - "  3. The backup just created should be the MOST RECENT"
+          - ""
+          - "Temporary workaround:"
+          - "  Add -e etcd_force_ca_replication=true to deployment"
         success_msg: "✅ All cert-managers have identical CA (fingerprint: {{ all_ca_fingerprints[0] }})"
       run_once: true
-      when: all_ca_fingerprints | length > 0
+      when: 
+        - all_ca_fingerprints | length > 0
+        - not (etcd_force_ca_replication | default(true) | bool)
+
+    - name: Display CA fingerprint warning (force mode)
+      debug:
+        msg:
+          - "⚠️  WARNING: CA fingerprint verification SKIPPED (etcd_force_ca_replication=true)"
+          - ""
+          - "Fingerprints across cert-managers:"
+          - "{% for host in groups[etcd_certmanagers_group] %}  {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
+          - ""
+          - "{% if all_ca_fingerprints | unique | length != 1 %}❌ FINGERPRINTS DO NOT MATCH - manual investigation required{% else %}✅ Fingerprints match{% endif %}"
+          - ""
+          - "Next steps if fingerprints don't match:"
+          - "1. Clean backup cert-managers:"
+          - "   ansible etcd-cert-managers[1:] -i inventory.ini -m file -a 'path=/etc/step-ca state=absent' -b"
+          - "2. Manually replicate:"
+          - "   ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+      run_once: true
+      when:
+        - all_ca_fingerprints | length > 0
+        - etcd_force_ca_replication | default(true) | bool
 
     - name: Display HA configuration status (successful replication)
       debug:

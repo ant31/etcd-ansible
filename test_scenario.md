@@ -61,7 +61,7 @@ aws kms delete-alias --alias-name alias/etcd-ca-backup-test
 
 **Description:** Verify inventory configuration works correctly
 
-**Inventory:** Create `inventory/test-basic.ini`
+**Inventory:** Create `inventory/test/inventory.ini`
 ```ini
 [etcd]
 etcd-test-1 ansible_host=10.0.1.10
@@ -77,7 +77,7 @@ etcd-test-1
 
 **Command:**
 ```bash
-ansible-inventory -i inventory/test-basic.ini --list
+ansible-inventory -i inventory/test/inventory.ini --list
 ```
 
 **Expected Result:**
@@ -128,7 +128,7 @@ ansible-vault view inventory/group_vars/all/vault-test.yml --vault-password-file
 
 **Description:** Complete cluster deployment from scratch with all default settings
 
-**Inventory:** `inventory/test-basic.ini` (from 1.2)
+**Inventory:** `inventory/test/inventory.ini` (from 1.2)
 
 **Variables:** `inventory/group_vars/all/test-deploy.yaml`
 ```yaml
@@ -141,7 +141,7 @@ step_ca_backup_encryption_method: aws-kms
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   --vault-password-file .vault-pass-test \
   -b
@@ -158,29 +158,29 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Verification:**
 ```bash
 # Check cluster health
-make health INVENTORY=inventory/test-basic.ini
+make health INVENTORY=inventory/test/inventory.ini
 
 # Check services
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl status etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl status etcd-*" -b
 
 # Check certificates
-ansible etcd -i inventory/test-basic.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep 'Not After'" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep 'Not After'" -b
 
 # Check cron jobs
-ansible-playbook -i inventory/test-basic.ini playbooks/verify-backup-cron.yaml
+ansible-playbook -i inventory/test/inventory.ini playbooks/verify-backup-cron.yaml
 ```
 
 ---
 
 ### 2.2 Health Check
 
-⬜ **Test:** Run comprehensive health check (text output)
+[x] **Test:** Run comprehensive health check (text output)
 
 **Description:** Verify all health check components work
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-health.yaml
 ```
 
 **Expected Result:**
@@ -192,13 +192,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml
 
 ---
 
-⬜ **Test:** Run health check (JSON output)
+[x] **Test:** Run health check (JSON output)
 
 **Description:** Verify JSON output for monitoring integration
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml -e output_format=json
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-health.yaml -e output_format=json
 ```
 
 **Expected Result:**
@@ -209,13 +209,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml -e outpu
 
 ### 2.3 Manual Backup
 
-⬜ **Test:** Create manual etcd data backup
+[x] **Test:** Create manual etcd data backup
 
 **Description:** Test manual backup creation and upload to S3
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup \
   --vault-password-file .vault-pass-test \
   -b
@@ -235,13 +235,13 @@ aws s3 ls s3://my-test-etcd-backups/etcd/test-cluster/ --recursive
 
 ---
 
-⬜ **Test:** Create manual CA backup
+[x] **Test:** Create manual CA backup
 
 **Description:** Test CA backup with KMS encryption
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/backup-ca.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/backup-ca.yaml \
   --vault-password-file .vault-pass-test
 ```
 
@@ -261,7 +261,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/backup-ca.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/upgrade-cluster.yaml \
   -e etcd_version=v3.5.26 \
   --vault-password-file .vault-pass-test \
   -b
@@ -276,7 +276,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "etcd --version | head -1" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "etcd --version | head -1" -b
 ```
 
 ---
@@ -287,7 +287,7 @@ ansible etcd -i inventory/test-basic.ini -m shell -a "etcd --version | head -1" 
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-status.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-status.yaml -b
 ```
 
 **Expected Result:**
@@ -299,7 +299,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-status.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-members.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-members.yaml -b
 ```
 
 **Expected Result:**
@@ -311,7 +311,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-members.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-logs.yaml -b
 ```
 
 **Expected Result:**
@@ -325,7 +325,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-compact.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-compact.yaml -b
 ```
 
 **Expected Result:**
@@ -338,7 +338,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-compact.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-defrag.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-defrag.yaml -b
 ```
 
 **Expected Result:**
@@ -357,7 +357,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-defrag.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/renew-certs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/renew-certs.yaml -b
 ```
 
 **Expected Result:**
@@ -367,7 +367,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/renew-certs.yaml -b
 
 **Verification:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep 'Not Before'" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep 'Not Before'" -b
 ```
 
 ---
@@ -380,7 +380,7 @@ ansible etcd -i inventory/test-basic.ini -m shell -a "step certificate inspect /
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/regenerate-node-certs.yaml -b \
+ansible-playbook -i inventory/test/inventory.ini playbooks/regenerate-node-certs.yaml -b \
   --vault-password-file .vault-pass-test
 ```
 
@@ -396,11 +396,11 @@ ansible-playbook -i inventory/test-basic.ini playbooks/regenerate-node-certs.yam
 **Verification:**
 ```bash
 # Check CA fingerprint unchanged
-ansible etcd-cert-managers -i inventory/test-basic.ini -m shell \
+ansible etcd-cert-managers -i inventory/test/inventory.ini -m shell \
   -a "step certificate fingerprint /etc/step-ca/certs/root_ca.crt" -b
 
 # Check new cert dates
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep 'Not Before'" -b
 ```
 
@@ -418,7 +418,7 @@ ansible etcd -i inventory/test-basic.ini -m shell \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/regenerate-ca.yaml -b \
+ansible-playbook -i inventory/test/inventory.ini playbooks/regenerate-ca.yaml -b \
   --vault-password-file .vault-pass-test
 ```
 
@@ -436,11 +436,11 @@ ansible-playbook -i inventory/test-basic.ini playbooks/regenerate-ca.yaml -b \
 **Verification:**
 ```bash
 # Verify new CA fingerprint (should be DIFFERENT)
-ansible etcd-cert-managers -i inventory/test-basic.ini -m shell \
+ansible etcd-cert-managers -i inventory/test/inventory.ini -m shell \
   -a "step certificate fingerprint /etc/step-ca/certs/root_ca.crt" -b
 
 # All certs should be brand new
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt" -b
 ```
 
@@ -452,7 +452,7 @@ ansible etcd -i inventory/test-basic.ini -m shell \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/rotate-certs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/rotate-certs.yaml -b
 ```
 
 **Expected Result:**
@@ -468,7 +468,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/rotate-certs.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml --tags certs
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-health.yaml --tags certs
 ```
 
 **Expected Result:**
@@ -489,7 +489,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-health.yaml --tags c
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/verify-backup-cron.yaml
+ansible-playbook -i inventory/test/inventory.ini playbooks/verify-backup-cron.yaml
 ```
 
 **Expected Result:**
@@ -504,7 +504,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/verify-backup-cron.yaml
 
 **Description:** Verify only one node creates backup (deduplication)
 
-**Inventory:** `inventory/test-basic.ini` (3 nodes)
+**Inventory:** `inventory/test/inventory.ini` (3 nodes)
 
 **Variables:**
 ```yaml
@@ -516,7 +516,7 @@ etcd_backup_interval: "*/5"  # Every 5 minutes for testing
 **Command:**
 ```bash
 # Trigger backups on all nodes simultaneously
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml" \
   -b
 ```
@@ -549,14 +549,14 @@ etcd_backup_interval: "*/60"  # Every hour
 **Command:**
 ```bash
 # Redeploy with independent mode
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e etcd_backup_independent=true \
   --tags backup-cron \
   -b
 
 # Trigger backups
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml --independent" \
   -b
 ```
@@ -582,7 +582,7 @@ step_ca_backup_kms_key_id: alias/etcd-ca-backup-test
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup \
   --vault-password-file .vault-pass-test \
   -b
@@ -600,12 +600,12 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 aws s3 cp s3://bucket/etcd/test-cluster/latest-snapshot.db.kms /tmp/test.db.kms
 
 # Decrypt using Python script
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml \
    --decrypt --input /tmp/test.db.kms --output /tmp/test.db --encryption aws-kms"
 
 # Verify snapshot
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "etcdutl snapshot status /tmp/test.db"
 ```
 
@@ -628,14 +628,14 @@ ansible-vault edit inventory/group_vars/all/vault-test.yml --vault-password-file
 # Add: step_ca_backup_encryption_method: symmetric
 
 # Redeploy cron
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   --tags backup-cron \
   --vault-password-file .vault-pass-test \
   -b
 
 # Create backup
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup \
   --vault-password-file .vault-pass-test \
   -b
@@ -661,7 +661,7 @@ deactivate_backup_encryption: true
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup \
   -e step_ca_backup_encryption_method=none \
   -b
@@ -687,7 +687,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   --vault-password-file .vault-pass-test
 ```
 
@@ -703,10 +703,10 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml
 **Verification:**
 ```bash
 # Check cluster health
-make health INVENTORY=inventory/test-basic.ini
+make health INVENTORY=inventory/test/inventory.ini
 
 # Verify revision was bumped
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "etcdctl endpoint status -w json | jq '.[0].Status.header.revision'"
 ```
 
@@ -718,7 +718,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   -e restore_etcd_s3_file="etcd/test-cluster/2026/01/test-cluster-2026-01-20_14-30-00-snapshot.db.kms" \
   --vault-password-file .vault-pass-test
 ```
@@ -738,7 +738,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   -e restore_etcd_local_file="/tmp/local-snapshot.db" \
   -e restore_confirm=false
 ```
@@ -755,7 +755,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-ca-from-backup.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-ca-from-backup.yaml \
   -e target_node=etcd-test-1 \
   --vault-password-file .vault-pass-test
 ```
@@ -798,7 +798,7 @@ ansible-playbook -i inventory/test-ha.ini playbooks/restore-ca.yaml \
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml \
    --decrypt \
    --input /path/to/backup.db.kms \
@@ -819,7 +819,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --decrypt \
    --input /path/to/backup.db.kms \
@@ -848,7 +848,7 @@ echo "corrupted" >> /tmp/backup.kms
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --decrypt \
    --input /tmp/backup.kms \
@@ -872,19 +872,19 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 **Setup:**
 ```bash
 # Stop one node
-ansible etcd[1] -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd[1] -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Verification:**
 ```bash
 # Cluster should still be healthy (2/3 quorum)
-make health INVENTORY=inventory/test-basic.ini
+make health INVENTORY=inventory/test/inventory.ini
 ```
 
 **Recovery:**
 ```bash
 # Start node
-ansible etcd[1] -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd[1] -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 **Expected Result:**
@@ -946,17 +946,17 @@ curl -k https://etcd-test-2:9000/health
 **Setup:**
 ```bash
 # Delete all data (simulate disaster)
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "systemctl stop etcd-*" -b
 
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "rm -rf /var/lib/etcd/etcd-*" -b
 ```
 
 **Recovery Command:**
 ```bash
 # Restore from backup
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   --vault-password-file .vault-pass-test
 ```
 
@@ -981,7 +981,7 @@ ssh etcd-test-1 "systemctl stop step-ca && rm -rf /etc/step-ca/secrets/*"
 
 **Recovery Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-ca-from-backup.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-ca-from-backup.yaml \
   -e target_node=etcd-test-1 \
   --vault-password-file .vault-pass-test
 ```
@@ -1001,12 +1001,12 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-ca-from-backup.ya
 
 **Setup:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Recovery:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 **Expected Result:**
@@ -1093,7 +1093,7 @@ ansible-playbook -i inventory/test-ha.ini playbooks/replicate-ca.yaml \
 
 **Description:** Scale cluster from 3 to 4 nodes
 
-**Inventory:** Update `inventory/test-basic.ini`
+**Inventory:** Update `inventory/test/inventory.ini`
 ```ini
 [etcd]
 etcd-test-1 ansible_host=10.0.1.10
@@ -1104,7 +1104,7 @@ etcd-test-4 ansible_host=10.0.1.13  # NEW
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   --limit=etcd-test-4 \
   --vault-password-file .vault-pass-test \
@@ -1118,7 +1118,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-members.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-members.yaml -b
 ```
 
 ---
@@ -1129,7 +1129,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-members.yaml -b
 
 **Description:** Configure etcd clients with certificates
 
-**Inventory:** Update `inventory/test-basic.ini`
+**Inventory:** Update `inventory/test/inventory.ini`
 ```ini
 [etcd-clients]
 app-server-1 ansible_host=10.0.2.10
@@ -1138,7 +1138,7 @@ app-server-2 ansible_host=10.0.2.11
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   --vault-password-file .vault-pass-test \
   -b
@@ -1151,7 +1151,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible etcd-clients -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-clients -i inventory/test/inventory.ini -m shell -b -a \
   "etcdctl --endpoints=https://10.0.1.10:2379 \
    --cert=/etc/etcd/ssl/etcd-test-cluster-client.crt \
    --key=/etc/etcd/ssl/etcd-test-cluster-client.key \
@@ -1189,7 +1189,7 @@ etcd_config_dir: /opt/etcd/config
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e @inventory/group_vars/all/custom-config.yaml \
   -b
@@ -1219,7 +1219,7 @@ etcd_systemd_cpu_quota: "200%"  # 2 cores
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e etcd_systemd_nice_level=-10 \
   -e etcd_systemd_memory_limit=4G \
@@ -1232,7 +1232,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl show etcd-* | grep -E 'Nice|IOScheduling|MemoryLimit|CPUQuota'"
 ```
 
@@ -1345,7 +1345,7 @@ ansible-playbook -i inventory/test-multi.ini playbooks/upgrade-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/stop-cluster.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/stop-cluster.yaml -b
 ```
 
 **Expected Result:**
@@ -1358,7 +1358,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/stop-cluster.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/start-cluster.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/start-cluster.yaml -b
 ```
 
 **Expected Result:**
@@ -1371,7 +1371,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/start-cluster.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restart-cluster.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/restart-cluster.yaml -b
 ```
 
 **Expected Result:**
@@ -1387,7 +1387,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restart-cluster.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-logs.yaml -b
 ```
 
 **Expected Result:**
@@ -1399,7 +1399,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs-follow.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-logs-follow.yaml -b
 # Press Ctrl+C to stop
 ```
 
@@ -1413,7 +1413,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-logs-follow.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/clean-logs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/clean-logs.yaml -b
 ```
 
 **Expected Result:**
@@ -1428,7 +1428,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/clean-logs.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/clean-backups.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/clean-backups.yaml -b
 ```
 
 **Expected Result:**
@@ -1441,7 +1441,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/clean-backups.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/clean-certs.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/clean-certs.yaml -b
 ```
 
 **Expected Result:**
@@ -1455,7 +1455,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/clean-certs.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/clean-data.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/clean-data.yaml -b
 ```
 
 **Expected Result:**
@@ -1471,7 +1471,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/clean-data.yaml -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_delete_cluster=true \
   -b
 ```
@@ -1496,14 +1496,14 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Deploy cluster first
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create -b
 ```
 
 **Command:**
 ```bash
 # Try to create again
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create -b
 ```
 
@@ -1520,7 +1520,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e etcd_force_create=true \
   -b
@@ -1539,13 +1539,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Remove data
-ansible etcd -i inventory/test-basic.ini -m shell \
+ansible etcd -i inventory/test/inventory.ini -m shell \
   -a "systemctl stop etcd-* && rm -rf /var/lib/etcd/etcd-*" -b
 ```
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/upgrade-cluster.yaml \
   -e etcd_version=v3.5.26 -b
 ```
 
@@ -1562,7 +1562,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
 **Setup:**
 ```bash
 # Deploy with newer version
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e etcd_version=v3.5.26 -b
 ```
@@ -1570,7 +1570,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Command:**
 ```bash
 # Try to downgrade
-ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/upgrade-cluster.yaml \
   -e etcd_version=v3.5.13 -b
 ```
 
@@ -1588,13 +1588,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
 **Setup:**
 ```bash
 # Fill up disk (create large file)
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "dd if=/dev/zero of=/var/lib/etcd/fill bs=1G count=50"
 ```
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create -b
 ```
 
@@ -1605,7 +1605,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Cleanup:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a "rm -f /var/lib/etcd/fill"
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a "rm -f /var/lib/etcd/fill"
 ```
 
 ---
@@ -1617,12 +1617,12 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a "rm -f /var/lib/etcd/
 **Setup:**
 ```bash
 # Stop 2 nodes (lose quorum)
-ansible etcd[1:2] -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd[1:2] -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/upgrade-cluster.yaml \
   -e etcd_version=v3.5.26 -b
 ```
 
@@ -1633,7 +1633,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
 
 **Recovery:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 ---
@@ -1644,7 +1644,7 @@ ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e etcd_force_deploy=true \
   -b
@@ -1670,7 +1670,7 @@ ssh etcd-test-1 "systemctl stop step-ca"
 **Command:**
 ```bash
 # Try to deploy new node
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   --limit=etcd-test-2 -b
 ```
@@ -1697,14 +1697,14 @@ ssh etcd-test-1 "systemctl start step-ca"
 ssh etcd-test-1 "systemctl stop step-ca"
 
 # Trigger renewal (will fail)
-ansible etcd[1] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[1] -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl start step-renew-etcd-test-cluster-peer.service"
 
 # Start step-ca
 ssh etcd-test-1 "systemctl start step-ca"
 
 # Retry renewal
-ansible etcd[1] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[1] -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl start step-renew-etcd-test-cluster-peer.service"
 ```
 
@@ -1724,12 +1724,12 @@ ansible etcd[1] -i inventory/test-basic.ini -m shell -b -a \
 **Setup:**
 ```bash
 # Stop 2 nodes (lose quorum)
-ansible etcd[1:2] -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd[1:2] -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml"
 ```
 
@@ -1742,7 +1742,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Cleanup:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 ---
@@ -1754,12 +1754,12 @@ ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
 **Setup:**
 ```bash
 # Stop 2 nodes
-ansible etcd[1:2] -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd[1:2] -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --config /opt/backups/etcd-backup-config.yaml \
    --online-only"
@@ -1773,7 +1773,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Cleanup:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 ---
@@ -1791,7 +1791,7 @@ ansible-vault edit inventory/group_vars/all/vault-test.yml
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup \
   --vault-password-file .vault-pass-test -b
 ```
@@ -1812,13 +1812,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Manually create corrupt backup
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "echo 'corrupt data' > /tmp/corrupt.db.kms"
 ```
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --decrypt \
    --input /tmp/corrupt.db.kms \
@@ -1845,7 +1845,7 @@ echo "invalid snapshot data" > /tmp/corrupt-snapshot.db
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   -e restore_etcd_local_file=/tmp/corrupt-snapshot.db \
   -e restore_confirm=false
 ```
@@ -1864,7 +1864,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-ca.yaml
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-ca.yaml
 ```
 
 **Expected Result:**
@@ -1980,11 +1980,11 @@ done
 **Command:**
 ```bash
 # Backup large DB
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup -b
 
 # Restore
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   -e restore_confirm=false
 ```
 
@@ -2011,7 +2011,7 @@ etcdctl get "test/key-50000"
 
 **Command:**
 ```bash
-ansible etcd-cert-managers -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-cert-managers -i inventory/test/inventory.ini -m shell -b -a \
   "stat -c '%a %U:%G' /etc/step-ca/secrets/*_key"
 ```
 
@@ -2027,7 +2027,7 @@ ansible etcd-cert-managers -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd -i inventory/test/inventory.ini -m shell -b -a \
   "stat -c '%a %U:%G' /etc/etcd/ssl/*.key"
 ```
 
@@ -2046,11 +2046,11 @@ ansible etcd -i inventory/test-basic.ini -m shell -b -a \
 **Command:**
 ```bash
 # Create backup
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup -b
 
 # Decrypt with verification
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --decrypt \
    --input /opt/backups/etcd/test-cluster/YYYY/MM/backup.db.kms \
@@ -2075,11 +2075,11 @@ step_ca_backup_encryption_method: symmetric
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/backup-ca.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/backup-ca.yaml \
   --vault-password-file .vault-pass-test
 
 # Verify on cert-manager
-ansible etcd-cert-managers[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-cert-managers[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/ca-backup-check.py \
    --config /opt/backups/ca-backup-config.yaml \
    --decrypt \
@@ -2110,7 +2110,7 @@ ansible-vault encrypt inventory/group_vars/all/vault-test.yml \
 **Command:**
 ```bash
 # Deploy with vault
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   --vault-password-file .vault-pass-test \
   -b
@@ -2129,7 +2129,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 ```bash
 echo "wrong-password" > .vault-pass-wrong
 
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   --vault-password-file .vault-pass-wrong \
   -b
@@ -2149,7 +2149,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-make create INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
+make create INVENTORY=inventory/test/inventory.ini VAULT_PASS_FILE=.vault-pass-test
 ```
 
 **Expected Result:**
@@ -2161,7 +2161,7 @@ make create INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
 
 **Command:**
 ```bash
-make upgrade INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
+make upgrade INVENTORY=inventory/test/inventory.ini VAULT_PASS_FILE=.vault-pass-test
 ```
 
 **Expected Result:**
@@ -2174,7 +2174,7 @@ make upgrade INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
 
 **Command:**
 ```bash
-make health INVENTORY=inventory/test-basic.ini
+make health INVENTORY=inventory/test/inventory.ini
 ```
 
 **Expected Result:**
@@ -2187,7 +2187,7 @@ make health INVENTORY=inventory/test-basic.ini
 
 **Command:**
 ```bash
-make deploy INVENTORY=inventory/test-basic.ini TAGS=etcd,certs
+make deploy INVENTORY=inventory/test/inventory.ini TAGS=etcd,certs
 ```
 
 **Expected Result:**
@@ -2200,7 +2200,7 @@ make deploy INVENTORY=inventory/test-basic.ini TAGS=etcd,certs
 
 **Command:**
 ```bash
-make health INVENTORY=inventory/test-basic.ini GROUPS=etcd[0]
+make health INVENTORY=inventory/test/inventory.ini GROUPS=etcd[0]
 ```
 
 **Expected Result:**
@@ -2214,7 +2214,7 @@ make health INVENTORY=inventory/test-basic.ini GROUPS=etcd[0]
 
 **Command:**
 ```bash
-make check-certs INVENTORY=inventory/test-basic.ini
+make check-certs INVENTORY=inventory/test/inventory.ini
 ```
 
 **Expected Result:**
@@ -2226,7 +2226,7 @@ make check-certs INVENTORY=inventory/test-basic.ini
 
 **Command:**
 ```bash
-make renew-certs INVENTORY=inventory/test-basic.ini
+make renew-certs INVENTORY=inventory/test/inventory.ini
 ```
 
 **Expected Result:**
@@ -2238,7 +2238,7 @@ make renew-certs INVENTORY=inventory/test-basic.ini
 
 **Command:**
 ```bash
-make regenerate-node-certs INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
+make regenerate-node-certs INVENTORY=inventory/test/inventory.ini VAULT_PASS_FILE=.vault-pass-test
 ```
 
 **Expected Result:**
@@ -2251,7 +2251,7 @@ make regenerate-node-certs INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.v
 
 **Command:**
 ```bash
-make regenerate-ca INVENTORY=inventory/test-basic.ini VAULT_PASS_FILE=.vault-pass-test
+make regenerate-ca INVENTORY=inventory/test/inventory.ini VAULT_PASS_FILE=.vault-pass-test
 ```
 
 **Expected Result:**
@@ -2353,7 +2353,7 @@ ansible-playbook -i inventory/test-coreos.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook test-k8s-integration.yaml -i inventory/test-basic.ini
+ansible-playbook test-k8s-integration.yaml -i inventory/test/inventory.ini
 ```
 
 **Expected Result:**
@@ -2378,14 +2378,14 @@ ca_backup_healthcheck_url: "https://hc-ping.com/test-ca-uuid"
 **Command:**
 ```bash
 # Deploy with healthcheck
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e backup_healthcheck_enabled=true \
   -e backup_healthcheck_url="https://hc-ping.com/test-uuid" \
   --tags backup-cron -b
 
 # Trigger backup
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml"
 ```
 
@@ -2404,7 +2404,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py \
    --config /opt/backups/etcd-backup-config.yaml \
    --dry-run"
@@ -2421,7 +2421,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible etcd-cert-managers[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-cert-managers[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/ca-backup-check.py \
    --config /opt/backups/ca-backup-config.yaml \
    --dry-run"
@@ -2440,7 +2440,7 @@ ansible etcd-cert-managers[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   --check \
   -b
@@ -2463,7 +2463,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e strategy=free \
   -b
@@ -2484,7 +2484,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/upgrade-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/upgrade-cluster.yaml \
   -e etcd_version=v3.5.26 \
   -vv \
   -b
@@ -2513,7 +2513,7 @@ step_cert_renew_period: "5840h"  # 2/3 of 1 year
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e step_cert_default_duration=8760h \
   -b
@@ -2525,7 +2525,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "step certificate inspect /etc/etcd/ssl/etcd-test-cluster-peer.crt | grep validity"
 ```
 
@@ -2545,7 +2545,7 @@ ca_backup_cron_enabled: false
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e etcd_backup_cron_enabled=false \
   -e ca_backup_cron_enabled=false \
@@ -2558,7 +2558,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Verification:**
 ```bash
-ansible etcd -i inventory/test-basic.ini -m shell -b -a "crontab -l -u root | grep backup || echo 'No backup cron'"
+ansible etcd -i inventory/test/inventory.ini -m shell -b -a "crontab -l -u root | grep backup || echo 'No backup cron'"
 ```
 
 ---
@@ -2576,7 +2576,7 @@ step_ca_runtime_minutes: 5  # 5 minutes for testing
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e step_ca_runtime_minutes=5 \
   --tags step-ca -b
@@ -2585,7 +2585,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 sleep 360
 
 # Check status
-ansible etcd-cert-managers -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-cert-managers -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl is-active step-ca"
 ```
 
@@ -2596,7 +2596,7 @@ ansible etcd-cert-managers -i inventory/test-basic.ini -m shell -b -a \
 
 **Restart:**
 ```bash
-ansible etcd-cert-managers[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd-cert-managers[0] -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl start step-ca"
 ```
 
@@ -2611,7 +2611,7 @@ step_ca_runtime_minutes: 0  # Infinite
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e step_ca_runtime_minutes=0 \
   --tags step-ca -b
 ```
@@ -2631,13 +2631,13 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Deploy cluster
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create -b
 ```
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e etcd_force_create=true \
   -b
@@ -2657,12 +2657,12 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Make cluster unhealthy
-ansible etcd[1:2] -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd[1:2] -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 ```
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=deploy \
   -e etcd_force_deploy=true \
   -b
@@ -2686,7 +2686,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 **Setup:**
 ```bash
 # Simulate failed installation (kill during deploy)
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create -b &
 DEPLOY_PID=$!
 sleep 30
@@ -2695,7 +2695,7 @@ kill $DEPLOY_PID
 
 **Recovery Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e etcd_force_create=true \
   -b
@@ -2718,20 +2718,20 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 ```bash
 # Create split brain (simulate network partition)
 # Stop all nodes
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl stop etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl stop etcd-*" -b
 
 # Remove member data from 2 nodes
-ansible etcd[1:2] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[1:2] -i inventory/test/inventory.ini -m shell -b -a \
   "rm -rf /var/lib/etcd/etcd-*/member"
 
 # Start all
-ansible etcd -i inventory/test-basic.ini -m shell -a "systemctl start etcd-*" -b
+ansible etcd -i inventory/test/inventory.ini -m shell -a "systemctl start etcd-*" -b
 ```
 
 **Recovery:**
 ```bash
 # Restore from backup
-ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   --vault-password-file .vault-pass-test
 ```
 
@@ -2752,7 +2752,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml
 **Setup:**
 ```bash
 # Fast-forward time or deploy with short-lived cert
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e step_cert_default_duration=3h \
   -e step_cert_renew_period=2h \
@@ -2762,7 +2762,7 @@ ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 sleep 7200
 
 # Or trigger manually
-ansible etcd -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd -i inventory/test/inventory.ini -m shell -b -a \
   "systemctl start step-renew-etcd-test-cluster-peer.timer"
 ```
 
@@ -2782,7 +2782,7 @@ ansible etcd -i inventory/test-basic.ini -m shell -b -a \
 **Setup:**
 ```bash
 # Deploy with very short lifetime
-ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=create \
   -e step_cert_default_duration=1h \
   -b
@@ -2794,7 +2794,7 @@ sleep 3700
 **Recovery:**
 ```bash
 # Regenerate all certs
-ansible-playbook -i inventory/test-basic.ini playbooks/regenerate-node-certs.yaml \
+ansible-playbook -i inventory/test/inventory.ini playbooks/regenerate-node-certs.yaml \
   --vault-password-file .vault-pass-test -b
 ```
 
@@ -2844,7 +2844,7 @@ aws s3 ls s3://my-test-etcd-backups/etcd/test-cluster/ --recursive | \
 
 **Command:**
 ```bash
-ansible-playbook -i inventory/test-basic.ini playbooks/clean-backups.yaml -b
+ansible-playbook -i inventory/test/inventory.ini playbooks/clean-backups.yaml -b
 ```
 
 **Expected Result:**
@@ -2991,7 +2991,7 @@ make health INVENTORY=inventory/test-cert-lifecycle.ini
 **Command:**
 ```bash
 # Time backup
-time ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
+time ansible-playbook -i inventory/test/inventory.ini playbooks/etcd-cluster.yaml \
   -e etcd_action=backup -b
 ```
 
@@ -3009,7 +3009,7 @@ time ansible-playbook -i inventory/test-basic.ini playbooks/etcd-cluster.yaml \
 
 **Command:**
 ```bash
-time ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster.yaml \
+time ansible-playbook -i inventory/test/inventory.ini playbooks/restore-etcd-cluster.yaml \
   -e restore_confirm=false
 ```
 
@@ -3034,7 +3034,7 @@ time ansible-playbook -i inventory/test-basic.ini playbooks/restore-etcd-cluster
 sudo iptables -A OUTPUT -d $(dig +short s3.amazonaws.com | head -1) -j DROP
 
 # Trigger backup
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "timeout 60 python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml || echo 'TIMEOUT'"
 
 # Restore access
@@ -3058,13 +3058,13 @@ sudo iptables -D OUTPUT -d $(dig +short s3.amazonaws.com | head -1) -j DROP
 **Setup:**
 ```bash
 # Fill disk
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "dd if=/dev/zero of=/var/lib/etcd/fill bs=1G count=100 || true"
 ```
 
 **Command:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a \
   "python3 /opt/backups/etcd-backup.py --config /opt/backups/etcd-backup-config.yaml || echo 'FAILED'"
 ```
 
@@ -3075,7 +3075,7 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a \
 
 **Cleanup:**
 ```bash
-ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a "rm -f /var/lib/etcd/fill"
+ansible etcd[0] -i inventory/test/inventory.ini -m shell -b -a "rm -f /var/lib/etcd/fill"
 ```
 
 ---
@@ -3225,12 +3225,12 @@ ansible etcd[0] -i inventory/test-basic.ini -m shell -b -a "rm -f /var/lib/etcd/
 ### Minimal Smoke Test (15 minutes)
 ```bash
 # Run only P0 tests
-make create INVENTORY=inventory/test-basic.ini
-make health INVENTORY=inventory/test-basic.ini
-make backup INVENTORY=inventory/test-basic.ini
-make restore INVENTORY=inventory/test-basic.ini
-make health INVENTORY=inventory/test-basic.ini
-make delete INVENTORY=inventory/test-basic.ini
+make create INVENTORY=inventory/test/inventory.ini
+make health INVENTORY=inventory/test/inventory.ini
+make backup INVENTORY=inventory/test/inventory.ini
+make restore INVENTORY=inventory/test/inventory.ini
+make health INVENTORY=inventory/test/inventory.ini
+make delete INVENTORY=inventory/test/inventory.ini
 ```
 
 ### Full Regression Test (2-3 hours)

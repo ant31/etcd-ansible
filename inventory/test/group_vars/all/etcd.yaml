@@ -26,7 +26,7 @@ etcd_cluster_name: test-cluster
 # ============================================================================
 # ETCD VERSION
 # ============================================================================
-etcd_version: v3.5.26
+etcd_version: v3.6.7
 # Available versions with checksums in roles/etcd3/defaults/main.yaml
 # Supported: v3.5.13, v3.5.26, v3.6.7
 
@@ -190,8 +190,8 @@ ca_backup_retention_days: 365    # CA backups (keep longer)
 etcd_backup: true  # Backup before upgrade/delete
 
 # Backup script locations
-backup_scripts_dir: /opt/etcd-backup-scripts
-backup_log_dir: /var/log/etcd-backups
+backup_scripts_dir: /opt/backups
+backup_log_dir: /opt/backups/log
 
 # ============================================================================
 # SYSTEMD SERVICE TUNING

@@ -24,12 +24,12 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key"
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key"
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
-    - "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
+    - "{{ etcd_cert_paths.peer.cert }}"
+    - "{{ etcd_cert_paths.peer.key }}"
+    - "{{ etcd_cert_paths.server.cert }}"
+    - "{{ etcd_cert_paths.server.key }}"
+    - "{{ etcd_cert_paths.client.cert }}"
+    - "{{ etcd_cert_paths.client.key }}"
   when: inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group]
   tags:
     - regenerate-nodes-clean

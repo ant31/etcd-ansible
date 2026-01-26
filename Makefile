@@ -85,9 +85,13 @@ force-upgrade:
 	$(ANSIBLE_CMD) playbooks/upgrade-cluster.yaml -e etcd_force_deploy=true -b $(VAULT_ARG)
 
 force-restart:
-	@echo "💥 FORCE restarting all etcd services..."
+	@echo "💥 FORCE rolling restart (skips health checks)..."
 	@echo "Inventory: $(INVENTORY)"
-	$(ANSIBLE_CMD) playbooks/restart-cluster.yaml -b -e service_force=true
+	@echo ""
+	@echo "⚠️  WARNING: This skips pre-restart health validation!"
+	@echo "Only use if cluster is partially down but quorum exists."
+	@echo ""
+	$(ANSIBLE_CMD) playbooks/restart-cluster.yaml -b -e skip_health_check=true
 
 # ============================================================================
 # BACKUP & RESTORE
@@ -270,8 +274,12 @@ start-all:
 	$(ANSIBLE_CMD) playbooks/start-cluster.yaml -b
 
 restart-all:
-	@echo "🔄 Restarting all etcd services..."
+	@echo "🔄 Rolling restart of etcd cluster (maintains quorum)..."
 	@echo "Inventory: $(INVENTORY)"
+	@echo ""
+	@echo "This will restart nodes one at a time with health checks."
+	@echo "Quorum will be maintained throughout (n-1 nodes always up)."
+	@echo ""
 	$(ANSIBLE_CMD) playbooks/restart-cluster.yaml -b
 
 # ============================================================================

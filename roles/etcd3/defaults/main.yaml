@@ -284,6 +284,15 @@ backup_tmp_dir: "/opt/backups/tmp"
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365
 
+# Certificate renewal monitoring (optional)
+# Healthcheck URL for certificate renewal success/failure notifications
+# Examples:
+#   - Healthchecks.io: https://hc-ping.com/your-uuid
+#   - Deadman's Snitch: https://nosnch.in/your-snitch-id
+#   - Custom webhook: https://your-monitoring.example.com/webhook
+# Leave empty to disable
+step_cert_renewal_healthcheck_url: ""
+
 # ============================================================================
 # RESTORE CONFIGURATION (used by roles/etcd3/restore)
 # ============================================================================
@@ -309,6 +318,30 @@ restore_bump_revision: 1000000000
 # Safety options
 restore_confirm: true  # Require confirmation before restore
 restore_backup_existing: true  # Backup existing data before restore
+
+# Force CA replication on backup cert-managers (cert-managers[1:]) during deployment
+# Set to true to replace existing CA on BACKUP nodes when replicating from primary
+# Set to false to preserve existing CA and fail if fingerprints don't match
+# Only affects backup cert-managers, never the primary
+# When true, automatically triggers cleanup (badger DB, cache) to prevent key mismatch errors
+# Default: true (automatic replication during deployment with cleanup)
+# Used during: Normal deployment when multiple cert-managers configured
+etcd_force_ca_replication: true
+
+# Force CA replacement on ALL cert-managers (including primary) - DISASTER RECOVERY ONLY
+# Set to true to replace CA on ALL nodes during restore/regeneration
+# THIS IS EXTREMELY RARE - only for complete CA rebuild scenarios
+# WARNING: Requires explicit confirmation (type 'yes-force-replace-all')
+# Default: false (must be explicitly requested, affects ALL cert-managers)
+# Used during: Disaster recovery when CA is compromised on all nodes
+# Normal replication: Use etcd_force_ca_replication instead (backup nodes only)
+etcd_force_ca_replacement: false
+
+# Force step-ca cleanup on backup cert-managers before CA restore
+# Set to true to clean badger database and cache (fixes "PrivateKey doesn't match" error)
+# Only affects backup cert-managers (cert-managers[1:]), never the primary
+# Default: false (cleanup must be explicitly requested)
+step_ca_force_cleanup: false
 
 etcd_user:
     name: etcd

@@ -14,7 +14,7 @@
     state: directory
     owner: root
     group: root
-    mode: 0755
+    mode: 0700
   loop:
     - "{{ etcd_backup_dir }}"
     - "{{ etcd_backup_dir }}/etcd"
@@ -29,7 +29,7 @@
     state: directory
     owner: root
     group: root
-    mode: 0755
+    mode: 0700
   tags:
     - backup-cron
 
@@ -39,7 +39,7 @@
     state: touch
     owner: root
     group: root
-    mode: 0644
+    mode: 0600
     modification_time: preserve
     access_time: preserve
   loop:

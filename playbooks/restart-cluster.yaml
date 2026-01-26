@@ -1,8 +1,144 @@
 ---
-- name: Restart all etcd services
+# Safe rolling restart of etcd cluster (maintains quorum)
+# Usage: ansible-playbook -i inventory.ini playbooks/restart-cluster.yaml
+#
+# This restarts nodes one at a time with health checks between each restart
+# Ensures quorum is always maintained (n-1 nodes always up)
+#
+# Use cases:
+# - Apply new certificates after renewal
+# - Apply configuration changes
+# - Recover from service issues
+#
+# Options:
+#   -e skip_health_check=true  : Skip pre-restart validation (DANGEROUS)
+
+- name: Pre-restart validation
+  hosts: etcd[0]
+  gather_facts: yes
+  tasks:
+    - name: Check cluster health before restart
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: pre_restart_health
+      changed_when: false
+      failed_when: pre_restart_health.rc != 0 and not (skip_health_check | default(false))
+      tags:
+        - validate
+
+    - name: Display pre-restart status
+      debug:
+        msg:
+          - "{{ '✅' if pre_restart_health.rc == 0 else '⚠️' }} Pre-restart validation {{ 'passed' if pre_restart_health.rc == 0 else 'FAILED (continuing due to skip_health_check)' }}"
+          - ""
+          - "Cluster: {{ etcd_cluster_name }}"
+          - "Nodes: {{ groups['etcd'] | length }}"
+          - ""
+          - "Restart will proceed one node at a time."
+          - "Quorum will be maintained throughout (n-1 nodes always up)."
+          - ""
+          - "Estimated time: {{ (groups['etcd'] | length * 2) }} minutes"
+      tags:
+        - validate
+
+- name: Rolling restart etcd services (one at a time - maintains quorum)
   hosts: etcd
+  serial: 1  # CRITICAL: One node at a time to maintain quorum
+  gather_facts: yes
+  tasks:
+    - name: Display restart notice
+      debug:
+        msg: "🔄 Restarting etcd on {{ inventory_hostname }} ({{ ansible_play_hosts.index(inventory_hostname) + 1 }}/{{ groups['etcd'] | length }})"
+
+    - name: Restart etcd service
+      systemd:
+        name: "{{ etcd_name }}"
+        state: restarted
+      throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
+      register: etcd_restart
+      retries: 3
+      delay: 10
+      until: etcd_restart is succeeded
+
+    - name: Wait for node to be healthy after restart
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:{{ etcd_ports.client }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: health_check
+      retries: 20
+      delay: 5
+      until: health_check.rc == 0
+      changed_when: false
+
+    - name: Display node restart status
+      debug:
+        msg:
+          - "✅ Node {{ inventory_hostname }} restarted successfully"
+          - "Remaining nodes: {{ (groups['etcd'] | length - (ansible_play_hosts.index(inventory_hostname) + 1)) }}"
+
+- name: Post-restart verification
+  hosts: etcd[0]
   gather_facts: no
-  roles:
-    - role: etcd3/service
-      vars:
-        service_action: restart
+  tasks:
+    - name: Verify cluster health after all restarts
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: post_restart_health
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Check cluster member list
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        member list -w table
+      environment:
+        ETCDCTL_API: "3"
+      register: member_list
+      changed_when: false
+      tags:
+        - verify
+
+    - name: Display restart complete message
+      debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "ROLLING RESTART COMPLETE - {{ etcd_cluster_name }}"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ All {{ groups['etcd'] | length }} nodes restarted successfully"
+          - ""
+          - "Cluster Health:"
+          - "{{ post_restart_health.stdout }}"
+          - ""
+          - "Member List:"
+          - "{{ member_list.stdout }}"
+          - ""
+          - "Quorum was maintained throughout the restart."
+          - "Zero downtime achieved."
+          - ""
+          - "Next steps:"
+          - "1. Verify applications can still connect"
+          - "2. Monitor logs: ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 20' -b"
+      tags:
+        - verify

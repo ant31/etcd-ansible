@@ -100,6 +100,7 @@
       systemd:
         name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
         state: restarted
+      throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
       register: etcd_restart
       retries: 3
       delay: 10
