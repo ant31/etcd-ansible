@@ -18,7 +18,9 @@
   args:
     executable: /bin/bash
     creates: "{{ etcd_cert_paths.peer.cert }}"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Generate etcd server certificate
   shell: |
@@ -38,12 +40,18 @@
   args:
     executable: /bin/bash
     creates: "{{ etcd_cert_paths.server.cert }}"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Set client certificate name (etcd nodes use etcd_name, clients use hostname)
+  set_fact:
+    client_cert_name: "{{ etcd_name if (inventory_hostname in groups[etcd_cluster_group]) else inventory_hostname }}"
 
 - name: Generate etcd client certificate
   shell: |
     {{ bin_dir }}/step ca certificate \
-      "{{ etcd_name }}-client" \
+      "{{ client_cert_name }}-client" \
       {{ etcd_cert_paths.client.cert }} \
       {{ etcd_cert_paths.client.key }} \
       --provisioner="{{ step_ca_provisioner }}" \
@@ -68,7 +76,9 @@
     - "{{ etcd_cert_paths.server.cert }}"
     - "{{ etcd_cert_paths.client.key }}"
     - "{{ etcd_cert_paths.client.cert }}"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Determine certificate owner for this node (for client certs)
   set_fact:
@@ -103,7 +113,9 @@
     cert_path: "{{ etcd_cert_paths.peer.cert }}"
     key_path: "{{ etcd_cert_paths.peer.key }}"
     cert_user: "{{ etcd_user.name }}"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Create failure notification service template
   template:
@@ -119,7 +131,9 @@
     mode: 0644
   vars:
     cert_name: "{{ etcd_cluster_name }}-peer"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Create certificate renewal service for server cert
   template:
@@ -131,7 +145,9 @@
     cert_path: "{{ etcd_cert_paths.server.cert }}"
     key_path: "{{ etcd_cert_paths.server.key }}"
     cert_user: "{{ etcd_user.name }}"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Create certificate renewal timer for server cert
   template:
@@ -140,7 +156,9 @@
     mode: 0644
   vars:
     cert_name: "{{ etcd_cluster_name }}-server"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Create certificate renewal service for client cert
   template:
@@ -148,7 +166,7 @@
     dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-client.service"
     mode: 0644
   vars:
-    cert_name: "{{ etcd_cluster_name }}-client"
+    cert_name: "{{ client_cert_name }}-client"
     cert_path: "{{ etcd_cert_paths.client.cert }}"
     key_path: "{{ etcd_cert_paths.client.key }}"
     cert_user: "{{ cert_owner_user.name }}"
@@ -171,7 +189,9 @@
     - "step-renew-{{ etcd_cluster_name }}-peer.timer"
     - "step-renew-{{ etcd_cluster_name }}-server.timer"
     - "step-renew-{{ etcd_cluster_name }}-client.timer"
-  when: inventory_hostname in groups[etcd_cluster_group]
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
 
 - name: Enable and start client renewal timer
   systemd:

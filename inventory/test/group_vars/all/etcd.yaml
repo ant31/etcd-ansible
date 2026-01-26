@@ -372,3 +372,6 @@ etcd_extra_vars: {}
 # ============================================================================
 # etcd_force_reconfigure: false  # Force config regeneration
 # ansible_check_mode: false      # Run in check mode (dry-run)
+etcd_client_cert_user:
+ name: kube
+ group: kube

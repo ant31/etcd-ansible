@@ -8,6 +8,15 @@
 # - Generates only client certificates (no peer/server)
 # - Configures proper ownership (etcd_client_cert_user)
 # - Sets up automatic renewal timers
+#
+# Configuration (set in inventory or group_vars):
+#   etcd_client_cert_user: { name: "kube", group: "kube" }  # Certificate owner
+#   etcd_cert_dir: "/opt/kube/pki/etcd"                     # Custom cert directory
+#
+# Architecture:
+# - Uses existing roles/etcd3/certs/smallstep role (DRY)
+# - Sets step_cert_client_only=true to skip peer/server certs
+# - All logic is in roles, playbook just orchestrates
 
 - name: Validate inventory configuration
   hosts: localhost
@@ -57,35 +66,20 @@
   hosts: etcd-cert-managers[0]
   gather_facts: yes
   become: yes
-  vars:
-    step_ca_port: 9000
-    step_ca_dns: "{{ hostvars[groups['etcd-cert-managers'][0]].get('access_ip', hostvars[groups['etcd-cert-managers'][0]].get('ip', hostvars[groups['etcd-cert-managers'][0]]['ansible_default_ipv4']['address'])) }}"
-    step_ca_url: "https://{{ step_ca_dns }}:{{ step_ca_port }}"
+  roles:
+    - etcd3/facts
   tasks:
-    - name: Load etcd facts
-      include_role:
-        name: etcd3/facts
-
     - name: Check if step-ca is running
       command: systemctl is-active step-ca
       register: step_ca_status
       changed_when: false
       failed_when: false
 
-    - name: Display step-ca status
-      debug:
-        msg: "step-ca status: {{ step_ca_status.stdout }}"
-
     - name: Start step-ca if not running
       systemd:
         name: step-ca
         state: started
       when: step_ca_status.stdout != 'active'
-      register: step_ca_started
-
-    - name: Display step-ca start result
-      debug:
-        msg: "{{ '✅ step-ca was already running' if step_ca_status.stdout == 'active' else '✅ step-ca started successfully' }}"
 
     - name: Wait for step-ca to be ready
       uri:
@@ -96,202 +90,28 @@
       until: step_ca_health.status == 200
       retries: 10
       delay: 3
-      when: step_ca_started is changed
-
-    - name: Verify step-ca health
-      uri:
-        url: "{{ step_ca_url }}/health"
-        validate_certs: no
-        status_code: 200
-      register: final_health_check
 
     - name: Display step-ca health
       debug:
         msg:
           - "✅ step-ca is healthy and ready"
           - "URL: {{ step_ca_url }}"
-          - "Health check: {{ final_health_check.status }}"
 
 - name: Generate client certificates only
   hosts: etcd-clients
   gather_facts: yes
   become: yes
   vars:
-    step_ca_port: 9000
-    step_ca_dns: "{{ hostvars[groups['etcd-cert-managers'][0]].get('access_ip', hostvars[groups['etcd-cert-managers'][0]].get('ip', hostvars[groups['etcd-cert-managers'][0]]['ansible_default_ipv4']['address'])) }}"
-    step_ca_url: "https://{{ step_ca_dns }}:{{ step_ca_port }}"
-    step_ca_certs: "/etc/step-ca/certs"
-    step_ca_provisioner: "etcd-provisioner"
-    step_cert_default_duration: "17520h"
-  tasks:
-    - name: Load etcd facts
-      include_role:
-        name: etcd3/facts
-
-    - name: Determine certificate owner for this client node
-      set_fact:
-        cert_owner_user: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
-
-    - name: Display certificate owner
-      debug:
-        msg:
-          - "Generating client certificate for: {{ inventory_hostname }}"
-          - "Certificate owner: {{ cert_owner_user.name }}:{{ cert_owner_user.name }}"
-          - "Certificate path: {{ etcd_cert_paths.client.cert }}"
-
-    - name: Ensure step CLI is installed
-      stat:
-        path: "{{ bin_dir }}/step"
-      register: step_cli_check
-
-    - name: Fail if step CLI not installed
-      fail:
-        msg:
-          - "❌ step CLI not found at {{ bin_dir }}/step"
-          - ""
-          - "Install step CLI first:"
-          - "  ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml --tags download --limit {{ inventory_hostname }}"
-      when: not step_cli_check.stat.exists
-
-    - name: Create etcd cert directory
-      file:
-        path: "{{ etcd_cert_dir }}"
-        state: directory
-        owner: "{{ cert_owner_user.name }}"
-        group: "{{ cert_owner_user.name }}"
-        mode: 0700
-
-    - name: Create step configuration directory
-      file:
-        path: "{{ etcd_cert_dir }}/.step"
-        state: directory
-        owner: "{{ cert_owner_user.name }}"
-        group: "{{ cert_owner_user.name }}"
-        mode: 0700
-
-    - name: Check if root CA exists
-      stat:
-        path: "{{ etcd_cert_dir }}/root_ca.crt"
-      register: root_ca_check
-
-    - name: Fetch root CA from cert-manager if missing
-      block:
-        - name: Get root CA from cert-manager
-          slurp:
-            src: "{{ step_ca_certs }}/root_ca.crt"
-          register: root_ca_from_certmanager
-          delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
-
-        - name: Install root CA certificate
-          copy:
-            content: "{{ root_ca_from_certmanager.content | b64decode }}"
-            dest: "{{ etcd_cert_dir }}/root_ca.crt"
-            owner: "{{ cert_owner_user.name }}"
-            group: "{{ cert_owner_user.name }}"
-            mode: 0400
-      when: not root_ca_check.stat.exists
-
-    - name: Bootstrap step CLI if needed
-      block:
-        - name: Check if step CLI is bootstrapped
-          stat:
-            path: "{{ etcd_cert_dir }}/.step/config/defaults.json"
-          register: step_bootstrap_check
-
-        - name: Get root CA fingerprint
-          command: "{{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
-          register: root_ca_fingerprint
-          changed_when: false
-          when: not step_bootstrap_check.stat.exists
-
-        - name: Bootstrap step CLI
-          shell: >
-            {{ bin_dir }}/step ca bootstrap
-            --ca-url {{ step_ca_url }}
-            --fingerprint {{ root_ca_fingerprint.stdout }}
-            --install
-            --force
-          args:
-            executable: /bin/bash
-          environment:
-            STEPPATH: "{{ etcd_cert_dir }}/.step"
-          when: not step_bootstrap_check.stat.exists
-
-        - name: Fix step configuration directory permissions
-          file:
-            path: "{{ etcd_cert_dir }}/.step"
-            state: directory
-            owner: "{{ cert_owner_user.name }}"
-            group: "{{ cert_owner_user.name }}"
-            mode: 0700
-            recurse: yes
-          when: not step_bootstrap_check.stat.exists
-
-    - name: Generate client certificate
-      shell: |
-        {{ bin_dir }}/step ca certificate \
-          "{{ etcd_name }}-client" \
-          {{ etcd_cert_paths.client.cert }} \
-          {{ etcd_cert_paths.client.key }} \
-          --provisioner="{{ step_ca_provisioner }}" \
-          --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
-          --ca-url="{{ step_ca_url }}" \
-          --root="{{ etcd_cert_dir }}/root_ca.crt" \
-          --not-after="{{ step_cert_default_duration }}" \
-          --force
-      args:
-        executable: /bin/bash
-      register: cert_generation
-      environment:
-        STEPPATH: "{{ etcd_cert_dir }}/.step"
-
-    - name: Set client certificate permissions
-      file:
-        path: "{{ item }}"
-        owner: "{{ cert_owner_user.name }}"
-        group: "{{ cert_owner_user.name }}"
-        mode: 0400
-      loop:
-        - "{{ etcd_cert_paths.client.key }}"
-        - "{{ etcd_cert_paths.client.cert }}"
-
-    - name: Create certificate renewal service for client cert
-      template:
-        src: ../roles/etcd3/certs/smallstep/templates/step-renew.service.j2
-        dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-client.service"
-        mode: 0644
-      vars:
-        cert_name: "{{ etcd_cluster_name }}-client"
-        cert_path: "{{ etcd_cert_paths.client.cert }}"
-        key_path: "{{ etcd_cert_paths.client.key }}"
-        cert_user: "{{ cert_owner_user.name }}"
-
-    - name: Create certificate renewal timer for client cert
-      template:
-        src: ../roles/etcd3/certs/smallstep/templates/step-renew.timer.j2
-        dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-client.timer"
-        mode: 0644
-      vars:
-        cert_name: "{{ etcd_cluster_name }}-client"
-
-    - name: Enable and start client renewal timer
-      systemd:
-        name: "step-renew-{{ etcd_cluster_name }}-client.timer"
-        enabled: yes
-        state: started
-        daemon_reload: yes
-
-    - name: Verify certificate was generated
-      stat:
-        path: "{{ etcd_cert_paths.client.cert }}"
-      register: cert_verify
-
-    - name: Get certificate details
-      command: "{{ bin_dir }}/step certificate inspect {{ etcd_cert_paths.client.cert }} --format json"
-      register: cert_details
-      changed_when: false
-      when: cert_verify.stat.exists
-
+    # Enable client-only mode (skip peer/server cert generation)
+    step_cert_client_only: true
+  roles:
+    # The smallstep role handles everything:
+    # - etcd3/facts dependency (loads etcd_cert_paths, etc.)
+    # - install-client.yml (installs step CLI, root CA, bootstraps)
+    # - configure-renewal.yml (generates client cert, sets up renewal)
+    # - Skips peer/server certs when step_cert_client_only=true
+    - etcd3/certs/smallstep
+  post_tasks:
     - name: Display completion status
       debug:
         msg:
@@ -299,15 +119,13 @@
           - ""
           - "Certificate: {{ etcd_cert_paths.client.cert }}"
           - "Private key: {{ etcd_cert_paths.client.key }}"
-          - "Owner: {{ cert_owner_user.name }}:{{ cert_owner_user.name }}"
-          - "Permissions: 0400"
-          - ""
-          - "Subject: {{ (cert_details.stdout | from_json).subject }}"
-          - "Valid until: {{ (cert_details.stdout | from_json).validity.end }}"
+          - "Certificate directory: {{ etcd_cert_dir }}"
           - ""
           - "Automatic renewal configured:"
           - "  Timer: step-renew-{{ etcd_cluster_name }}-client.timer"
-          - "  Status: {{ 'enabled' }}"
+          - ""
+          - "Verify certificate:"
+          - "  step certificate inspect {{ etcd_cert_paths.client.cert }}"
           - ""
           - "Test connection:"
           - "  etcdctl --endpoints={{ etcd_access_addresses }}"
@@ -315,7 +133,6 @@
           - "    --key={{ etcd_cert_paths.client.key }}"
           - "    --cacert={{ etcd_cert_dir }}/root_ca.crt"
           - "    endpoint health"
-      when: cert_verify.stat.exists
 
 - name: Display summary
   hosts: localhost

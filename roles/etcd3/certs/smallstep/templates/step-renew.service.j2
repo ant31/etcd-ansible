@@ -22,10 +22,15 @@ ExecStart={{ bin_dir }}/step ca renew --force --ca-url={{ step_ca_url }} --root=
 ExecStartPost=/bin/chown {{ cert_user }}:{{ cert_user }} {{ cert_path }} {{ key_path }}
 ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
 
+{% if etcd_name is defined %}
 # NOTE: etcd is NOT automatically restarted after renewal
 # This requires manual intervention to ensure safe operations
 # To apply new certificates: systemctl restart {{ etcd_name }}.service
 # Or use rolling restart playbook to maintain quorum
+{% else %}
+# NOTE: Certificate renewed but service restart is manual
+# For etcd clients, restart the application to use new certificates
+{% endif %}
 
 # Send success healthcheck ping (if configured)
 {% if step_cert_renewal_healthcheck_url %}

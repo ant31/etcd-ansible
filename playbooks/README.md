@@ -25,7 +25,7 @@ This directory contains all operational playbooks for managing etcd clusters.
 
 | Playbook | Purpose | Usage |
 |----------|---------|-------|
-| `generate-client-certs.yaml` | Generate client certificates only | `ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml` |
+| `generate-client-certs.yaml` | Generate client certificates only | `ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml` <br> `ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml -e etcd_cert_dir=/opt/kube/pki/etcd` |
 | `regenerate-node-certs.yaml` | Regenerate node certificates (routine) | `ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml` |
 | `regenerate-ca.yaml` | Regenerate CA (disaster recovery) | `ansible-playbook -i inventory.ini playbooks/regenerate-ca.yaml` |
 | `renew-certs.yaml` | Manually renew all certificates | `ansible-playbook -i inventory.ini playbooks/renew-certs.yaml` |

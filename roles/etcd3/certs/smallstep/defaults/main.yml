@@ -24,6 +24,18 @@ step_ca_secrets: "{{ step_path }}/secrets"
 # Example: etcd_client_cert_user: { name: "kube", group: "kube" }
 etcd_client_cert_user: "{{ etcd_user }}"  # Default to etcd user for backward compatibility
 
+# Default group names (override in inventory if using different group names)
+etcd_clients_group: "etcd-clients"
+
+# Client-only mode (skip peer/server certificate generation)
+# Set to true when only generating client certificates (e.g., for etcd-clients group)
+step_cert_client_only: false
+
+# Configurable certificate directory
+# Override this to use a different directory for certificates
+# Example: etcd_cert_dir: "/opt/kube/pki/etcd"
+# Default is inherited from etcd3 role defaults
+
 # Certificate settings
 step_cert_default_duration: "17520h"  # 2 years (730 days)
 step_cert_max_duration: "26280h"      # 3 years
