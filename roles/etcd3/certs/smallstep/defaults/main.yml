@@ -1,0 +1,87 @@
+---
+# Smallstep version
+step_version: "0.29.0"
+step_ca_version: "0.29.0"
+
+# Smallstep CA configuration
+step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"
+# Use IP address for step-ca, following same pattern as etcd facts
+# Try access_ip first, then ip, then discovered IP
+step_ca_dns: "{{ hostvars[groups[etcd_certmanagers_group][0]].get('access_ip', hostvars[groups[etcd_certmanagers_group][0]].get('ip', hostvars[groups[etcd_certmanagers_group][0]]['ansible_default_ipv4']['address'])) }}"
+step_ca_url: "https://{{ step_ca_dns }}:9000"
+step_ca_port: 9000
+step_ca_provisioner: "etcd-provisioner"
+
+# Paths
+step_path: "/etc/step-ca"
+step_ca_config: "{{ step_path }}/config/ca.json"
+step_ca_db: "{{ step_path }}/db"
+step_ca_certs: "{{ step_path }}/certs"
+step_ca_secrets: "{{ step_path }}/secrets"
+
+# Client certificate ownership (for etcd-clients group)
+# Override this in inventory for different applications
+# Example: etcd_client_cert_user: { name: "kube", group: "kube" }
+etcd_client_cert_user: "{{ etcd_user }}"  # Default to etcd user for backward compatibility
+
+# Default group names (override in inventory if using different group names)
+etcd_clients_group: "etcd-clients"
+
+# Client-only mode (skip peer/server certificate generation)
+# Set to true when only generating client certificates (e.g., for etcd-clients group)
+step_cert_client_only: false
+
+# Configurable certificate directory
+# Override this to use a different directory for certificates
+# Example: etcd_cert_dir: "/opt/kube/pki/etcd"
+# Default is inherited from etcd3 role defaults
+
+# Certificate settings
+step_cert_default_duration: "17520h"  # 2 years (730 days)
+step_cert_max_duration: "26280h"      # 3 years
+step_cert_min_duration: "1h"
+
+# Renewal settings - renew when 2/3 of lifetime has passed
+step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
+
+# step-ca runtime limit (security: minimize CA exposure)
+# Time in minutes that step-ca will run before auto-shutdown
+# 0 = infinite (always running), recommended: 30-60 minutes
+# After shutdown, step-ca can be restarted manually or by cert renewal
+step_ca_runtime_minutes: 60  # 1 hour default
+
+# Password for CA keys (should be stored in ansible-vault in production)
+step_ca_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
+step_provisioner_password: "{{ lookup('password', '/dev/null chars=ascii_letters,digits length=32') }}"
+
+# Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, none
+step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
+step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
+step_ca_backup_s3_enabled: true  # Enable S3 uploads
+step_ca_backup_retention_days: 90  # Delete backups older than this
+
+# AWS KMS encryption (when step_ca_backup_encryption_method: aws-kms)
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
+#
+# AWS Credentials (set in group_vars/all/vault.yml encrypted with ansible-vault)
+# Required for aws-kms encryption method:
+#   aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
+#   aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+#   aws_default_region: "us-east-1"
+#
+# Required IAM permissions:
+#   - s3:PutObject, s3:GetObject on s3://bucket-name/*
+#   - kms:Encrypt, kms:Decrypt, kms:DescribeKey on the KMS key
+
+# Symmetric encryption (when step_ca_backup_encryption_method: symmetric)
+step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
+# Uses OpenSSL AES-256-CBC with PBKDF2 (100,000 iterations)
+# Example vault.yml:
+#   step_ca_backup_password: "your-very-secure-password-from-password-manager"
+
+# Encryption method comparison:
+# - aws-kms: Best for AWS users, integrates with IAM, audit logs, key rotation
+# - symmetric: Simple password-based, works anywhere, no cloud dependencies
+# - none: No encryption (not recommended for production)
+

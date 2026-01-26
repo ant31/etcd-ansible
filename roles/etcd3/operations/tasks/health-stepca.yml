@@ -1,0 +1,50 @@
+---
+# step-ca health check tasks
+
+- name: Set output format default
+  set_fact:
+    output_format: "{{ output_format | default('text') }}"
+
+- name: Check step-ca service status
+  command: systemctl is-active step-ca
+  register: step_ca_active
+  changed_when: false
+  failed_when: false
+
+- name: Check step-ca health endpoint
+  uri:
+    url: "https://localhost:9000/health"
+    validate_certs: no
+    status_code: 200
+    return_content: yes
+  register: step_ca_health
+  failed_when: false
+
+- name: Check CA certificate expiration
+  shell: >
+    {{ bin_dir }}/step certificate inspect /etc/step-ca/certs/root_ca.crt
+    --format json | jq -r '.validity.end'
+  register: root_ca_expiry
+  changed_when: false
+  failed_when: false
+  when: step_ca_active.stdout == 'active'
+
+- name: Calculate days until root CA expiration
+  shell: >
+    echo $(( ( $(date -d "{{ root_ca_expiry.stdout }}" +%s) - $(date +%s) ) / 86400 ))
+  register: root_ca_days_left
+  changed_when: false
+  when: root_ca_expiry.rc is defined and root_ca_expiry.rc == 0
+
+- name: Get root CA fingerprint
+  shell: >
+    {{ bin_dir }}/step certificate fingerprint /etc/step-ca/certs/root_ca.crt
+  register: root_ca_fingerprint
+  changed_when: false
+  failed_when: false
+  when: step_ca_active.stdout == 'active'
+
+- name: Display step-ca status (text)
+  debug:
+    msg: "{{ (['', '┌─ STEP-CA STATUS - ' + inventory_hostname + ' ──────────────┐', 'Service status:      ' + (step_ca_active.stdout | upper), 'Health endpoint:     ' + ('HEALTHY (' + step_ca_health.json.status + ')' if step_ca_health.status == 200 else 'UNHEALTHY')] + (['Root CA expires:     ' + root_ca_expiry.stdout, 'Days until expiry:   ' + root_ca_days_left.stdout, 'Root CA fingerprint: ' + root_ca_fingerprint.stdout] + (['⚠️  WARNING: Root CA expires in less than 1 year!'] if root_ca_days_left.stdout | int < 365 else ['✅ Root CA valid']) if root_ca_expiry.rc is defined and root_ca_expiry.rc == 0 else []) + ['', ('✅ step-ca is healthy' if step_ca_active.stdout == 'active' and step_ca_health.status == 200 else '❌ step-ca has issues'), ('Recommendation: Check journalctl -u step-ca -n 50' if step_ca_active.stdout != 'active' or step_ca_health.status != 200 else ''), '└────────────────────────────────────────────────────────────┘']) }}"
+  when: output_format == 'text'

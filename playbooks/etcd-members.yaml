@@ -1,0 +1,8 @@
+---
+- name: List etcd cluster members
+  hosts: etcd[0]
+  gather_facts: yes
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: members

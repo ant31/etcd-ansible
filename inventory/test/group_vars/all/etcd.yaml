@@ -1,0 +1,377 @@
+---
+# ============================================================================
+# ETCD-ANSIBLE CONFIGURATION
+# ============================================================================
+# This file contains ALL non-secret configuration variables
+# For secrets (passwords, credentials), see: group_vars/all/vault.yml
+# ============================================================================
+
+# ============================================================================
+# CLUSTER IDENTITY
+# ============================================================================
+# Unique name for this etcd cluster
+# Used in: service names, backup paths, certificate CN
+# Example: "k8s" → etcd service named "etcd-k8s-1"
+
+# Cluster configuration
+etcd_cluster_name: test-cluster
+
+
+
+# Multiple clusters example:
+# etcd_cluster_name: k8s         # For Kubernetes
+# etcd_cluster_name: k8s-events  # For Kubernetes events
+# etcd_cluster_name: vault       # For HashiCorp Vault
+
+# ============================================================================
+# ETCD VERSION
+# ============================================================================
+etcd_version: v3.6.7
+# Available versions with checksums in roles/etcd3/defaults/main.yaml
+# Supported: v3.5.13, v3.5.26, v3.6.7
+
+# ============================================================================
+# INVENTORY GROUPS
+# ============================================================================
+# Group names from inventory.ini
+# Override these if using custom group names
+etcd_cluster_group: etcd              # Nodes running etcd cluster
+etcd_clients_group: etcd-clients      # Nodes needing client certificates
+etcd_certmanagers_group: etcd-cert-managers  # Nodes running step-ca
+
+# ============================================================================
+# NETWORK PORTS
+# ============================================================================
+etcd_ports:
+  client: 2379  # Client API port (for etcdctl, applications)
+  peer: 2380    # Peer communication port (cluster replication)
+
+# ============================================================================
+# FILESYSTEM PATHS
+# ============================================================================
+# Binary installation directory
+bin_dir: /opt/bin
+
+# Download cache directory (for archives before extraction)
+# Default: same as bin_dir
+# Useful for: separate disk/partition, shared download cache, easier cleanup
+download_cache_dir: /opt/bin
+
+# Etcd home directory (contains data and backups)
+etcd_home: /var/lib/etcd
+
+# Configuration directory
+etcd_config_dir: /etc/etcd
+
+# Certificate directory
+etcd_cert_dir: /etc/etcd/ssl
+
+# Data directory (auto-computed from etcd_home)
+# etcd_data_dir: "{{ etcd_home }}/etcd-{{ etcd_cluster_name }}-{{ index }}"
+
+# Backup directory
+# etcd_cluster_backup:
+#   directory: "{{ etcd_home }}/backups/{{ etcd_cluster_name }}"
+
+# ============================================================================
+# ETCD PERFORMANCE TUNING
+# ============================================================================
+# Heartbeat interval in milliseconds
+# Lower = faster failure detection, higher = less network traffic
+# Default: 250ms (recommended for LAN), increase for WAN
+etcd_heartbeat_interval: 250
+
+# Election timeout in milliseconds
+# Must be > heartbeat_interval
+# Default: 5000ms (5s)
+etcd_election_timeout: 5000
+
+# Number of committed transactions before snapshot
+# Lower = more frequent snapshots, higher = larger WAL
+# Default: 10000
+etcd_snapshot_count: 10000
+
+# Auto-compaction retention (hours or revisions)
+# Keeps last N hours of history
+# Default: "8" (8 hours of history)
+etcd_compaction_retention: "8"
+
+# Maximum number of snapshots to retain
+# Default: 5
+etcd_max_snapshots: 5
+
+# Maximum number of WAL files to retain
+# Default: 5
+etcd_max_wals: 5
+
+# Backend database size quota
+# Default: 2GB (etcd default), set to 0 for no limit
+# Recommended: 2-8GB depending on use case
+# etcd_quota_backend_bytes: "2G"
+
+# Metrics verbosity level
+# Options: basic, extensive
+# Default: extensive
+etcd_metrics: extensive
+
+# ============================================================================
+# SECURITY SETTINGS
+# ============================================================================
+# Force TLS for client connections
+etcd_secure_client: true
+
+# Enable peer client certificate authentication
+etcd_peer_client_auth: true
+
+# DNS domain for certificate SAN entries
+dns_domain: cluster.local
+
+# Additional certificate SAN entries
+etcd_cert_alt_names:
+  - "etcd.kube-system.svc.{{ dns_domain }}"
+  - "etcd.kube-system.svc"
+  - "etcd.kube-system"
+  - "etcd"
+
+# Additional IP SAN entries
+etcd_cert_alt_ips: []
+# Example:
+# etcd_cert_alt_ips:
+#   - "10.0.0.100"  # Load balancer IP
+#   - "10.0.0.101"
+
+# ============================================================================
+# SMALLSTEP CA CONFIGURATION
+# ============================================================================
+# # Smallstep CLI and CA versions
+step_version: "0.29.0"
+step_ca_version: "0.29.0"
+
+# CA naming and network
+# step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"  # Auto-generated
+# step_ca_dns: "{{ first_cert_manager_fqdn }}"      # Auto-detected
+# step_ca_url: "https://{{ step_ca_dns }}:9000"     # Auto-computed
+step_ca_port: 9000
+
+# Certificate lifetimes
+step_cert_default_duration: "17520h"  # 2 years (730 days)
+step_cert_max_duration: "26280h"      # 3 years
+step_cert_min_duration: "1h"
+
+# Renewal period (when to auto-renew)
+# Default: 2/3 of certificate lifetime
+step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
+
+# CA installation paths
+step_path: /etc/step-ca
+# step_ca_config: "{{ step_path }}/config/ca.json"
+# step_ca_db: "{{ step_path }}/db"
+# step_ca_certs: "{{ step_path }}/certs"
+# step_ca_secrets: "{{ step_path }}/secrets"
+
+# ============================================================================
+# BACKUP CONFIGURATION
+# ============================================================================
+# Automated backups via cron
+etcd_backup_cron_enabled: true
+ca_backup_cron_enabled: true
+step_ca_backup_s3_enabled: true
+# Backup schedules (cron format)
+etcd_backup_cron_minute: "*/30"  # Every 30 minutes
+etcd_backup_cron_hour: "*"       # Every hour
+ca_backup_cron_minute: "*/5"     # Check every 5 minutes
+ca_backup_cron_hour: "*"         # Every hour
+
+# Backup retention (days)
+etcd_backup_retention_days: 90   # Etcd data backups
+ca_backup_retention_days: 365    # CA backups (keep longer)
+
+# Manual backup before operations
+etcd_backup: true  # Backup before upgrade/delete
+
+# Backup script locations
+backup_scripts_dir: /opt/backups
+backup_log_dir: /opt/backups/log
+
+# ============================================================================
+# SYSTEMD SERVICE TUNING
+# ============================================================================
+# Service start timeout
+etcd_systemd_timeout_start_sec: "60s"
+
+# Restart delay after failure
+etcd_systemd_restart_sec: "15s"
+
+# File descriptor limit
+etcd_systemd_limit_nofile: 40000
+
+# Optional: Process priority (-20 highest to 19 lowest)
+# etcd_systemd_nice_level: -5
+
+# Optional: I/O priority (0=none, 1=realtime, 2=best-effort, 3=idle)
+# etcd_systemd_ionice_class: 2
+# etcd_systemd_ionice_priority: 0
+
+# Optional: Memory limit
+# etcd_systemd_memory_limit: "4G"
+
+# Optional: CPU quota (percentage, 200% = 2 cores)
+# etcd_systemd_cpu_quota: "200%"
+
+# ============================================================================
+# ETCD USER/GROUP
+# ============================================================================
+etcd_user:
+  name: etcd
+  comment: "Etcd user"
+  createhome: yes
+  home: "{{ etcd_home }}"
+  system: yes
+  shell: /bin/nologin
+
+# ============================================================================
+# DOWNLOAD CONFIGURATION
+# ============================================================================
+# Skip downloads (useful for offline/airgap installations)
+skip_downloads: false
+
+# Validate SSL certificates when downloading
+download_validate_certs: true
+
+# Retry delay in seconds
+retry_stagger: 5
+
+# ============================================================================
+# ADVANCED: EXTRA ENVIRONMENT VARIABLES
+# ============================================================================
+# Additional environment variables for etcd.env
+# Format: key-value pairs
+etcd_extra_vars: {}
+# Example:
+# etcd_extra_vars:
+#   ETCD_EXPERIMENTAL_INITIAL_CORRUPT_CHECK: "true"
+#   ETCD_EXPERIMENTAL_CORRUPT_CHECK_TIME: "240m"
+
+# ============================================================================
+# CLUSTER ACTIONS
+# ============================================================================
+# Action to perform: create, deploy, upgrade, backup, none
+# - create: Initialize new cluster (fails if data exists)
+# - deploy: Deploy or update existing cluster
+# - upgrade: Upgrade etcd version (rolling restart)
+# - backup: Create manual backup
+# Set via command line: -e etcd_action=create
+# etcd_action: none
+
+# Force cluster creation (DANGER: destroys existing data)
+# etcd_force_create: false
+
+# Force certificate regeneration (removes existing CA and certificates)
+# etcd_force_certs: false
+
+# Force deployment on unhealthy cluster (DANGER: may cause data loss)
+# etcd_force_deploy: false
+
+# Force service restart (even if config unchanged)
+# etcd_force_restart: false
+
+# Delete cluster (requires confirmation prompt)
+# etcd_delete_cluster: false
+
+# ============================================================================
+# RESTORE CONFIGURATION
+# ============================================================================
+# Restore CA from backup
+# restore_ca: false
+# restore_ca_from: s3  # Options: s3, local, backup-node
+# restore_ca_s3_file: latest  # S3 path or 'latest'
+
+# Restore etcd data from backup
+# restore_etcd_data: false
+# restore_etcd_s3_file: latest  # S3 path or 'latest'
+# restore_etcd_local_file: ""  # Local file path
+
+# Safety options
+# restore_confirm: true  # Require confirmation
+# restore_backup_existing: true  # Backup before restore
+
+# ============================================================================
+# INVENTORY VARIABLE REFERENCE
+# ============================================================================
+# These are typically set in inventory.ini per-host:
+#
+# [etcd]
+# etcd-1 ansible_host=10.0.1.10 etcd_member_index=1
+# etcd-2 ansible_host=10.0.1.11 etcd_member_index=2
+# etcd-3 ansible_host=10.0.1.12 etcd_member_index=3
+#
+# Per-host overrides:
+# - ansible_host: Node IP address
+# - etcd_member_index: Node index in cluster (1, 2, 3...)
+# - etcd_member_name: Override node name (default: etcd-{cluster}-{index})
+# - ip: Override IP for etcd communication
+# - access_ip: Override IP for client access
+#
+# [etcd:vars]
+# ansible_user=ubuntu
+# ansible_become=true
+# ansible_python_interpreter=/usr/bin/python3
+
+# ============================================================================
+# MULTI-CLUSTER CONFIGURATION
+# ============================================================================
+# To run multiple etcd clusters on the same nodes:
+#
+# 1. Create separate inventory files:
+#    - inventory-k8s.ini (etcd_cluster_name: k8s)
+#    - inventory-events.ini (etcd_cluster_name: events)
+#
+# 2. Deploy each cluster:
+#    ansible-playbook -i inventory-k8s.ini etcd.yaml -e etcd_action=create
+#    ansible-playbook -i inventory-events.ini etcd.yaml -e etcd_action=create
+#
+# Each cluster gets independent:
+# - Systemd services: etcd-k8s-1, etcd-events-1
+# - Data directories: /var/lib/etcd/etcd-k8s-1, /var/lib/etcd/etcd-events-1
+# - Ports: Configure different ports per cluster
+# - Certificates: Separate step-ca per cluster
+
+# ============================================================================
+# KUBERNETES INTEGRATION
+# ============================================================================
+# When using etcd for Kubernetes, configure kube-apiserver with these facts:
+#
+# - etcd_access_addresses: "https://10.0.1.10:2379,https://10.0.1.11:2379,..."
+# - etcd_cert_paths.client.cert: "/etc/etcd/ssl/etcd-k8s-1-client.crt"
+# - etcd_cert_paths.client.key: "/etc/etcd/ssl/etcd-k8s-1-client.key"
+# - etcd_cert_paths.client.ca: "/etc/etcd/ssl/root_ca.crt"
+#
+# kube-apiserver flags:
+# --etcd-servers={{ etcd_access_addresses }}
+# --etcd-cafile={{ etcd_cert_paths.client.ca }}
+# --etcd-certfile={{ etcd_cert_paths.client.cert }}
+# --etcd-keyfile={{ etcd_cert_paths.client.key }}
+
+# ============================================================================
+# TROUBLESHOOTING VARIABLES
+# ============================================================================
+# Enable offline backup mode (from snap/db file instead of API)
+# etcd_backup_offline: false
+
+# Force backup even if cluster is unhealthy
+# etcd_force_backup: false
+
+# ============================================================================
+# DEPRECATED / LEGACY VARIABLES
+# ============================================================================
+# These are kept for backward compatibility but not used with Smallstep:
+# cert_expiry: 175200h  # Smallstep uses step_cert_default_duration instead
+
+# ============================================================================
+# DEVELOPMENT / TESTING
+# ============================================================================
+# etcd_force_reconfigure: false  # Force config regeneration
+# ansible_check_mode: false      # Run in check mode (dry-run)
+etcd_client_cert_user:
+ name: kube
+ group: kube

@@ -1,0 +1,22 @@
+---
+# Restore step-ca CA keys from another cert-manager node
+# Usage: ansible-playbook -i inventory.ini playbooks/restore-ca.yaml -e source_node=etcd-k8s-2 -e target_node=etcd-k8s-1
+
+- name: Validate parameters
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Check source_node and target_node are specified
+      assert:
+        that:
+          - source_node is defined
+          - target_node is defined
+        fail_msg: "Both source_node and target_node must be specified"
+
+- name: Restore CA keys from backup cert-manager
+  hosts: "{{ source_node }},{{ target_node }}"
+  gather_facts: no
+  roles:
+    - role: etcd3/restore
+      vars:
+        restore_action: ca-from-node

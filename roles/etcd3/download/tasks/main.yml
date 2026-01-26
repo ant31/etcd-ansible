@@ -1,0 +1,130 @@
+---
+# Simplified download tasks - file downloads only (no container support)
+
+- name: download | Check if downloads should be skipped
+  debug:
+    msg: "⏭️  Skipping all downloads (skip_downloads={{ skip_downloads }})"
+  when: skip_downloads | default(false) | bool
+  tags:
+    - download
+    - always
+
+- name: download | Ensure unzip is installed (for AWS CLI and other zip archives)
+  package:
+    name: unzip
+    state: present
+  when:
+    - not skip_downloads | default(false)
+    - downloads.awscli is defined
+    - downloads.awscli.enabled
+    - groups[etcd_cluster_group] | union(groups[etcd_certmanagers_group]) | intersect(ansible_play_hosts) | length > 0
+  tags:
+    - download
+    - download-prep
+
+- name: download | Create destination directories
+  file:
+    path: "{{ item.value.dest | dirname }}"
+    state: directory
+    mode: 0755
+    recurse: yes
+  loop: "{{ downloads | dict2items }}"
+  when:
+    - not skip_downloads | default(false)
+    - item.value.enabled
+    - item.value.file
+    - group_names | intersect(item.value.groups) | length > 0
+  tags:
+    - download
+    - download-prep
+
+- name: download | Download files
+  get_url:
+    url: "{{ item.value.url }}"
+    dest: "{{ item.value.dest }}"
+    checksum: "{{ item.value.sha256 if item.value.sha256 is defined and item.value.sha256 else omit }}"
+    owner: "{{ item.value.owner | default(omit) }}"
+    mode: "{{ item.value.mode | default(omit) }}"
+    validate_certs: "{{ download_validate_certs }}"
+  register: get_url_result
+  until: >-
+    'OK' in get_url_result.msg or
+    'file already exists' in get_url_result.msg or
+    'Not Modified' in get_url_result.msg or
+    get_url_result.status_code == 304
+  retries: 4
+  delay: "{{ retry_stagger | default(5) }}"
+  loop: "{{ downloads | dict2items }}"
+  when:
+    - not skip_downloads | default(false)
+    - item.value.enabled
+    - item.value.file
+    - group_names | intersect(item.value.groups) | length > 0
+  tags:
+    - download
+    - download-files
+
+- name: download | Extract archives
+  unarchive:
+    src: "{{ item.value.dest }}"
+    dest: "{{ item.value.dest | dirname }}"
+    owner: "{{ item.value.owner | default(omit) }}"
+    mode: "{{ item.value.mode | default(omit) }}"
+    remote_src: yes
+  loop: "{{ downloads | dict2items }}"
+  when:
+    - not skip_downloads | default(false)
+    - item.value.enabled
+    - item.value.file
+    - item.value.unarchive | default(False)
+    - group_names | intersect(item.value.groups) | length > 0
+  tags:
+    - download
+    - download-extract
+
+- name: download | Install AWS CLI
+  command: "{{ download_cache_dir }}/awscli-archive/aws/install --bin-dir {{ bin_dir }} --install-dir {{ bin_dir }}/aws-cli --update"
+  args:
+    creates: "{{ bin_dir }}/aws"
+  when:
+    - not skip_downloads | default(false)
+    - downloads.awscli is defined
+    - downloads.awscli.enabled
+    - group_names | intersect(downloads.awscli.groups) | length > 0
+  tags:
+    - download
+    - download-awscli
+
+- name: download | Install step CLI binary
+  copy:
+    src: "{{ download_cache_dir }}/step-archive/step_{{ step_version }}/bin/step"
+    dest: "{{ bin_dir }}/step"
+    mode: 0755
+    owner: root
+    group: root
+    remote_src: yes
+  when:
+    - not skip_downloads | default(false)
+    - downloads.step is defined
+    - downloads.step.enabled
+    - group_names | intersect(downloads.step.groups) | length > 0
+  tags:
+    - download
+    - download-step
+
+- name: download | Install step-ca binary
+  copy:
+    src: "{{ download_cache_dir }}/step-ca-archive/step-ca"
+    dest: "{{ bin_dir }}/step-ca"
+    mode: 0755
+    owner: root
+    group: root
+    remote_src: yes
+  when:
+    - not skip_downloads | default(false)
+    - downloads.step_ca is defined
+    - downloads.step_ca.enabled
+    - group_names | intersect(downloads.step_ca.groups) | length > 0
+  tags:
+    - download
+    - download-step-ca

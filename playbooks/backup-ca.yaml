@@ -1,0 +1,16 @@
+---
+# Backup step-ca CA keys to encrypted offsite storage
+# Usage: ansible-playbook -i inventory.ini playbooks/backup-ca.yaml
+#
+# Encryption methods (choose one via step_ca_backup_encryption_method):
+#   - 'aws-kms' (recommended): Uses AWS KMS for encryption
+#   - 'symmetric': Uses AES-256 with password from ansible-vault
+#   - 'aws-s3-sse': Uses S3 server-side encryption (SSE-KMS)
+
+- name: Backup step-ca CA keys
+  hosts: etcd-cert-managers[0]
+  gather_facts: yes
+  roles:
+    - role: etcd3/backups/ca
+      vars:
+        ca_backup_action: manual

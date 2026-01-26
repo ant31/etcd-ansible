@@ -1,7 +1,0 @@
-- [ ] Use external/existing certs
-- [ ] Use existing CA
-- [ ] snapshot/backups
-- [ ] upload backups
-- [ ] restore a backups
-- [ ] scale up
-- [ ] logs: https://github.com/kubernetes-incubator/kubespray/pull/3700/files

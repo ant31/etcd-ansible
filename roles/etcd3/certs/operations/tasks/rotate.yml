@@ -1,0 +1,37 @@
+---
+- name: Check if step-ca is running on cert-managers
+  command: systemctl is-active step-ca
+  register: step_ca_status
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Start step-ca if not running (needed for certificate rotation)
+  systemd:
+    name: step-ca
+    state: started
+  when: step_ca_status.stdout != 'active'
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Wait for step-ca to be ready
+  uri:
+    url: "{{ step_ca_url }}/health"
+    validate_certs: no
+    status_code: 200
+  register: step_ca_health
+  until: step_ca_health.status == 200
+  retries: 10
+  delay: 3
+  when: step_ca_status.stdout != 'active'
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Force certificate rotation (start all renewal services)
+  shell: |
+    for timer in /etc/systemd/system/step-renew-*.timer; do
+      systemctl start $(basename $timer .timer).service
+    done
+  register: cert_rotation
+  changed_when: true

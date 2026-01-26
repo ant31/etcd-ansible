@@ -1,0 +1,202 @@
+---
+# Generate initial certificates using step-ca
+- name: Generate etcd peer certificate
+  shell: |
+    {{ bin_dir }}/step ca certificate \
+      "{{ etcd_name }}" \
+      {{ etcd_cert_paths.peer.cert }} \
+      {{ etcd_cert_paths.peer.key }} \
+      --provisioner="{{ step_ca_provisioner }}" \
+      --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
+      --ca-url="{{ step_ca_url }}" \
+      --root="{{ etcd_cert_dir }}/root_ca.crt" \
+      --san="{{ hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address']) }}" \
+      --san="{{ hostvars[inventory_hostname].get('access_ip', hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address'])) }}" \
+      --san="127.0.0.1" \
+      --san="localhost" \
+      --not-after="{{ step_cert_default_duration }}"
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_cert_paths.peer.cert }}"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Generate etcd server certificate
+  shell: |
+    {{ bin_dir }}/step ca certificate \
+      "{{ etcd_name }}-server" \
+      {{ etcd_cert_paths.server.cert }} \
+      {{ etcd_cert_paths.server.key }} \
+      --provisioner="{{ step_ca_provisioner }}" \
+      --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
+      --ca-url="{{ step_ca_url }}" \
+      --root="{{ etcd_cert_dir }}/root_ca.crt" \
+      --san="{{ hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address']) }}" \
+      --san="{{ hostvars[inventory_hostname].get('access_ip', hostvars[inventory_hostname].get('ip', hostvars[inventory_hostname]['ansible_default_ipv4']['address'])) }}" \
+      --san="127.0.0.1" \
+      --san="localhost" \
+      --not-after="{{ step_cert_default_duration }}"
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_cert_paths.server.cert }}"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Set client certificate name (etcd nodes use etcd_name, clients use hostname)
+  set_fact:
+    client_cert_name: "{{ etcd_name if (inventory_hostname in groups[etcd_cluster_group]) else inventory_hostname }}"
+
+- name: Generate etcd client certificate
+  shell: |
+    {{ bin_dir }}/step ca certificate \
+      "{{ client_cert_name }}-client" \
+      {{ etcd_cert_paths.client.cert }} \
+      {{ etcd_cert_paths.client.key }} \
+      --provisioner="{{ step_ca_provisioner }}" \
+      --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
+      --ca-url="{{ step_ca_url }}" \
+      --root="{{ etcd_cert_dir }}/root_ca.crt" \
+      --not-after="{{ step_cert_default_duration }}"
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_cert_paths.client.cert }}"
+
+- name: Set certificate file permissions (private keys - etcd user only)
+  file:
+    path: "{{ item }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0400
+  loop:
+    - "{{ etcd_cert_paths.peer.key }}"
+    - "{{ etcd_cert_paths.peer.cert }}"
+    - "{{ etcd_cert_paths.server.key }}"
+    - "{{ etcd_cert_paths.server.cert }}"
+    - "{{ etcd_cert_paths.client.key }}"
+    - "{{ etcd_cert_paths.client.cert }}"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Determine certificate owner for this node (for client certs)
+  set_fact:
+    cert_owner_user: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
+
+- name: Set client certificate permissions (cert owner only)
+  file:
+    path: "{{ item }}"
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
+    mode: 0400
+  loop:
+    - "{{ etcd_cert_paths.client.key }}"
+    - "{{ etcd_cert_paths.client.cert }}"
+
+- name: Create symlinks for CA certificates
+  file:
+    src: "{{ etcd_cert_dir }}/root_ca.crt"
+    dest: "{{ item }}"
+    state: link
+  loop:
+    - "{{ etcd_cert_dir }}/peer-ca.crt"
+    - "{{ etcd_cert_dir }}/client-ca.crt"
+
+- name: Create certificate renewal service for peer cert
+  template:
+    src: step-renew.service.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-peer.service"
+    mode: 0644
+  vars:
+    cert_name: "{{ etcd_cluster_name }}-peer"
+    cert_path: "{{ etcd_cert_paths.peer.cert }}"
+    key_path: "{{ etcd_cert_paths.peer.key }}"
+    cert_user: "{{ etcd_user.name }}"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Create failure notification service template
+  template:
+    src: step-renew-failure-notify.service.j2
+    dest: /etc/systemd/system/step-renew-failure-notify@.service
+    mode: 0600
+  when: (step_cert_renewal_healthcheck_url | default('')) | length > 0
+
+- name: Create certificate renewal timer for peer cert
+  template:
+    src: step-renew.timer.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-peer.timer"
+    mode: 0644
+  vars:
+    cert_name: "{{ etcd_cluster_name }}-peer"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Create certificate renewal service for server cert
+  template:
+    src: step-renew.service.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-server.service"
+    mode: 0644
+  vars:
+    cert_name: "{{ etcd_cluster_name }}-server"
+    cert_path: "{{ etcd_cert_paths.server.cert }}"
+    key_path: "{{ etcd_cert_paths.server.key }}"
+    cert_user: "{{ etcd_user.name }}"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Create certificate renewal timer for server cert
+  template:
+    src: step-renew.timer.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-server.timer"
+    mode: 0644
+  vars:
+    cert_name: "{{ etcd_cluster_name }}-server"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Create certificate renewal service for client cert
+  template:
+    src: step-renew.service.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-client.service"
+    mode: 0644
+  vars:
+    cert_name: "{{ client_cert_name }}-client"
+    cert_path: "{{ etcd_cert_paths.client.cert }}"
+    key_path: "{{ etcd_cert_paths.client.key }}"
+    cert_user: "{{ cert_owner_user.name }}"
+
+- name: Create certificate renewal timer for client cert
+  template:
+    src: step-renew.timer.j2
+    dest: "/etc/systemd/system/step-renew-{{ etcd_cluster_name }}-client.timer"
+    mode: 0644
+  vars:
+    cert_name: "{{ etcd_cluster_name }}-client"
+
+- name: Enable and start renewal timers
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  loop:
+    - "step-renew-{{ etcd_cluster_name }}-peer.timer"
+    - "step-renew-{{ etcd_cluster_name }}-server.timer"
+    - "step-renew-{{ etcd_cluster_name }}-client.timer"
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - not step_cert_client_only
+
+- name: Enable and start client renewal timer
+  systemd:
+    name: "step-renew-{{ etcd_cluster_name }}-client.timer"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: inventory_hostname in groups[etcd_clients_group]

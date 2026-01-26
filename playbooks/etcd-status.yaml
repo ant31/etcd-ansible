@@ -1,0 +1,8 @@
+---
+- name: Show etcd cluster status
+  hosts: etcd[0]
+  gather_facts: yes
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: status

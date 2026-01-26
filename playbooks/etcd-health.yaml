@@ -1,0 +1,75 @@
+---
+# Health check playbook for etcd cluster
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+#   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
+#
+# Options:
+#   -e output_format=json  : Output in JSON format for monitoring tools
+#   --tags health          : Check only cluster health
+#   --tags certs           : Check only certificate expiration
+#   --tags step-ca         : Check only step-ca status
+
+- name: Gather etcd cluster facts
+  hosts: etcd
+  gather_facts: yes
+  roles:
+    - etcd3/facts
+  tags:
+    - always
+
+- name: Check etcd cluster health
+  hosts: etcd[0]
+  gather_facts: no
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: health
+  tags:
+    - health
+
+- name: Check certificate expiration on all nodes
+  hosts: etcd
+  gather_facts: no
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: health-certs
+  tags:
+    - certs
+
+- name: Check step-ca health on cert-managers
+  hosts: etcd-cert-managers
+  gather_facts: no
+  roles:
+    - role: etcd3/operations
+      vars:
+        operation_action: health-stepca
+  tags:
+    - step-ca
+
+- name: Display summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Show completion message
+      debug:
+        msg:
+          - ""
+          - "════════════════════════════════════════════════════════════════"
+          - "HEALTH CHECK COMPLETE"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "For machine-readable output:"
+          - "  ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json"
+          - ""
+          - "To check specific components:"
+          - "  --tags health      : Cluster health only"
+          - "  --tags certs       : Certificate status only"
+          - "  --tags step-ca     : step-ca status only"
+          - ""
+          - "For detailed troubleshooting:"
+          - "  Cluster logs:  ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b"
+          - "  step-ca logs:  ansible etcd-cert-managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b"
+          - ""
+      when: output_format | default('text') == 'text'

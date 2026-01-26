@@ -1,0 +1,119 @@
+---
+- name: Install Python cryptography library (required for AWS KMS envelope encryption)
+  package:
+    name: python3-cryptography
+    state: present
+  when: step_ca_backup_encryption_method == 'aws-kms'
+  tags:
+    - backup-cron
+    - backup-deps
+
+- name: Create backup directories (root-owned)
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - "{{ etcd_backup_dir }}"
+    - "{{ etcd_backup_dir }}/etcd"
+    - "{{ etcd_backup_dir }}/ca"
+    - "{{ etcd_backup_dir }}/tmp"
+  tags:
+    - backup-cron
+
+- name: Create backup log directory (root-owned)
+  file:
+    path: "{{ backup_log_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  tags:
+    - backup-cron
+
+- name: Create empty log files with proper permissions
+  file:
+    path: "{{ item }}"
+    state: touch
+    owner: root
+    group: root
+    mode: 0600
+    modification_time: preserve
+    access_time: preserve
+  loop:
+    - "{{ backup_log_dir }}/etcd-backup.log"
+    - "{{ backup_log_dir }}/ca-backup.log"
+  tags:
+    - backup-cron
+
+- name: Setup CA backup cron
+  include_tasks: setup-ca-backup-cron.yml
+  when: 
+    - ca_backup_cron_enabled | bool
+    - inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - backup-cron
+    - ca-backup-cron
+
+- name: Setup etcd data backup cron
+  include_tasks: setup-etcd-backup-cron.yml
+  when:
+    - etcd_backup_cron_enabled | bool
+    - inventory_hostname in groups[etcd_cluster_group]
+  tags:
+    - backup-cron
+    - etcd-backup-cron
+
+- name: Run initial CA backup after deployment
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+  become: yes
+  become_user: root
+  when:
+    - ca_backup_initial_run | default(true) | bool
+    - ca_backup_cron_enabled | bool
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - skip_initial_backup is not defined or not skip_initial_backup | bool
+  ignore_errors: yes
+  register: initial_ca_backup
+  tags:
+    - backup-cron
+    - ca-backup-cron
+    - initial-backup
+
+- name: Show initial CA backup result
+  debug:
+    msg: "{{ initial_ca_backup.stdout_lines | default(['No output']) }}"
+  when:
+    - initial_ca_backup is defined
+    - initial_ca_backup is changed
+  tags:
+    - backup-cron
+    - initial-backup
+
+- name: Run initial etcd backup after deployment
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+  become: yes
+  become_user: root
+  when:
+    - etcd_backup_initial_run | default(true) | bool
+    - etcd_backup_cron_enabled | bool
+    - inventory_hostname == groups[etcd_cluster_group][0]
+    - skip_initial_backup is not defined or not skip_initial_backup | bool
+  ignore_errors: yes
+  register: initial_etcd_backup
+  tags:
+    - backup-cron
+    - etcd-backup-cron
+    - initial-backup
+
+- name: Show initial etcd backup result
+  debug:
+    msg: "{{ initial_etcd_backup.stdout_lines | default(['No output']) }}"
+  when:
+    - initial_etcd_backup is defined
+    - initial_etcd_backup is changed
+  tags:
+    - backup-cron
+    - initial-backup

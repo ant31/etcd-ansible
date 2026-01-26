@@ -1,0 +1,41 @@
+[Unit]
+Description=Renew {{ cert_name }} certificate
+After=network-online.target
+Wants=network-online.target
+{% if step_cert_renewal_healthcheck_url %}
+OnFailure=step-renew-failure-notify@%n.service
+{% endif %}
+
+[Service]
+Type=oneshot
+Environment=STEPPATH={{ etcd_cert_dir }}/.step
+
+# Renewal runs as root (step-ca runs as root)
+# Fix permissions before renewal
+ExecStartPre=/bin/chown -R {{ cert_user }}:{{ cert_user }} {{ etcd_cert_dir }}/.step
+ExecStartPre=/bin/chmod 0700 {{ etcd_cert_dir }}/.step
+
+# Renew certificate (runs as root)
+ExecStart={{ bin_dir }}/step ca renew --force --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt {{ cert_path }} {{ key_path }}
+
+# Set certificate ownership and permissions to cert owner after renewal
+ExecStartPost=/bin/chown {{ cert_user }}:{{ cert_user }} {{ cert_path }} {{ key_path }}
+ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
+
+{% if etcd_name is defined %}
+# NOTE: etcd is NOT automatically restarted after renewal
+# This requires manual intervention to ensure safe operations
+# To apply new certificates: systemctl restart {{ etcd_name }}.service
+# Or use rolling restart playbook to maintain quorum
+{% else %}
+# NOTE: Certificate renewed but service restart is manual
+# For etcd clients, restart the application to use new certificates
+{% endif %}
+
+# Send success healthcheck ping (if configured)
+{% if step_cert_renewal_healthcheck_url %}
+ExecStartPost=/usr/bin/curl -fsS --retry 3 "{{ step_cert_renewal_healthcheck_url }}?cert={{ cert_name }}&status=success" || true
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

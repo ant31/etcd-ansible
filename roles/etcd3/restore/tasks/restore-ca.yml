@@ -1,0 +1,59 @@
+---
+- name: Confirm CA restore
+  pause:
+    prompt: "You are about to restore CA keys. This will replace existing CA. Continue? (yes/no)"
+  register: restore_confirm_input
+  when: restore_confirm | bool
+  tags:
+    - restore-ca
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not (restore_confirm | default(true) | bool) or (restore_confirm_input.user_input is defined and restore_confirm_input.user_input == 'yes')
+    fail_msg: "❌ CA restore cancelled: user did not confirm with 'yes'"
+  when: restore_confirm | default(true) | bool
+  tags:
+    - restore-ca
+
+- name: Backup existing CA
+  archive:
+    path:
+      - /etc/step-ca/secrets
+      - /etc/step-ca/config
+    dest: "/tmp/ca-backup-before-restore-{{ ansible_date_time.epoch }}.tar.gz"
+  when: restore_backup_existing | bool
+  failed_when: false
+  tags:
+    - restore-ca
+
+- name: Restore CA from S3
+  include_tasks: restore-ca-from-s3.yml
+  when: restore_ca_from == 's3'
+  tags:
+    - restore-ca
+
+- name: Restore CA from backup node
+  include_tasks: restore-ca-from-node.yml
+  when: restore_ca_from == 'backup-node'
+  tags:
+    - restore-ca
+
+- name: Restart step-ca service
+  systemd:
+    name: step-ca
+    state: restarted
+  tags:
+    - restore-ca
+
+- name: Wait for step-ca to be ready
+  uri:
+    url: "https://localhost:9000/health"
+    validate_certs: no
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 3
+  tags:
+    - restore-ca

@@ -1,0 +1,128 @@
+---
+# CA regeneration tasks - DISASTER RECOVERY ONLY
+# This completely rebuilds CA with new passwords
+# USE ONLY when CA password is lost or CA is compromised
+# NOTE: Does NOT stop etcd - that's handled at playbook level with serial: 1
+
+- name: Stop step-ca service (must stop before deleting CA keys)
+  systemd:
+    name: step-ca
+    state: stopped
+  ignore_errors: yes
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-stop
+
+- name: Kill any running step-ca processes and clean temp files (force cleanup)
+  shell: |
+    # Kill step-ca processes
+    pkill -9 step-ca || true
+    
+    # Wait for processes to fully terminate
+    sleep 2
+    
+    # Clean up any leftover step-ca temporary files
+    rm -rf /tmp/step-ca-* 2>/dev/null || true
+    rm -rf /var/tmp/step-ca-* 2>/dev/null || true
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-stop
+
+- name: Remove ALL step-ca directories (including database and state)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/step-ca
+    - /var/lib/step-ca
+    - /var/cache/step-ca
+    - /root/.step
+    - /root/.smallstep
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-clean
+
+- name: Clean step-ca temporary and cache files
+  shell: |
+    # Remove any cached data
+    rm -rf /var/cache/step-ca 2>/dev/null || true
+    
+    # Remove log files if they exist
+    rm -f /var/log/step-ca*.log 2>/dev/null || true
+    
+    # Clean systemd journal entries for step-ca (optional, keeps logs)
+    # journalctl --vacuum-time=1s --unit=step-ca 2>/dev/null || true
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  failed_when: false
+  tags:
+    - regenerate-clean
+
+- name: Remove ALL certificate directories (including cached CA)
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ etcd_cert_dir }}"
+    - "{{ etcd_cert_dir }}/.step"
+    - /root/.step
+    - /home/{{ etcd_user.name }}/.step
+  tags:
+    - regenerate-clean
+
+- name: Remove step CLI bootstrap cache and temporary files
+  shell: |
+    # Remove root CA certificate
+    rm -f {{ etcd_cert_dir }}/root_ca.crt
+    
+    # Remove step CLI config directories
+    rm -rf {{ etcd_cert_dir }}/.step
+    rm -rf /root/.step
+    rm -rf /home/{{ etcd_user.name }}/.step
+    
+    # Clean up any temporary CSR files from failed bootstrap attempts
+    find /root -name '*.csr' -mtime -1 -delete 2>/dev/null || true
+    find /tmp -name 'step-*' -mtime -1 -delete 2>/dev/null || true
+    
+    # Clean up any orphaned certificate requests
+    rm -rf /root/.smallstep 2>/dev/null || true
+  failed_when: false
+  tags:
+    - regenerate-clean
+
+- name: Remove step-ca systemd service file
+  file:
+    path: /etc/systemd/system/step-ca.service
+    state: absent
+  when: inventory_hostname in groups[etcd_certmanagers_group]
+  tags:
+    - regenerate-clean
+
+- name: Remove certificate renewal services and timers
+  shell: |
+    rm -f /etc/systemd/system/step-renew-*.service
+    rm -f /etc/systemd/system/step-renew-*.timer
+  when: inventory_hostname in groups[etcd_certmanagers_group] or inventory_hostname in groups[etcd_cluster_group]
+  tags:
+    - regenerate-clean
+
+- name: Reload systemd daemon after cleanup
+  systemd:
+    daemon_reload: yes
+  tags:
+    - regenerate-clean
+
+- name: Display regeneration status
+  debug:
+    msg:
+      - "✅ Old certificates and cached CA cleaned up on {{ inventory_hostname }}"
+      - ""
+      - "Cleaned up:"
+      - "- Certificate directory: {{ etcd_cert_dir }}"
+      - "- Cached root CA: {{ etcd_cert_dir }}/root_ca.crt"
+      - "- Step CLI bootstrap cache: {{ etcd_cert_dir }}/.step"
+      - "- Root step cache: /root/.step"
+      - "- User step cache: /home/{{ etcd_user.name }}/.step"
+      - ""
+      - "Ready to regenerate with new CA from vault.yml"
+  tags:
+    - regenerate-clean

@@ -1,0 +1,224 @@
+---
+- name: Install etcd backup script (static file, root-owned)
+  copy:
+    src: etcd-backup.py
+    dest: "{{ backup_scripts_dir }}/etcd-backup.py"
+    owner: root
+    group: root
+    mode: 0755
+  tags:
+    - etcd-backup-cron
+
+- name: Install etcd backup configuration (templated, tracked, root-owned)
+  template:
+    src: etcd-backup-config.yaml.j2
+    dest: "{{ backup_scripts_dir }}/etcd-backup-config.yaml"
+    owner: root
+    group: root
+    mode: 0600
+    backup: yes
+  tags:
+    - etcd-backup-cron
+
+- name: Calculate cluster size for distributed backups
+  set_fact:
+    cluster_size: "{{ groups[etcd_cluster_group] | length }}"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Calculate backup interval in minutes
+  set_fact:
+    backup_interval_minutes: "{{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Calculate backup time offset for distributed backups
+  set_fact:
+    backup_time_offset: "{{ (((etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1)) | int - 1) * (backup_interval_minutes | int) / (cluster_size | int)) | int }}"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup cron job (distributed mode - coordinated with deduplication)
+  cron:
+    name: "Backup etcd cluster data"
+    minute: "{{ backup_time_offset | default(0) }},{{ (backup_time_offset | default(0) | int + (backup_interval_minutes | int)) % 60 }}"
+    hour: "{% if (backup_interval_minutes | int) < 60 %}*{% else %}*/{{ (backup_interval_minutes | int / 60) | int }}{% endif %}"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    user: root
+    state: present
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - not (etcd_backup_independent | default(false) | bool)
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup cron job (independent mode - no deduplication)
+  cron:
+    name: "Backup etcd cluster data"
+    minute: "{{ backup_time_offset | default(0) }}"
+    hour: "*/{{ (backup_interval_minutes | int / 60) | int if (backup_interval_minutes | int) >= 60 else '*' }}"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    user: root
+    state: present
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - etcd_backup_independent | default(false) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup cron job (legacy single-node mode)
+  cron:
+    name: "Backup etcd cluster data"
+    minute: "{{ etcd_backup_cron_minute }}"
+    hour: "{{ etcd_backup_cron_hour }}"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    user: root
+    state: present
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - not (etcd_backup_distributed | default(true) | bool)
+    - inventory_hostname == groups[etcd_cluster_group][0]
+  tags:
+    - etcd-backup-cron
+
+- name: Verify etcd backup cron job is installed
+  shell: "crontab -l -u root | grep -c 'etcd-backup.py' || true"
+  register: etcd_cron_check
+  changed_when: false
+  tags:
+    - etcd-backup-cron
+
+- name: Display etcd backup cron status
+  debug:
+    msg: "{{ ['Etcd backup cron job: ' + ('INSTALLED' if etcd_cron_check.stdout|int > 0 else 'NOT FOUND')] }}"
+  tags:
+    - etcd-backup-cron
+
+- name: Get next backup run time
+  shell: |
+    CRON_LINE=$(crontab -l -u root 2>/dev/null | grep 'etcd-backup.py' | head -1)
+    if [ -z "$CRON_LINE" ]; then
+      echo "NOT SCHEDULED"
+      exit 0
+    fi
+    MINUTE=$(echo "$CRON_LINE" | awk '{print $1}')
+    echo "Schedule: $MINUTE {{ etcd_backup_cron_hour }} * * * (every {{ etcd_backup_interval }} minute interval)"
+  register: backup_schedule
+  changed_when: false
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Display backup schedule (distributed mode - coordinated)
+  debug:
+    msg:
+      - "✅ Etcd backup cron configured (DISTRIBUTED MODE - COORDINATED)"
+      - "Node: {{ inventory_hostname }}"
+      - "Node index: {{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+      - "Cluster size: {{ cluster_size }}"
+      - "Base interval: {{ backup_interval_minutes }} minutes"
+      - "Time offset: {{ backup_time_offset }} minutes (auto-calculated: (index-1) * interval / cluster_size)"
+      - ""
+      - "Strategy:"
+      - "- All {{ cluster_size }} nodes attempt backups, evenly distributed across {{ backup_interval_minutes }}-minute interval"
+      - "- Each node checks S3 for recent backups before creating new one"
+      - "- Result: ONE backup per {{ backup_interval_minutes }} minutes (first node succeeds, others skip)"
+      - "- Benefits: Automatic failover if primary node down"
+      - ""
+      - "Node schedule:"
+      - "{% for host in groups[etcd_cluster_group] %}- {{ host }}: {{ (((groups[etcd_cluster_group].index(host)) * (backup_interval_minutes | int) / (cluster_size | int)) | int) }} minutes after the hour\n{% endfor %}"
+      - ""
+      - "Log file: {{ backup_log_dir }}/etcd-backup.log"
+      - ""
+      - "To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - not (etcd_backup_independent | default(false) | bool)
+  tags:
+    - etcd-backup-cron
+
+- name: Display backup schedule (independent mode - uncoordinated)
+  debug:
+    msg:
+      - "✅ Etcd backup cron configured (INDEPENDENT MODE - UNCOORDINATED)"
+      - "Node: {{ inventory_hostname }}"
+      - "Node index: {{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+      - "Cluster size: {{ cluster_size }}"
+      - "Base interval: {{ backup_interval_minutes }} minutes"
+      - "Time offset: {{ backup_time_offset }} minutes"
+      - ""
+      - "Strategy:"
+      - "- All {{ cluster_size }} nodes create backups independently (NO deduplication check)"
+      - "- Nodes spread across {{ backup_interval_minutes }}-minute interval"
+      - "- Result: {{ cluster_size }} backups per {{ backup_interval_minutes }} minutes (one from each node)"
+      - "- Use case: High frequency backups with redundancy"
+      - ""
+      - "Example: With 5 nodes and 300-minute (5-hour) base interval:"
+      - "- Each node attempts every 5 hours at different offsets (0, 60, 120, 180, 240 min)"
+      - "- Result: One backup every hour (different node each time)"
+      - "- Total: 5 backups per 5 hours"
+      - ""
+      - "Node schedule:"
+      - "{% for host in groups[etcd_cluster_group] %}- {{ host }}: Every {{ backup_interval_minutes }} min, offset {{ (((groups[etcd_cluster_group].index(host)) * (backup_interval_minutes | int) / (cluster_size | int)) | int) }} min\n{% endfor %}"
+      - ""
+      - "Log file: {{ backup_log_dir }}/etcd-backup.log"
+      - ""
+      - "⚠️  WARNING: Creates {{ cluster_size }}x more backups, ensure adequate S3 storage"
+      - ""
+      - "To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - etcd_backup_independent | default(false) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Display backup schedule (single-node mode)
+  debug:
+    msg:
+      - "✅ Etcd backup cron configured (SINGLE-NODE MODE)"
+      - "{{ backup_schedule.stdout }}"
+      - "Log file: {{ backup_log_dir }}/etcd-backup.log"
+      - ""
+      - "⚠️  WARNING: Single point of failure (only first node creates backups)"
+      - "Consider enabling distributed backups: etcd_backup_distributed=true"
+      - ""
+      - "To verify: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - not (etcd_backup_distributed | default(true) | bool)
+    - inventory_hostname == groups[etcd_cluster_group][0]
+    - backup_schedule is defined
+  tags:
+    - etcd-backup-cron
+
+- name: Setup etcd backup log rotation
+  copy:
+    dest: /etc/logrotate.d/etcd-backup
+    content: |
+      {{ backup_log_dir }}/etcd-backup.log {
+        daily
+        rotate 30
+        compress
+        delaycompress
+        missingok
+        notifempty
+      }
+    owner: root
+    group: root
+    mode: 0600
+  tags:
+    - etcd-backup-cron

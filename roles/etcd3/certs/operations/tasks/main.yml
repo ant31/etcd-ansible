@@ -1,0 +1,34 @@
+---
+# Certificate operations role
+# Supports: renew, check, rotate
+# Usage: Set cert_operation_action variable
+
+- name: Renew certificates
+  include_tasks: renew.yml
+  when: cert_operation_action == 'renew'
+  tags:
+    - renew
+
+- name: Check certificates
+  include_tasks: check.yml
+  when: cert_operation_action == 'check'
+  tags:
+    - check
+
+- name: Rotate certificates
+  include_tasks: rotate.yml
+  when: cert_operation_action == 'rotate'
+  tags:
+    - rotate
+
+- name: Regenerate CA and all certificates (DISASTER RECOVERY)
+  include_tasks: regenerate.yml
+  when: cert_operation_action == 'regenerate-ca'
+  tags:
+    - regenerate-ca
+
+- name: Regenerate node certificates only (ROUTINE ROTATION)
+  include_tasks: regenerate-nodes.yml
+  when: cert_operation_action == 'regenerate-nodes'
+  tags:
+    - regenerate-nodes

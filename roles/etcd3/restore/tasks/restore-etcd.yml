@@ -1,0 +1,321 @@
+---
+- name: Confirm etcd data restore
+  pause:
+    prompt: "You are about to restore etcd data. This will replace current cluster data. Continue? (yes/no)"
+  register: restore_confirm_input
+  when: restore_confirm | bool
+  tags:
+    - restore-etcd
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not (restore_confirm | default(true) | bool) or (restore_confirm_input.user_input is defined and restore_confirm_input.user_input == 'yes')
+    fail_msg: "❌ Etcd data restore cancelled: user did not confirm with 'yes'"
+  when: restore_confirm | default(true) | bool
+  tags:
+    - restore-etcd
+
+- name: Ensure backup tmp restore directory exists
+  file:
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  tags:
+    - restore-etcd
+
+- name: Check if snapshot already downloaded (from prepare phase)
+  stat:
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+  register: snapshot_predownloaded
+  when: restore_skip_download | default(false) | bool
+  tags:
+    - restore-etcd
+
+- name: Find latest etcd backup in S3
+  command: >
+    {{ bin_dir }}/aws s3api list-objects-v2
+    --bucket {{ etcd_upload_backup.bucket }}
+    --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
+    --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
+    --output text
+    --no-cli-pager
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  register: latest_etcd_backup
+  when: 
+    - restore_etcd_s3_file == 'latest'
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+  changed_when: false
+  tags:
+    - restore-etcd
+
+- name: Set backup file path and extract filename
+  set_fact:
+    etcd_backup_file_path: "{{ restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout }}"
+    etcd_backup_filename: "{{ (restore_etcd_s3_file if restore_etcd_s3_file != 'latest' else latest_etcd_backup.stdout) | basename }}"
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+  tags:
+    - restore-etcd
+
+- name: Detect encryption method from backup file
+  set_fact:
+    backup_encryption_method: >-
+      {%- if etcd_backup_file_path.endswith('.kms') -%}
+      aws-kms
+      {%- elif etcd_backup_file_path.endswith('.enc') -%}
+      symmetric
+      {%- else -%}
+      none
+      {%- endif -%}
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+  tags:
+    - restore-etcd
+
+- name: Download etcd backup from S3 (preserving filename)
+  command: >
+    {{ bin_dir }}/aws s3 cp
+    s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
+    {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  register: s3_download
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+  tags:
+    - restore-etcd
+
+- name: Display downloaded file info
+  debug:
+    msg:
+      - "✅ File downloaded from S3"
+      - ""
+      - "Source: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}"
+      - "Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}"
+      - "Filename preserved: {{ etcd_backup_filename }}"
+      - ""
+      - "Download complete. Ready for decryption."
+  when:
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+    - s3_download is changed
+  tags:
+    - restore-etcd
+
+- name: Decrypt etcd backup using backup script (reuses encryption logic)
+  command: >
+    /usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py
+    --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
+    --decrypt
+    --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
+    --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
+    --encryption {{ backup_encryption_method }}
+  register: decrypt_result
+  when: 
+    - restore_etcd_local_file == ''
+    - not (restore_skip_download | default(false) | bool)
+  tags:
+    - restore-etcd
+
+- name: Display decryption result
+  debug:
+    msg: "{{ decrypt_result.stdout_lines }}"
+  when:
+    - decrypt_result is defined
+    - decrypt_result is changed
+  tags:
+    - restore-etcd
+
+- name: Use local snapshot file
+  copy:
+    src: "{{ restore_etcd_local_file }}"
+    dest: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+    remote_src: yes
+  register: copy_local
+  when: 
+    - restore_etcd_local_file != ''
+  tags:
+    - restore-etcd
+
+- name: Display local file copy info
+  debug:
+    msg:
+      - "✅ Local file copied to restore directory"
+      - ""
+      - "Source: {{ restore_etcd_local_file }}"
+      - "Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - ""
+      - "Ready for restore."
+  when:
+    - restore_etcd_local_file != ''
+    - copy_local is changed
+  tags:
+    - restore-etcd
+
+- name: Verify snapshot exists and is ready
+  stat:
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+  register: restore_snapshot_ready
+  failed_when: not restore_snapshot_ready.stat.exists
+  tags:
+    - restore-etcd
+
+- name: Verify snapshot file is valid (check integrity)
+  command: >
+    {{ bin_dir }}/etcdutl snapshot status {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
+    --write-out=json
+  register: snapshot_validation
+  failed_when: snapshot_validation.rc != 0
+  changed_when: false
+  tags:
+    - restore-etcd
+
+- name: Display snapshot validation details
+  debug:
+    msg:
+      - "✅ Snapshot validation PASSED"
+      - ""
+      - "Original S3 file: {{ etcd_backup_filename | default('local file') }}"
+      - "Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - "Snapshot file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - "Size: {{ (restore_snapshot_ready.stat.size / 1024 / 1024) | round(2) }} MB"
+      - ""
+      - "Snapshot details:"
+      - "{{ snapshot_validation.stdout | from_json | to_nice_json }}"
+  when: snapshot_validation.rc == 0
+  tags:
+    - restore-etcd
+
+- name: Fail with helpful message if snapshot is invalid
+  fail:
+    msg:
+      - "❌ SNAPSHOT FILE IS INVALID OR CORRUPTED"
+      - ""
+      - "Original S3 file: {{ etcd_backup_filename | default('unknown') }}"
+      - "Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - "Snapshot file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db"
+      - "Size: {{ restore_snapshot_ready.stat.size | default(0) }} bytes"
+      - ""
+      - "Validation error:"
+      - "{{ snapshot_validation.stderr }}"
+      - ""
+      - "Common causes:"
+      - "1. Decryption failed (wrong encryption method or password)"
+      - "2. Incomplete download from S3"
+      - "3. Corrupted backup file in S3"
+      - ""
+      - "Troubleshooting steps:"
+      - ""
+      - "1. Verify encryption method matches backup:"
+      - "   aws s3api head-object --bucket {{ etcd_upload_backup.bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}"
+      - ""
+      - "2. Check S3 file integrity:"
+      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable"
+      - ""
+      - "3. Try manual download and decrypt:"
+      - "   aws s3 cp s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test"
+      - "   {% if backup_encryption_method == 'aws-kms' %}aws kms decrypt --ciphertext-blob fileb:///tmp/manual-test --output text --query Plaintext | base64 -d > /tmp/manual-test.db{% elif backup_encryption_method == 'symmetric' %}openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in /tmp/manual-test -out /tmp/manual-test.db -pass pass:YOUR_PASSWORD{% endif %}"
+      - "   etcdutl snapshot status /tmp/manual-test.db"
+      - ""
+      - "4. List available backups and try different one:"
+      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/ --recursive"
+  when: snapshot_validation.rc != 0
+  tags:
+    - restore-etcd
+
+- name: Stop etcd service (if running)
+  systemd:
+    name: "{{ etcd_name }}"
+    state: stopped
+  failed_when: false
+  tags:
+    - restore-etcd
+
+- name: Check if etcd data directory exists
+  stat:
+    path: "{{ etcd_data_dir }}"
+  register: etcd_data_dir_stat
+  when: restore_backup_existing | bool
+  tags:
+    - restore-etcd
+
+- name: Remove old backup directory if exists
+  file:
+    path: "{{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}"
+    state: absent
+  when: 
+    - restore_backup_existing | bool
+    - etcd_data_dir_stat.stat.exists
+  tags:
+    - restore-etcd
+
+- name: Backup current etcd data
+  command: >
+    mv {{ etcd_data_dir }}
+    {{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
+  when: 
+    - restore_backup_existing | bool
+    - etcd_data_dir_stat.stat.exists
+  tags:
+    - restore-etcd
+
+- name: Restore etcd snapshot (fast - local file operation)
+  command: >
+    {{ bin_dir }}/etcdutl snapshot restore {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
+    --name {{ etcd_name }}
+    --initial-cluster {{ etcd_peer_addresses }}
+    --initial-cluster-token {{ cluster_token | default(etcd_cluster_name) }}
+    --initial-advertise-peer-urls {{ etcd_peer_url }}
+    --data-dir {{ etcd_data_dir }}
+    --skip-hash-check
+    --bump-revision {{ restore_bump_revision | default(1000000000) }}
+    --mark-compacted
+  environment:
+    ETCDCTL_API: "3"
+  tags:
+    - restore-etcd
+
+- name: Set etcd data directory ownership
+  file:
+    path: "{{ etcd_data_dir }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    recurse: yes
+  tags:
+    - restore-etcd
+
+# Note: etcd service is NOT started here
+# It must be started on ALL nodes together after ALL nodes are restored
+# This is done in the playbook level to ensure proper cluster formation
+
+- name: Cleanup temporary restore files
+  file:
+    path: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore"
+    state: absent
+  tags:
+    - restore-etcd
+
+- name: Display cleanup info
+  debug:
+    msg:
+      - "✅ Restore cleanup complete"
+      - ""
+      - "Removed temporary restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/"
+      - ""
+      - "Files cleaned up:"
+      - "- Downloaded encrypted file: {{ etcd_backup_filename | default('N/A') }}"
+      - "- Decrypted snapshot: etcd-restore-{{ etcd_cluster_name }}.db"
+  tags:
+    - restore-etcd

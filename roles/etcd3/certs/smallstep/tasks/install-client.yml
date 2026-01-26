@@ -1,0 +1,195 @@
+---
+- name: Check if step CLI is installed
+  stat:
+    path: "{{ bin_dir }}/step"
+  register: step_cli_installed
+
+- name: Fail if step CLI binary not installed
+  fail:
+    msg:
+      - "❌ step CLI binary not found"
+      - "Expected location: {{ bin_dir }}/step"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Troubleshooting:"
+      - "1. Ensure download role ran on this node"
+      - "2. Check if download was skipped: ansible-playbook -vvv"
+      - "3. Verify inventory groups are correct"
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step.tar.gz -C /tmp"
+      - "   cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step"
+      - "   chmod 755 {{ bin_dir }}/step"
+  when: not step_cli_installed.stat.exists
+
+- name: Determine certificate owner for this node
+  set_fact:
+    cert_owner_user: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
+
+- name: Create etcd cert directory
+  file:
+    path: "{{ etcd_cert_dir }}"
+    state: directory
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
+    mode: 0700
+
+- name: Create step configuration directory
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
+    mode: 0700
+
+- name: Fetch root CA certificate from cert-manager
+  slurp:
+    src: "{{ step_ca_certs }}/root_ca.crt"
+  register: root_ca_from_certmanager
+  delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
+  run_once: false
+
+- name: Install root CA certificate (cert owner only, NOT world-readable)
+  copy:
+    content: "{{ root_ca_from_certmanager.content | b64decode }}"
+    dest: "{{ etcd_cert_dir }}/root_ca.crt"
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
+    mode: 0400
+
+- name: Verify root CA certificate exists immediately
+  stat:
+    path: "{{ etcd_cert_dir }}/root_ca.crt"
+  register: root_ca_stat_check
+
+- name: Debug etcd cert directory (if root CA missing or empty)
+  shell: "ls -la {{ etcd_cert_dir }}"
+  register: cert_dir_ls
+  when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
+  ignore_errors: true
+
+- name: Fail if root CA missing or empty immediately after install
+  fail:
+    msg:
+      - "Root CA missing or empty at {{ etcd_cert_dir }}/root_ca.crt"
+      - "Exists: {{ root_ca_stat_check.stat.exists | string }}"
+      - "Size: {{ root_ca_stat_check.stat.size | default(0) }} bytes"
+      - "Expected owner: {{ etcd_user.name }}"
+      - "Expected group: {{ etcd_user.name }}"
+      - ""
+      - "Directory listing of {{ etcd_cert_dir }}:"
+      - "{{ cert_dir_ls.stdout_lines | default(['Unable to list directory']) | join('\n') }}"
+  when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
+
+- name: Wait for step-ca health endpoint
+  uri:
+    url: "{{ step_ca_url }}/health"
+    validate_certs: no
+    status_code: 200
+  register: step_ca_health
+  until: step_ca_health.status == 200
+  retries: 30
+  delay: 5
+  when: not (ansible_check_mode | default(false))
+
+- name: Test step-ca provisioner accessibility
+  uri:
+    url: "{{ step_ca_url }}/provisioners"
+    validate_certs: no
+    status_code: 200
+  register: provisioners_check
+  retries: 10
+  delay: 5
+  until: provisioners_check.status == 200
+  failed_when: false
+  when: not (ansible_check_mode | default(false))
+
+- name: Display provisioner check result
+  debug:
+    msg:
+      - "Provisioner endpoint status: {{ provisioners_check.status | default('NOT CHECKED') }}"
+  when: provisioners_check is defined
+
+
+- name: Get root CA fingerprint
+  command: "{{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
+  register: root_ca_fingerprint
+  changed_when: false
+
+- name: Debug bootstrap parameters
+  debug:
+    msg:
+      - "Bootstrap Command:"
+      - "{{ bin_dir }}/step ca bootstrap --ca-url {{ step_ca_url }} --fingerprint {{ root_ca_fingerprint.stdout }} --root {{ etcd_cert_dir }}/root_ca.crt --install --force"
+      - ""
+      - "Root CA Fingerprint: {{ root_ca_fingerprint.stdout }}"
+      - "CA URL: {{ step_ca_url }}"
+
+- name: Bootstrap step CLI
+  shell: >
+    {{ bin_dir }}/step ca bootstrap
+    --ca-url {{ step_ca_url }}
+    --fingerprint {{ root_ca_fingerprint.stdout }}
+    --install
+    --force
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_cert_dir }}/.step/config/defaults.json"
+  environment:
+    STEPPATH: "{{ etcd_cert_dir }}/.step"
+    STEPDEBUG: "1"
+  register: bootstrap_result
+  retries: 3
+  delay: 15
+  until: bootstrap_result.rc == 0
+  changed_when: false
+  failed_when: false
+  ignore_errors: yes
+
+- name: Display bootstrap error if failed
+  debug:
+    msg:
+      - "❌ Bootstrap failed after 3 retries"
+      - ""
+      - "Error: {{ bootstrap_result.stderr | default('No error message') }}"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check step-ca logs on cert-manager:"
+      - "   ssh {{ step_ca_dns }} 'journalctl -u step-ca -n 100'"
+      - ""
+      - "2. Verify step-ca is running:"
+      - "   curl -k {{ step_ca_url }}/health"
+      - ""
+      - "3. Check provisioner configuration:"
+      - "   curl -k {{ step_ca_url }}/provisioners"
+      - ""
+      - "4. Verify root CA fingerprint matches:"
+      - "   On cert-manager: step certificate fingerprint /etc/step-ca/certs/root_ca.crt"
+      - "   On this node: step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
+      - ""
+      - "5. Check if root_ca.crt exists and is readable:"
+      - "   ls -la {{ etcd_cert_dir }}/root_ca.crt"
+  when: 
+    - bootstrap_result is defined
+    - bootstrap_result.rc != 0
+
+- name: Fail if bootstrap failed
+  fail:
+    msg: "Bootstrap failed - see debug output above for troubleshooting steps"
+  when:
+    - bootstrap_result is defined
+    - bootstrap_result.rc != 0
+
+- name: Fix step configuration directory permissions (recursively - ensures cert owner can access)
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
+    mode: 0700
+    recurse: yes
+  when:
+    - bootstrap_result is defined
+    - bootstrap_result.rc == 0

@@ -1,0 +1,207 @@
+---
+# Verify backup cron jobs are installed and show next run times
+# Usage: include this from playbook with operation_action=verify-backup-cron
+
+- name: Get current date/time
+  command: date '+%Y-%m-%d %H:%M:%S %Z'
+  register: current_time
+  changed_when: false
+  
+- name: Check if etcd user exists
+  command: id {{ etcd_user.name }}
+  register: etcd_user_check
+  changed_when: false
+  failed_when: false
+  
+- name: Parse etcd backup cron job
+  shell: crontab -l -u root 2>/dev/null | grep 'etcd-backup.py' || echo "NOT FOUND"
+  register: etcd_backup_cron
+  changed_when: false
+  failed_when: false
+  when: 
+    - inventory_hostname in groups[etcd_cluster_group]
+    - etcd_user_check.rc == 0
+    
+- name: Parse CA backup cron job
+  shell: crontab -l -u root 2>/dev/null | grep 'ca-backup-check.py' || echo "NOT FOUND"
+  register: ca_backup_cron
+  changed_when: false
+  failed_when: false
+  when: 
+    - inventory_hostname in groups[etcd_certmanagers_group]
+    - etcd_user_check.rc == 0
+    
+- name: Calculate next etcd backup run time
+  shell: |
+    CRON_LINE=$(crontab -l -u root 2>/dev/null | grep 'etcd-backup.py' | head -1)
+    if [ -z "$CRON_LINE" ]; then
+      echo "NO CRON JOB FOUND"
+      exit 0
+    fi
+    
+    MINUTE=$(echo "$CRON_LINE" | awk '{print $1}')
+    HOUR=$(echo "$CRON_LINE" | awk '{print $2}')
+    
+    if [[ "$MINUTE" == *"*/"* ]]; then
+      INTERVAL=$(echo "$MINUTE" | cut -d'/' -f2)
+      CURRENT_MIN=$(date +%M | sed 's/^0//')
+      NEXT_MIN=$(( (CURRENT_MIN / INTERVAL + 1) * INTERVAL ))
+      if [ $NEXT_MIN -ge 60 ]; then
+        NEXT_MIN=$(( NEXT_MIN - 60 ))
+        NEXT_HOUR=$(( $(date +%H | sed 's/^0//') + 1 ))
+      else
+        NEXT_HOUR=$(date +%H | sed 's/^0//')
+      fi
+      echo "Next run: Today at $(printf '%02d:%02d' $NEXT_HOUR $NEXT_MIN) (every $INTERVAL minutes)"
+    else
+      echo "Cron schedule: $MINUTE $HOUR * * *"
+    fi
+  register: next_etcd_backup
+  changed_when: false
+  failed_when: false
+  when: 
+    - inventory_hostname in groups[etcd_cluster_group]
+    - etcd_user_check.rc == 0
+    - etcd_backup_cron.stdout is defined
+    - etcd_backup_cron.stdout != "NOT FOUND"
+    
+- name: Calculate next CA backup run time
+  shell: |
+    CRON_LINE=$(crontab -l -u root 2>/dev/null | grep 'ca-backup-check.py' | head -1)
+    if [ -z "$CRON_LINE" ]; then
+      echo "NO CRON JOB FOUND"
+      exit 0
+    fi
+    
+    MINUTE=$(echo "$CRON_LINE" | awk '{print $1}')
+    HOUR=$(echo "$CRON_LINE" | awk '{print $2}')
+    
+    if [[ "$MINUTE" == *"*/"* ]]; then
+      INTERVAL=$(echo "$MINUTE" | cut -d'/' -f2)
+      CURRENT_MIN=$(date +%M | sed 's/^0//')
+      NEXT_MIN=$(( (CURRENT_MIN / INTERVAL + 1) * INTERVAL ))
+      if [ $NEXT_MIN -ge 60 ]; then
+        NEXT_MIN=$(( NEXT_MIN - 60 ))
+        NEXT_HOUR=$(( $(date +%H | sed 's/^0//') + 1 ))
+      else
+        NEXT_HOUR=$(date +%H | sed 's/^0//')
+      fi
+      echo "Next run: Today at $(printf '%02d:%02d' $NEXT_HOUR $NEXT_MIN) (every $INTERVAL minutes)"
+    else
+      echo "Cron schedule: $MINUTE $HOUR * * *"
+    fi
+  register: next_ca_backup
+  changed_when: false
+  failed_when: false
+  when: 
+    - inventory_hostname in groups[etcd_certmanagers_group]
+    - etcd_user_check.rc == 0
+    - ca_backup_cron.stdout is defined
+    - ca_backup_cron.stdout != "NOT FOUND"
+    
+- name: Check if backup scripts exist
+  stat:
+    path: "{{ item }}"
+  register: backup_scripts
+  loop:
+    - "{{ backup_scripts_dir }}/etcd-backup.py"
+    - "{{ backup_scripts_dir }}/ca-backup-check.sh"
+  when: etcd_user_check.rc == 0
+  
+- name: Check recent backup log files
+  shell: |
+    if [ -f {{ backup_log_dir }}/etcd-backup.log ]; then
+      echo "=== ETCD BACKUP LOG (last 5 lines) ==="
+      tail -5 {{ backup_log_dir }}/etcd-backup.log
+    fi
+    if [ -f {{ backup_log_dir }}/ca-backup.log ]; then
+      echo ""
+      echo "=== CA BACKUP LOG (last 5 lines) ==="
+      tail -5 {{ backup_log_dir }}/ca-backup.log
+    fi
+  register: recent_logs
+  changed_when: false
+  failed_when: false
+  when: etcd_user_check.rc == 0
+  
+- name: Display backup cron status
+  debug:
+    msg:
+      - ""
+      - "════════════════════════════════════════════════════════════════"
+      - "BACKUP CRON STATUS - {{ inventory_hostname }}"
+      - "════════════════════════════════════════════════════════════════"
+      - ""
+      - "Current time: {{ current_time.stdout }}"
+      - ""
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}┌─ ETCD DATA BACKUP ────────────────────────────────────────┐{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}Status: {{ 'INSTALLED' if etcd_backup_cron.stdout is defined and etcd_backup_cron.stdout != 'NOT FOUND' else 'NOT FOUND' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and etcd_backup_cron.stdout is defined and etcd_backup_cron.stdout != 'NOT FOUND' %}Cron job: {{ etcd_backup_cron.stdout }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and etcd_backup_cron.stdout is defined and etcd_backup_cron.stdout != 'NOT FOUND' %}{{ next_etcd_backup.stdout if next_etcd_backup.stdout is defined else 'Unable to calculate next run' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and etcd_backup_cron.stdout is defined and etcd_backup_cron.stdout != 'NOT FOUND' %}Script: {{ backup_scripts_dir }}/etcd-backup.sh - {{ 'EXISTS' if backup_scripts.results[0].stat.exists else 'MISSING' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and (etcd_backup_cron.stdout is not defined or etcd_backup_cron.stdout == 'NOT FOUND') %}⚠️  Etcd backup cron job NOT INSTALLED{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and (etcd_backup_cron.stdout is not defined or etcd_backup_cron.stdout == 'NOT FOUND') %}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and (etcd_backup_cron.stdout is not defined or etcd_backup_cron.stdout == 'NOT FOUND') %}To install:{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] and (etcd_backup_cron.stdout is not defined or etcd_backup_cron.stdout == 'NOT FOUND') %}  ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy --tags backup-cron{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}└────────────────────────────────────────────────────────────┘{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}┌─ CA BACKUP (change-based) ────────────────────────────────┐{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}Status: {{ 'INSTALLED' if ca_backup_cron.stdout is defined and ca_backup_cron.stdout != 'NOT FOUND' else 'NOT FOUND' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and ca_backup_cron.stdout is defined and ca_backup_cron.stdout != 'NOT FOUND' %}Cron job: {{ ca_backup_cron.stdout }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and ca_backup_cron.stdout is defined and ca_backup_cron.stdout != 'NOT FOUND' %}{{ next_ca_backup.stdout if next_ca_backup.stdout is defined else 'Unable to calculate next run' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and ca_backup_cron.stdout is defined and ca_backup_cron.stdout != 'NOT FOUND' %}Script: {{ backup_scripts_dir }}/ca-backup-check.sh - {{ 'EXISTS' if backup_scripts.results[1].stat.exists else 'MISSING' }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and (ca_backup_cron.stdout is not defined or ca_backup_cron.stdout == 'NOT FOUND') %}⚠️  CA backup cron job NOT INSTALLED{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and (ca_backup_cron.stdout is not defined or ca_backup_cron.stdout == 'NOT FOUND') %}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and (ca_backup_cron.stdout is not defined or ca_backup_cron.stdout == 'NOT FOUND') %}To install:{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] and (ca_backup_cron.stdout is not defined or ca_backup_cron.stdout == 'NOT FOUND') %}  ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy --tags backup-cron{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}└────────────────────────────────────────────────────────────┘{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}{% endif %}"
+      - "{% if recent_logs.stdout_lines is defined and recent_logs.stdout_lines | length > 0 %}┌─ RECENT BACKUP LOGS ──────────────────────────────────────┐{% endif %}"
+      - "{% if recent_logs.stdout_lines is defined and recent_logs.stdout_lines | length > 0 %}{% for line in recent_logs.stdout_lines %}{{ line }}\n{% endfor %}{% endif %}"
+      - "{% if recent_logs.stdout_lines is defined and recent_logs.stdout_lines | length > 0 %}└────────────────────────────────────────────────────────────┘{% endif %}"
+      - "{% if recent_logs.stdout_lines is defined and recent_logs.stdout_lines | length > 0 %}{% endif %}"
+      - "{% if etcd_user_check.rc != 0 %}❌ Etcd user '{{ etcd_user.name }}' does not exist on this node{% endif %}"
+      - "{% if etcd_user_check.rc != 0 %}{% endif %}"
+      - "{% if etcd_user_check.rc != 0 %}This indicates the etcd role hasn't been run yet.{% endif %}"
+  when: etcd_user_check.rc == 0
+  
+- name: Display installation instructions
+  debug:
+    msg:
+      - ""
+      - "════════════════════════════════════════════════════════════════"
+      - "TROUBLESHOOTING TIPS"
+      - "════════════════════════════════════════════════════════════════"
+      - ""
+      - "If cron jobs are missing:"
+      - ""
+      - "1. Check if automated backups are enabled:"
+      - "   grep -r \"etcd_backup_cron_enabled\\|ca_backup_cron_enabled\" inventory/ group_vars/"
+      - ""
+      - "2. Reinstall cron jobs:"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy --tags backup-cron -b"
+      - ""
+      - "3. Manually trigger a backup to test:"
+      - "   # Etcd data backup (runs as root)"
+      - "   sudo python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+      - "   "
+      - "   # CA backup (runs as root)"
+      - "   sudo python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+      - ""
+      - "4. View current configuration:"
+      - "   # Etcd backup config (root-owned)"
+      - "   sudo cat {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+      - "   "
+      - "   # CA backup config (root-owned)"
+      - "   sudo cat {{ backup_scripts_dir }}/ca-backup-config.yaml"
+      - ""
+      - "5. Check backup directory permissions:"
+      - "   ls -la {{ etcd_backup_dir }}"
+      - ""
+      - "6. Check cron logs:"
+      - "   tail -f {{ backup_log_dir }}/etcd-backup.log"
+      - "   tail -f {{ backup_log_dir }}/ca-backup.log"
+      - ""
+      - "7. Verify backup configuration in vault.yml:"
+      - "   ansible-vault view group_vars/all/vault.yml | grep -A5 backup"
+  run_once: true

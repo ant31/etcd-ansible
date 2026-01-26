@@ -1,0 +1,101 @@
+---
+# ============================================================================
+# ANSIBLE VAULT ENCRYPTED SECRETS
+# ============================================================================
+# This file contains ALL sensitive variables for etcd-ansible
+# Encrypt with: ansible-vault encrypt group_vars/all/vault.yml
+# Edit with: ansible-vault edit group_vars/all/vault.yml
+# Use with: --vault-password-file ~/.vault-pass or --ask-vault-pass
+# ============================================================================
+
+# ============================================================================
+# SMALLSTEP CA PASSWORDS
+# ============================================================================
+# Password protecting the CA root key
+# Used when initializing step-ca and signing certificates
+step_ca_password: "your-very-secure-ca-password-min-20-chars"
+
+# Password for the JWK provisioner
+# Used by nodes to request certificates from step-ca
+step_provisioner_password: "your-very-secure-provisioner-password-min-20-chars"
+
+# ============================================================================
+# BACKUP ENCRYPTION
+# ============================================================================
+# Encryption method: aws-kms, symmetric, or none
+# Default: aws-kms (recommended for AWS users)
+step_ca_backup_encryption_method: "aws-kms"
+
+# --- AWS KMS Encryption (when step_ca_backup_encryption_method: aws-kms) ---
+# AWS KMS key ID or alias for encrypting backups
+# Create with: aws kms create-key --description "etcd CA backup encryption"
+#              aws kms create-alias --alias-name alias/etcd-ca-backup --target-key-id <KEY_ID>
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
+
+# --- Symmetric Encryption (when step_ca_backup_encryption_method: symmetric) ---
+# Password for OpenSSL AES-256-CBC encryption (alternative to KMS)
+# Only needed if not using AWS KMS
+# Use a strong password from a password manager (min 32 chars recommended)
+# step_ca_backup_password: "your-very-secure-backup-password-min-32-chars"
+
+# ============================================================================
+# AWS CREDENTIALS
+# ============================================================================
+# AWS credentials for S3 backups and KMS encryption
+# For EC2 instances: Use IAM roles instead of credentials
+# For non-AWS infrastructure: Required for S3 uploads and KMS operations
+aws_access_key_id: "AKIAIOSFODNN7EXAMPLE"
+aws_secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+aws_default_region: "us-east-1"
+
+# ============================================================================
+# S3 BACKUP STORAGE
+# ============================================================================
+# CA backups storage location
+step_ca_backup_s3_bucket: "your-org-etcd-backups"
+step_ca_backup_s3_prefix: "step-ca"  # S3 folder/prefix
+
+# Etcd data backups storage configuration
+etcd_upload_backup:
+  storage: s3  # Options: s3, gcs, aws
+  bucket: "your-org-etcd-backups"
+  access_key: "AKIAIOSFODNN7EXAMPLE"  # AWS access key (can use same as aws_access_key_id above)
+  secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # AWS secret key (can use same as aws_secret_access_key above)
+  region: "us-east-1"  # AWS region (can use same as aws_default_region above)
+  prefix: ""  # Optional S3 prefix/folder for etcd backups
+  # Optional: Custom S3 endpoint (for S3-compatible storage)
+  # s3_url: "https://s3.example.com"
+  # Optional: Object metadata
+  # metadata:
+  #   environment: production
+  #   team: platform
+
+# ============================================================================
+# OPTIONAL: DEADMAN MONITORING
+# ============================================================================
+# Healthcheck URLs for backup monitoring (e.g., healthchecks.io, Dead Man's Snitch)
+# Send a ping after successful backups to detect backup failures
+# Uncomment and set to enable monitoring:
+backup_healthcheck_url: ""  # Example: "https://hc-ping.com/your-etcd-backup-uuid"
+ca_backup_healthcheck_url: ""  # Example: "https://hc-ping.com/your-ca-backup-uuid"
+
+# ============================================================================
+# ETCD CLUSTER TOKEN (for multi-cluster isolation)
+# ============================================================================
+# Unique token to prevent nodes from accidentally joining wrong cluster
+# Generate with: uuidgen or openssl rand -hex 16
+# Optional: If not set, uses etcd_cluster_name as token
+# etcd_cluster_token: "your-unique-cluster-token-here"
+
+# ============================================================================
+# PRODUCTION SECURITY NOTES
+# ============================================================================
+# 1. NEVER commit this file unencrypted to git
+# 2. Use strong, unique passwords (min 20-32 characters)
+# 3. Generate passwords with: openssl rand -base64 32
+# 4. Store vault password securely (not in git):
+#    echo "vault-password" > ~/.vault-pass && chmod 600 ~/.vault-pass
+# 5. Rotate passwords regularly (quarterly recommended)
+# 6. Use AWS IAM roles for EC2 instances instead of access keys when possible
+# 7. Enable AWS CloudTrail to audit KMS key usage
+# 8. Consider using AWS Secrets Manager or HashiCorp Vault for production

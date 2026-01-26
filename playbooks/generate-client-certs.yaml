@@ -1,0 +1,189 @@
+---
+# Generate client certificates for etcd-clients only
+# Usage: ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml
+#        ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml --limit kube-apiserver-1
+#
+# This playbook:
+# - Starts step-ca on cert-managers (if stopped)
+# - Generates only client certificates (no peer/server)
+# - Configures proper ownership (etcd_client_cert_user)
+# - Sets up automatic renewal timers
+#
+# Configuration (set in inventory or group_vars):
+#   etcd_client_cert_user: { name: "kube", group: "kube" }  # Certificate owner
+#   etcd_cert_dir: "/opt/kube/pki/etcd"                     # Custom cert directory
+#
+# Architecture:
+# - Uses existing roles/etcd3/certs/smallstep role (DRY)
+# - Sets step_cert_client_only=true to skip peer/server certs
+# - All logic is in roles, playbook just orchestrates
+
+- name: Validate inventory configuration
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Check if required groups exist
+      assert:
+        that:
+          - groups.get('etcd-cert-managers', []) | length > 0
+          - groups.get('etcd-clients', []) | length > 0
+        fail_msg: |
+          ❌ Required inventory groups are missing or empty!
+          
+          Your inventory file is either:
+          1. Missing (no inventory.ini found)
+          2. Empty (no hosts defined)
+          3. Has syntax errors (cannot be parsed)
+          4. Missing required groups
+          
+          Required groups:
+          - [etcd-cert-managers] : Nodes running step-ca (at least 1)
+          - [etcd-clients]       : Nodes needing client certificates (at least 1)
+          
+          Example inventory.ini:
+          
+          [etcd]
+          etcd-1 ansible_host=10.0.1.10
+          etcd-2 ansible_host=10.0.1.11
+          
+          [etcd-clients]
+          kube-apiserver-1 ansible_host=10.0.2.10
+          kube-apiserver-2 ansible_host=10.0.2.11
+          
+          [etcd-cert-managers]
+          etcd-1
+          
+          Current inventory state:
+          - etcd-cert-managers: {{ groups.get('etcd-cert-managers', []) | length }} hosts
+          - etcd-clients: {{ groups.get('etcd-clients', []) | length }} hosts
+          
+          Fix this by:
+          1. Creating inventory.ini (see inventory/inventory-example.ini)
+          2. Adding hosts to [etcd-cert-managers] and [etcd-clients] groups
+          3. Verifying syntax: ansible-inventory -i inventory.ini --list
+
+- name: Ensure step-ca is running on cert-managers
+  hosts: etcd-cert-managers[0]
+  gather_facts: yes
+  become: yes
+  roles:
+    - etcd3/facts
+  tasks:
+    - name: Check if step-ca is running
+      command: systemctl is-active step-ca
+      register: step_ca_status
+      changed_when: false
+      failed_when: false
+
+    - name: Start step-ca if not running
+      systemd:
+        name: step-ca
+        state: started
+      when: step_ca_status.stdout != 'active'
+
+    - name: Wait for step-ca to be ready
+      uri:
+        url: "{{ step_ca_url }}/health"
+        validate_certs: no
+        status_code: 200
+      register: step_ca_health
+      until: step_ca_health.status == 200
+      retries: 10
+      delay: 3
+
+    - name: Display step-ca health
+      debug:
+        msg:
+          - "✅ step-ca is healthy and ready"
+          - "URL: {{ step_ca_url }}"
+
+- name: Generate client certificates only
+  hosts: etcd-clients
+  gather_facts: yes
+  become: yes
+  vars:
+    # Enable client-only mode (skip peer/server cert generation)
+    step_cert_client_only: true
+  roles:
+    # The smallstep role handles everything:
+    # - etcd3/facts dependency (loads etcd_cert_paths, etc.)
+    # - install-client.yml (installs step CLI, root CA, bootstraps)
+    # - configure-renewal.yml (generates client cert, sets up renewal)
+    # - Skips peer/server certs when step_cert_client_only=true
+    - etcd3/certs/smallstep
+  post_tasks:
+    - name: Display completion status
+      debug:
+        msg:
+          - "✅ Client certificate generated for {{ inventory_hostname }}"
+          - ""
+          - "Certificate: {{ etcd_cert_paths.client.cert }}"
+          - "Private key: {{ etcd_cert_paths.client.key }}"
+          - "Certificate directory: {{ etcd_cert_dir }}"
+          - ""
+          - "Automatic renewal configured:"
+          - "  Timer: step-renew-{{ etcd_cluster_name }}-client.timer"
+          - ""
+          - "Verify certificate:"
+          - "  step certificate inspect {{ etcd_cert_paths.client.cert }}"
+          - ""
+          - "Test connection:"
+          - "  etcdctl --endpoints={{ etcd_access_addresses }}"
+          - "    --cert={{ etcd_cert_paths.client.cert }}"
+          - "    --key={{ etcd_cert_paths.client.key }}"
+          - "    --cacert={{ etcd_cert_dir }}/root_ca.crt"
+          - "    endpoint health"
+
+- name: Display summary
+  hosts: localhost
+  gather_facts: no
+  vars:
+    etcd_clients_group: "etcd-clients"
+  tasks:
+    - name: Check if any hosts were processed
+      set_fact:
+        clients_processed: "{{ groups.get(etcd_clients_group, []) | length }}"
+
+    - name: Show error if no hosts were processed
+      fail:
+        msg: |
+          ❌ No client certificates were generated!
+          
+          Reason: No hosts found in [{{ etcd_clients_group }}] group
+          
+          This usually means:
+          1. Your inventory.ini has no [etcd-clients] group
+          2. The group exists but is empty
+          3. You used --limit to exclude all hosts
+          
+          To fix:
+          1. Add hosts to [etcd-clients] in your inventory.ini
+          2. Verify: ansible-inventory -i inventory.ini --graph
+          3. Re-run: ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml
+      when: clients_processed | int == 0
+
+    - name: Show completion message
+      debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "CLIENT CERTIFICATE GENERATION COMPLETE"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ Generated client certificates for {{ clients_processed }} nodes"
+          - ""
+          - "Next steps:"
+          - "1. Verify certificates on each node:"
+          - "   ansible {{ etcd_clients_group }} -i inventory.ini -m shell -a 'step certificate inspect /etc/etcd/ssl/etcd-*-client.crt' -b"
+          - ""
+          - "2. Check renewal timer status:"
+          - "   ansible {{ etcd_clients_group }} -i inventory.ini -m shell -a 'systemctl list-timers step-renew-*' -b"
+          - ""
+          - "3. Test etcd connection from client node:"
+          - "   ssh <client-node>"
+          - "   etcdctl --endpoints=<etcd-endpoints> \\"
+          - "     --cert=/etc/etcd/ssl/etcd-*-client.crt \\"
+          - "     --key=/etc/etcd/ssl/etcd-*-client.key \\"
+          - "     --cacert=/etc/etcd/ssl/root_ca.crt \\"
+          - "     endpoint health"
+          - ""
+          - "Note: step-ca may still be running (will auto-stop after configured runtime limit)"

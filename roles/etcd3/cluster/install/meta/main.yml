@@ -4,18 +4,28 @@ dependencies:
     tags:
       - always
 
-# @TODO(ant31) not in is_atomic
   - name: adduser
     vars:
       user: "{{ etcd_user }}"
     when:
       - not (ansible_os_family in ['CoreOS', 'Container Linux by CoreOS'])
 
-
   - name: etcd3/facts
     tags:
       - always
 
-  - name: etcd3/certs
+  - name: etcd3/certs/smallstep
     tags:
       - etcd-certs
+      - step-ca
+
+  - name: etcd3/download
+    vars:
+      downloads: "{{ etcd_downloads }}"
+    tags:
+      - download
+
+  - name: etcd3/backups/cron
+    when: etcd_backup_cron_enabled | default(true)
+    tags:
+      - backup-cron

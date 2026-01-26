@@ -1,0 +1,165 @@
+---
+# Regenerate node certificates (ROUTINE OPERATION)
+# This regenerates ONLY node certificates (peer, server, client)
+# CA stays intact - no password changes needed
+#
+# Usage: ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml
+#
+# When to use:
+# - Quarterly certificate rotation (security best practice)
+# - Node certificate compromised or suspected breach
+# - Adding new SANs to certificates
+# - Changing certificate parameters
+#
+# When NOT to use:
+# - If CA password is lost → use regenerate-ca.yaml instead
+# - If CA is compromised → use regenerate-ca.yaml instead
+#
+# Benefits:
+# ✅ Zero downtime (rolling restart maintains quorum)
+# ✅ No password changes needed
+# ✅ Safe routine operation
+# ✅ Can be scheduled quarterly
+
+- name: Confirm node certificate regeneration
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Prompt for confirmation
+      pause:
+        prompt: |
+          🔄 NODE CERTIFICATE REGENERATION (Routine Operation)
+          
+          This will:
+          1. Create backup of cluster data (safety measure)
+          2. Generate NEW node certificates (peer, server, client)
+          3. Keep existing CA intact (no password changes)
+          4. Rolling restart of etcd services (one at a time)
+          
+          Impact:
+          - Downtime: ZERO (rolling restart maintains quorum)
+          - CA: UNCHANGED (passwords not needed)
+          - Certificates: NEW with fresh expiration dates
+          - Time: 5-10 minutes
+          
+          This is a safe routine operation (can be done quarterly).
+          
+          Continue? (yes/no)
+      register: confirm_input
+    
+    - name: Validate confirmation
+      assert:
+        that:
+          - confirm_input.user_input == 'yes'
+        fail_msg: "Node certificate regeneration cancelled"
+
+- name: Backup cluster before regeneration (SAFETY FIRST)
+  hosts: etcd[0]
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: etcd3/backups
+      tags:
+        - backup
+
+- name: Cleanup old node certificates (CA stays intact)
+  hosts: etcd,etcd-clients
+  become: yes
+  gather_facts: yes
+  vars:
+    cert_operation_action: regenerate-nodes
+  roles:
+    - role: etcd3/certs/operations
+      tags:
+        - regenerate-nodes
+
+- name: Generate new node certificates from existing CA
+  hosts: etcd,etcd-clients
+  become: yes
+  gather_facts: yes
+  roles:
+    - role: etcd3/certs/smallstep
+      tags:
+        - certs
+
+- name: Rolling restart etcd services (one at a time - maintains quorum)
+  hosts: etcd
+  become: yes
+  gather_facts: no
+  serial: 1  # ONE NODE AT A TIME
+  tasks:
+    - name: Restart etcd service with new certificates
+      systemd:
+        name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+        state: restarted
+      throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
+      register: etcd_restart
+      retries: 3
+      delay: 10
+      until: etcd_restart is succeeded
+    
+    - name: Wait for node to be healthy after restart
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:2379
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: health_check
+      retries: 20
+      delay: 5
+      until: health_check.rc == 0
+      changed_when: false
+    
+    - name: Display node restart status
+      debug:
+        msg: "{{ ['✅ Node ' + inventory_hostname + ' restarted with new certificates', 'Remaining nodes: ' + ((groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1)) | string)] }}"
+
+- name: Verify cluster health
+  hosts: etcd[0]
+  become: yes
+  gather_facts: no
+  vars:
+    operation_action: health
+  roles:
+    - role: etcd3/operations
+      tags:
+        - health
+
+- name: Display completion status
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Show success message
+      debug:
+        msg:
+          - "✅ Node certificate regeneration complete!"
+          - ""
+          - "Process summary:"
+          - "1. ✅ Cluster backup created (safety measure)"
+          - "2. ✅ Old node certificates removed"
+          - "3. ✅ New node certificates generated from existing CA"
+          - "4. ✅ Etcd services restarted one-by-one (quorum maintained)"
+          - "5. ✅ Automatic renewal reconfigured"
+          - ""
+          - "CA Status: UNCHANGED (same root CA, same passwords)"
+          - "Quorum: MAINTAINED throughout (rolling restart with serial: 1)"
+          - "Downtime: ZERO"
+          - ""
+          - "What changed:"
+          - "- ✅ New peer certificates (fresh {{ (step_cert_default_duration | regex_replace('h$', '') | int / 24 / 365) | round(1) }}-year expiration)"
+          - "- ✅ New server certificates (fresh {{ (step_cert_default_duration | regex_replace('h$', '') | int / 24 / 365) | round(1) }}-year expiration)"
+          - "- ✅ New client certificates (fresh {{ (step_cert_default_duration | regex_replace('h$', '') | int / 24 / 365) | round(1) }}-year expiration)"
+          - ""
+          - "What stayed the same:"
+          - "- ✅ CA root certificate (unchanged)"
+          - "- ✅ CA passwords (unchanged)"
+          - "- ✅ Cluster data (unchanged)"
+          - ""
+          - "Next steps:"
+          - "1. Verify cluster: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+          - "2. Schedule next rotation in ~6-9 months (quarterly recommended)"
+          - ""
+          - "Recommendation: Run this playbook quarterly for certificate hygiene"

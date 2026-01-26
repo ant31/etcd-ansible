@@ -1,0 +1,107 @@
+---
+- name: Find latest CA backup in S3 (exclude .sha256 files)
+  command: >
+    aws s3api list-objects-v2
+    --bucket {{ step_ca_backup_s3_bucket }}
+    --prefix {{ step_ca_backup_s3_prefix }}/
+    --query 'Contents[?!contains(Key, `latest-ca-backup`) && !ends_with(Key, `.sha256`)] | reverse(sort_by(@, &LastModified))[0].Key'
+    --output text
+  register: latest_backup
+  when: restore_ca_s3_file == 'latest'
+  changed_when: false
+  tags:
+    - restore-ca
+
+- name: Set backup file path
+  set_fact:
+    ca_backup_s3_path: "{{ restore_ca_s3_file if restore_ca_s3_file != 'latest' else latest_backup.stdout }}"
+  tags:
+    - restore-ca
+
+- name: Detect encryption method from backup file
+  set_fact:
+    backup_encryption_method: >-
+      {%- if ca_backup_s3_path.endswith('.kms') -%}
+      aws-kms
+      {%- elif ca_backup_s3_path.endswith('.enc') -%}
+      symmetric
+      {%- else -%}
+      none
+      {%- endif -%}
+  tags:
+    - restore-ca
+
+- name: Download CA backup from S3
+  command: >
+    {{ bin_dir }}/aws s3 cp
+    s3://{{ step_ca_backup_s3_bucket }}/{{ ca_backup_s3_path }}
+    /tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+    AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+  tags:
+    - restore-ca
+
+- name: Decrypt CA backup using backup script (handles envelope encryption)
+  command: >
+    /usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py
+    --config {{ backup_scripts_dir }}/ca-backup-config.yaml
+    --decrypt
+    --input /tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}
+    --output /tmp/ca-restore.tar.gz
+    --encryption {{ backup_encryption_method }}
+  register: decrypt_result
+  tags:
+    - restore-ca
+
+- name: Display decryption result
+  debug:
+    msg: "{{ decrypt_result.stdout_lines }}"
+  when: decrypt_result is changed
+  tags:
+    - restore-ca
+
+- name: Stop step-ca
+  systemd:
+    name: step-ca
+    state: stopped
+  ignore_errors: true
+  tags:
+    - restore-ca
+
+- name: Extract CA backup
+  unarchive:
+    src: /tmp/ca-restore.tar.gz
+    dest: /
+    remote_src: yes
+  tags:
+    - restore-ca
+
+- name: Set CA file permissions (root only, step-ca runs as root)
+  file:
+    path: /etc/step-ca/secrets
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+    recurse: yes
+  tags:
+    - restore-ca
+    
+- name: Set CA private key permissions (root only, 0400)
+  shell: |
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chmod 0400 {} \;
+    find /etc/step-ca/secrets -type f -name "*_key" -exec chown root:root {} \;
+  tags:
+    - restore-ca
+
+- name: Cleanup temporary files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}"
+    - /tmp/ca-restore.tar.gz
+  tags:
+    - restore-ca

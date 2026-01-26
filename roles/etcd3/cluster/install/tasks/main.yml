@@ -1,11 +1,4 @@
 ---
-- name: download etcd binaries
-  include_role:
-    name: download_etcd
-  vars:
-    downloads: "{{etcd_downloads}}"
-    download_container: false
-
 - name: Checksum etcd binary
   stat:
     path: "{{ bin_dir }}/etcd"
@@ -21,13 +14,14 @@
 
 - name: install | Copy etcd and etcdctl binary from download dir
   copy:
-    src: "{{ bin_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
+    src: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
     dest: "{{ bin_dir }}/"
     mode: 0755
     remote_src: yes
   with_items:
     - etcd
     - etcdctl
+    - etcdutl
 
 - name: Checksum etcd binary
   stat:
@@ -36,4 +30,19 @@
     get_checksum: yes
   register: etcdbin
 
+- name: Install etcdctl wrapper script
+  template:
+    src: etcdctl.sh.j2
+    dest: "{{ bin_dir }}/etcdctl.sh"
+    mode: 0755
+    owner: root
+    group: root
+  when: inventory_hostname in groups[etcd_cluster_group]
+
 - import_tasks: 0010_cluster.yaml
+
+- name: Create etcd profile.d script
+  template:
+    src: etcd-profile.sh.j2
+    dest: /etc/profile.d/etcd.sh
+    mode: 0600

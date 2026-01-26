@@ -1,0 +1,43 @@
+---
+# Rotate all certificates (force renewal)
+# This forces immediate renewal of all certificates on all nodes
+# Usage: ansible-playbook -i inventory.ini playbooks/rotate-certs.yaml
+#
+# Safety: Add -e force_cert_rotation=true to skip confirmation
+
+- name: Confirm certificate rotation
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Warning about certificate rotation
+      pause:
+        prompt: |
+          ⚠️  WARNING: Certificate Rotation
+          
+          This will FORCE immediate renewal of ALL certificates on:
+          - {{ groups['etcd'] | length }} etcd nodes
+          - {{ groups['etcd-clients'] | length }} client nodes
+          
+          This operation:
+          - Forces renewal even if certificates are not near expiration
+          - May cause brief service interruptions during reload
+          - Should only be done during maintenance windows
+          
+          Type 'yes' to proceed with certificate rotation
+      register: confirm_rotation
+      when: not (force_cert_rotation | default(false))
+
+    - name: Validate confirmation
+      assert:
+        that:
+          - force_cert_rotation | default(false) or confirm_rotation.user_input == 'yes'
+        fail_msg: "❌ Certificate rotation cancelled: user did not confirm with 'yes'"
+      when: not (force_cert_rotation | default(false))
+
+- name: Rotate all certificates (force renewal)
+  hosts: etcd,etcd-clients
+  gather_facts: yes
+  roles:
+    - role: etcd3/certs/operations
+      vars:
+        cert_operation_action: rotate

@@ -1,0 +1,443 @@
+---
+- name: Create step-ca directories (owned by root, step-ca runs as root)
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  loop:
+    - "{{ step_path }}"
+    - "{{ step_path }}/config"
+    - "{{ step_ca_db }}"
+    - "{{ step_ca_certs }}"
+    - "{{ step_ca_secrets }}"
+
+- name: Check if step-ca is installed
+  stat:
+    path: "{{ bin_dir }}/step-ca"
+  register: step_ca_installed
+
+- name: Fail if step-ca binary not installed
+  fail:
+    msg:
+      - "❌ step-ca binary not found"
+      - "Expected location: {{ bin_dir }}/step-ca"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step-ca.tar.gz https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step-ca.tar.gz -C /tmp"
+      - "   cp /tmp/step-ca {{ bin_dir }}/step-ca"
+      - "   chmod 755 {{ bin_dir }}/step-ca"
+  when: not step_ca_installed.stat.exists
+
+- name: Check if step CLI is installed
+  stat:
+    path: "{{ bin_dir }}/step"
+  register: step_cli_installed
+
+- name: Fail if step CLI binary not installed
+  fail:
+    msg:
+      - "❌ step CLI binary not found"
+      - "Expected location: {{ bin_dir }}/step"
+      - ""
+      - "The download role should have installed this already."
+      - ""
+      - "Manual installation:"
+      - "   curl -L -o /tmp/step.tar.gz https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+      - "   tar -xzf /tmp/step.tar.gz -C /tmp"
+      - "   cp /tmp/step_{{ step_version }}/bin/step {{ bin_dir }}/step"
+      - "   chmod 755 {{ bin_dir }}/step"
+  when: not step_cli_installed.stat.exists
+
+- name: Check if CA already initialized
+  stat:
+    path: "{{ step_ca_config }}"
+  register: step_ca_config_stat
+
+- name: Initialize step-ca
+  shell: |
+    {{ bin_dir }}/step ca init \
+      --name="{{ step_ca_name }}" \
+      --dns="{{ step_ca_dns }}" \
+      --address=":{{ step_ca_port }}" \
+      --provisioner="{{ step_ca_provisioner }}" \
+      --password-file=<(echo "{{ step_ca_password }}") \
+      --provisioner-password-file=<(echo "{{ step_provisioner_password }}") \
+      --dns="127.0.0.1" \
+      --dns="localhost"
+  args:
+    executable: /bin/bash
+  environment:
+    STEPPATH: "{{ step_path }}"
+  when: not step_ca_config_stat.stat.exists
+
+- name: Copy step-ca configuration script
+  template:
+    src: configure_step_ca_durations.py.j2
+    dest: /tmp/configure_step_ca_durations.py
+    mode: 0755
+  when: not step_ca_config_stat.stat.exists
+
+- name: Configure step-ca certificate durations
+  command: /usr/bin/python3 /tmp/configure_step_ca_durations.py
+  register: configure_durations_result
+  when: not step_ca_config_stat.stat.exists
+
+- name: Display configuration result
+  debug:
+    msg: "{{ configure_durations_result.stdout_lines | default(['No output']) }}"
+  when: 
+    - not step_ca_config_stat.stat.exists
+    - configure_durations_result is defined
+
+- name: Cleanup configuration script
+  file:
+    path: /tmp/configure_step_ca_durations.py
+    state: absent
+  when: not step_ca_config_stat.stat.exists
+
+- name: Create step-ca systemd service
+  template:
+    src: step-ca.service.j2
+    dest: /etc/systemd/system/step-ca.service
+    mode: 0644
+  notify: restart step-ca
+
+- name: Create step-ca password file
+  copy:
+    content: "{{ step_ca_password }}"
+    dest: "{{ step_ca_secrets }}/password"
+    owner: root
+    group: root
+    mode: 0400
+
+- name: Fix ownership and permissions of ALL CA files (step-ca runs as root)
+  file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+    state: "{{ item.state }}"
+    recurse: "{{ item.recurse | default(false) }}"
+  loop:
+    - { path: "{{ step_path }}", mode: "0700", state: "directory", recurse: false }
+    - { path: "{{ step_ca_secrets }}", mode: "0700", state: "directory", recurse: false }
+    - { path: "{{ step_ca_certs }}", mode: "0700", state: "directory", recurse: false }
+    - { path: "{{ step_ca_config }}", mode: "0600", state: "file" }
+    - { path: "{{ step_ca_db }}", mode: "0700", state: "directory", recurse: false }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Fix CA secrets files permissions (private keys - root only)
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: 0400
+  loop:
+    - "{{ step_ca_secrets }}/root_ca_key"
+    - "{{ step_ca_secrets }}/intermediate_ca_key"
+    - "{{ step_ca_secrets }}/password"
+  failed_when: false
+
+- name: Fix CA certificate permissions (root only, NOT world-readable)
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: 0400
+  loop:
+    - "{{ step_ca_certs }}/root_ca.crt"
+    - "{{ step_ca_certs }}/intermediate_ca.crt"
+  failed_when: false
+
+- name: Enable and start step-ca service (PRIMARY cert-manager only)
+  systemd:
+    name: step-ca
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+  register: step_ca_service
+
+- name: Display step-ca runtime configuration
+  debug:
+    msg: "{{ ['step-ca runtime limit: ' + ('INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes')] + (['', 'Security note: step-ca will automatically stop after ' + (step_ca_runtime_minutes | string) + ' minutes.', 'This minimizes attack surface by only running the CA when needed.', '', 'To restart step-ca manually:', '  systemctl start step-ca', '', 'step-ca will also restart automatically when certificates are renewed.'] if step_ca_runtime_minutes | int > 0 else []) }}"
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+- name: Ensure step-ca is installed but STOPPED on backup cert-managers (before replication)
+  systemd:
+    name: step-ca
+    enabled: no
+    state: stopped
+    daemon_reload: yes
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  failed_when: false
+
+- name: Display backup cert-manager status
+  debug:
+    msg:
+      - "📋 Backup cert-manager configuration"
+      - ""
+      - "Node: {{ inventory_hostname }}"
+      - "Role: BACKUP (step-ca installed but STOPPED)"
+      - ""
+      - "step-ca will be replicated from primary: {{ groups[etcd_certmanagers_group][0] }}"
+      - "CA replication happens next (encrypted backup/restore method)"
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+
+- name: Check step-ca service status
+  command: systemctl status step-ca
+  register: step_ca_status
+  failed_when: false
+  changed_when: false
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+- name: Show step-ca service status if it failed to start
+  debug:
+    var: step_ca_status.stdout_lines
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
+
+- name: Show step-ca logs if service failed
+  command: journalctl -u step-ca -n 50 --no-pager
+  register: step_ca_logs
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
+  failed_when: false
+  changed_when: false
+
+- name: Display step-ca logs on failure
+  debug:
+    var: step_ca_logs.stdout_lines
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
+
+- name: Wait for step-ca to be ready (localhost check)
+  uri:
+    url: "https://localhost:{{ step_ca_port }}/health"
+    validate_certs: no
+    status_code: 200
+  register: result
+  until: result.status == 200
+  retries: 10
+  delay: 3
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+- name: Get root CA certificate (force fresh read - from primary only)
+  slurp:
+    src: "{{ step_ca_certs }}/root_ca.crt"
+  register: step_root_ca
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+  
+- name: Clear any cached root CA facts (ensure fresh distribution)
+  set_fact:
+    step_ca_root_cert: ""
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
+  when: etcd_force_certs | default(false) | bool
+
+- name: Store root CA as fact (fresh from regenerated CA - from primary)
+  set_fact:
+    step_ca_root_cert: "{{ step_root_ca.content | b64decode }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+
+- name: Replicate CA keys to backup cert-managers using encrypted backup/restore
+  block:
+    - name: Create encrypted CA backup on primary
+      include_role:
+        name: etcd3/backups/ca
+      vars:
+        ca_backup_action: replication
+      when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+    - name: Wait for backup to appear in S3
+      shell: >
+        {{ bin_dir }}/aws s3api head-object
+        --bucket {{ step_ca_backup_s3_bucket }}
+        --key {{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else ('enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
+      environment:
+        PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | default('') }}"
+        AWS_DEFAULT_REGION: "{{ aws_default_region | default('us-east-1') }}"
+      register: s3_backup_check
+      retries: 10
+      delay: 3
+      until: s3_backup_check.rc == 0
+      changed_when: false
+      when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+    - name: Restore CA on backup cert-managers from encrypted S3 backup
+      include_role:
+        name: etcd3/restore
+      vars:
+        restore_action: ca-from-backup
+        restore_ca: true
+        restore_ca_from: s3
+        restore_ca_s3_file: latest
+        restore_confirm: false  # No prompt during deployment
+      when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+      ignore_errors: true  # Allow failure during initial deployment when no backup exists yet
+      register: ca_restore_result
+
+    - name: Check if step-ca service exists on backup cert-managers
+      stat:
+        path: /etc/systemd/system/step-ca.service
+      register: step_ca_service_file
+      when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+      tags:
+        - ca-restore
+
+    - name: Ensure step-ca is stopped on backup cert-managers
+      systemd:
+        name: step-ca
+        enabled: no
+        state: stopped
+      when: 
+        - inventory_hostname in groups[etcd_certmanagers_group][1:]
+        - step_ca_service_file.stat.exists | default(false)
+      tags:
+        - ca-restore
+
+    - name: Verify CA fingerprints match across all cert-managers
+      shell: "{{ bin_dir }}/step certificate fingerprint {{ step_ca_certs }}/root_ca.crt"
+      environment:
+        PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
+      register: ca_fingerprint
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname in groups[etcd_certmanagers_group]
+
+    - name: Collect all CA fingerprints
+      set_fact:
+        all_ca_fingerprints: "{{ groups[etcd_certmanagers_group] | map('extract', hostvars, 'ca_fingerprint') | map(attribute='stdout', default='') | select('string') | select() | list }}"
+      run_once: true
+
+    - name: Assert all CA fingerprints are identical
+      assert:
+        that:
+          - all_ca_fingerprints | length > 0
+          - all_ca_fingerprints | unique | length == 1
+        fail_msg:
+          - "❌ CA FINGERPRINT MISMATCH across cert-managers!"
+          - ""
+          - "This means backup cert-managers have different CA keys than primary."
+          - ""
+          - "Fingerprints:"
+          - "{% for host in groups[etcd_certmanagers_group] %}  {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
+          - ""
+          - "Root causes:"
+          - "1. Backup cert-manager has OLD CA from previous deployment"
+          - "2. S3 'latest' backup points to WRONG backup (old CA)"
+          - "3. Backup/restore race condition (backup not ready yet)"
+          - ""
+          - "Solutions:"
+          - ""
+          - "Option 1: Force CA replication (clean and retry - backup nodes only)"
+          - "  1. Clean old CA on backup nodes:"
+          - "     ansible etcd-cert-managers[1:] -i inventory.ini -m file -a 'path=/etc/step-ca state=absent' -b"
+          - "  2. Retry deployment:"
+          - "     ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e etcd_force_ca_replication=true -b"
+          - ""
+          - "Option 2: Manual CA replication (use timestamped backup)"
+          - "  1. Find the backup just created:"
+          - "     aws s3 ls s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/ --recursive | tail -5"
+          - "  2. Manually replicate using specific backup:"
+          - "     ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+          - ""
+          - "Option 3: Investigate S3 'latest' pointer"
+          - "  1. Check what 'latest' points to:"
+          - "     aws s3api head-object --bucket {{ step_ca_backup_s3_bucket }} --key {{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else 'enc' }}"
+          - "  2. List all backups chronologically:"
+          - "     aws s3 ls s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/ --recursive | grep -v '.sha256' | sort -k1,2"
+          - "  3. The backup just created should be the MOST RECENT"
+          - ""
+          - "Temporary workaround:"
+          - "  Add -e etcd_force_ca_replication=true to deployment"
+        success_msg: "✅ All cert-managers have identical CA (fingerprint: {{ all_ca_fingerprints[0] }})"
+      run_once: true
+      when: 
+        - all_ca_fingerprints | length > 0
+        - not (etcd_force_ca_replication | default(true) | bool)
+
+    - name: Display CA fingerprint warning (force mode)
+      debug:
+        msg:
+          - "⚠️  WARNING: CA fingerprint verification SKIPPED (etcd_force_ca_replication=true)"
+          - ""
+          - "Fingerprints across cert-managers:"
+          - "{% for host in groups[etcd_certmanagers_group] %}  {{ host }}: {{ hostvars[host].get('ca_fingerprint', {}).get('stdout', 'NOT FOUND') }}{% endfor %}"
+          - ""
+          - "{% if all_ca_fingerprints | unique | length != 1 %}❌ FINGERPRINTS DO NOT MATCH - manual investigation required{% else %}✅ Fingerprints match{% endif %}"
+          - ""
+          - "Next steps if fingerprints don't match:"
+          - "1. Clean backup cert-managers:"
+          - "   ansible etcd-cert-managers[1:] -i inventory.ini -m file -a 'path=/etc/step-ca state=absent' -b"
+          - "2. Manually replicate:"
+          - "   ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+      run_once: true
+      when:
+        - all_ca_fingerprints | length > 0
+        - etcd_force_ca_replication | default(true) | bool
+
+    - name: Display HA configuration status (successful replication)
+      debug:
+        msg:
+          - "✅ HA Configuration Complete"
+          - ""
+          - "CA backed up to: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/"
+          - "Encryption: {{ step_ca_backup_encryption_method }}"
+          - ""
+          - "Backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}"
+          - "CA fingerprint: {{ ca_fingerprint.stdout }}"
+          - ""
+          - "Benefits:"
+          - "- CA keys transmitted encrypted via {{ step_ca_backup_encryption_method }}"
+          - "- Backup/restore tested during deployment"
+          - "- Ready for disaster recovery"
+      when: 
+        - inventory_hostname == groups[etcd_certmanagers_group][0]
+        - all_ca_fingerprints | length > 1
+        - all_ca_fingerprints | unique | length == 1
+
+    - name: Display HA configuration status (initial deployment)
+      debug:
+        msg:
+          - "⚠️  HA Configuration - Initial Deployment"
+          - ""
+          - "Primary cert-manager: {{ groups[etcd_certmanagers_group][0] }} (step-ca RUNNING)"
+          - "Backup cert-managers: {{ groups[etcd_certmanagers_group][1:] | join(', ') }}"
+          - ""
+          - "CA fingerprint: {{ ca_fingerprint.stdout }}"
+          - ""
+          - "NOTE: This is the first deployment, so backup cert-managers do not have CA keys yet."
+          - ""
+          - "CA backup is being created and will be available for replication soon."
+          - ""
+          - "To manually replicate CA keys to backup nodes later:"
+          - "  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
+          - ""
+          - "Automated CA backup will run every 5 minutes (checks for changes)."
+      when: 
+        - inventory_hostname == groups[etcd_certmanagers_group][0]
+        - all_ca_fingerprints | length <= 1
+
+  when:
+    - groups[etcd_certmanagers_group] | length > 1
+    - not (etcd_force_certs | default(false) | bool)  # Skip during certificate regeneration

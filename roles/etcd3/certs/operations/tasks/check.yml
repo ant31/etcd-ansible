@@ -1,0 +1,5 @@
+---
+# Delegate to etcd-health.yaml playbook with --tags certs
+- name: Certificate expiration check
+  debug:
+    msg: "Use playbook: ansible-playbook -i {{ inventory_file }} playbooks/etcd-health.yaml --tags certs"

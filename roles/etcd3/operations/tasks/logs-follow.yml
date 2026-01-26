@@ -1,0 +1,4 @@
+---
+- name: Follow etcd logs (live)
+  command: journalctl -u etcd-* -f
+  changed_when: false

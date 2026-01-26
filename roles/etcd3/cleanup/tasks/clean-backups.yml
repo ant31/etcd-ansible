@@ -1,0 +1,26 @@
+---
+- name: Confirm backup deletion
+  pause:
+    prompt: "⚠️  WARNING: This will DELETE local backups older than 30 days on {{ inventory_hostname }}. Type 'yes' to confirm"
+  register: confirm_backup_delete
+  when: cleanup_require_confirm | default(true) | bool
+
+- name: Validate confirmation
+  assert:
+    that:
+      - not (cleanup_require_confirm | default(true) | bool) or confirm_backup_delete.user_input == 'yes'
+    fail_msg: "Backup deletion cancelled by user"
+  when: cleanup_require_confirm | default(true) | bool
+
+- name: Clean old local backups
+  shell: |
+    find /var/lib/etcd/backups -type f -mtime +30 -delete
+    find /var/lib/etcd/backups -type d -empty -delete
+  args:
+    warn: false
+  register: backup_cleanup
+
+- name: Display cleanup result
+  debug:
+    msg:
+      - "Local backups older than 30 days cleaned"

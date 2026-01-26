@@ -1,0 +1,39 @@
+---
+# Manually renew all certificates
+# Usage: ansible-playbook -i inventory.ini playbooks/renew-certs.yaml
+#
+# This forces immediate renewal of all certificates and ensures proper permissions
+
+- name: Manually renew all certificates
+  hosts: etcd,etcd-clients
+  gather_facts: yes
+  roles:
+    - role: etcd3/certs/operations
+      vars:
+        cert_operation_action: renew
+
+- name: Display renewal summary
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Show completion status
+      debug:
+        msg:
+          - "✅ Certificate renewal complete on all nodes"
+          - ""
+          - "What was done:"
+          - "1. ✅ Triggered renewal services on all nodes"
+          - "2. ✅ Verified renewal completed successfully"
+          - "3. ✅ Fixed certificate file permissions:"
+          - "   - Owner: etcd:etcd"
+          - "   - Mode: 0400 (read-only by owner)"
+          - "4. ✅ Fixed .step config directory permissions"
+          - "5. ✅ Reloaded etcd services (peer/server certs)"
+          - ""
+          - "Verify renewal:"
+          - "  ansible etcd -i inventory.ini -m shell -a 'step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep \"Not After\"' -b"
+          - ""
+          - "Check permissions:"
+          - "  ansible etcd -i inventory.ini -m shell -a 'ls -la /etc/etcd/ssl/etcd-*-peer.{crt,key}' -b"
+          - ""
+          - "Expected output: -r-------- 1 etcd etcd ... etcd-*-peer.crt"

@@ -1,0 +1,17 @@
+---
+dependencies:
+  - name: etcd3
+  - name: etcd3/facts
+  
+  - name: adduser
+    vars:
+      user: "{{ etcd_user }}"
+    when:
+      - not (ansible_os_family in ['CoreOS', 'Container Linux by CoreOS'])
+  
+  - name: etcd3/download
+    vars:
+      downloads: "{{ etcd_downloads }}"
+    tags:
+      - download
+      - download-step

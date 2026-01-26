@@ -4,16 +4,24 @@ etcd_clients_group: etcd-clients
 etcd_certmanagers_group: etcd
 etcd_all_hosts: "{{groups[etcd_cluster_group] + groups[etcd_clients_group] + groups[etcd_certmanagers_group] | unique}}"
 etcd_clusters: {}
+# Backup directory (root-owned, everything under /opt/backups)
+etcd_backup_dir: "/opt/backups"
 etcd_cluster_backup:
-  directory: "{{etcd_home}}/backups/{{etcd_cluster_name}}"
+  directory: "{{etcd_backup_dir}}/etcd/{{etcd_cluster_name}}"
 
 etcd_action: none
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
 bin_dir: /opt/bin
+download_cache_dir: "{{ bin_dir }}"
 etcd_config_dir: /etc/etcd
 etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
 dns_domain: cluster.local
 etcd_backup: yes
+
+# Disable backup encryption (defaults to false - encryption is ON by default)
+# Set to true to skip encryption (uploads plain .db files to S3)
+# WARNING: Only use in non-production or when S3 has bucket-level encryption
+deactivate_backup_encryption: false
 
 etcd_upload_backup:
   # storage: s3 or gcs
@@ -53,16 +61,27 @@ etcd_ports:
   client: 2379
   peer: 2380
 
-cfssl_version: 1.2
+cfssl_version: 1.6.5
 
+# Smallstep versions and checksums
+step_version: "0.25.2"
+step_ca_version: "0.25.2"
 
+step_checksums:
+  "0.25.2": "sha256:ee82b99f431e006318cc6e284d9f8d91c0515dc6a0023dc87de3ab6b1c2a8b8d"
+  "0.29.0": "sha256:4e043c2f63aee5a0fa5512dec82c4109b83fd88f9c924f8911ad697c061a40d8"
+  
+step_ca_checksums:
+  "0.25.2": "sha256:c0b4a1b0fa1fdc88a8e08e27c45b7b4cf8e5e2d97ae0e7f9c33fc8aef0e85eba"
+  "0.29.0": "sha256:817094de196bbd878919c6b4fe027f8cdbcee3ffe6f2e441ef98a63b3942ab3d"
+  
 etcd_checksums:
-  v3.2.24: 947849dbcfa13927c81236fb76a7c01d587bbab42ab1e807184cd91b026ebed7
-  v3.3.10: 1620a59150ec0a0124a65540e23891243feb2d9a628092fb1edcc23974724a45
-  v3.4.13: 2ac029e47bab752dacdb7b30032f230f49e2f457cbc32e8f555c2210bb5ff107
-  v3.5.13: 31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7
+  v3.5.13: "sha256:31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7"
+  v3.5.26: "sha256:0a682a91201dc8351d507210bc30b021a11e254eab806f03224b51e8fad29abb"
+  v3.6.7: "sha256:cf8af880c5a01ee5363cefa14a3e0cb7e5308dcf4ed17a6973099c9a7aee5a9a"
+  
 
-etcd_version: v3.5.13
+etcd_version: v3.5.26
 
 
 etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
@@ -71,7 +90,7 @@ etcd_downloads:
   etcd:
     file: true
     enabled: true
-    dest: "{{bin_dir}}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
     sha256: "{{ etcd_checksums[etcd_version] | default(omit)}}"
     url: "{{ etcd_download_url }}"
     unarchive: true
@@ -79,44 +98,50 @@ etcd_downloads:
     mode: "0755"
     groups:
       - "{{etcd_cluster_group}}"
-
-etcd_certs_downloads:
-  cfssl:
+  
+  awscli:
+    file: true
+    enabled: "{{ etcd_backup_cron_enabled | default(false) or ca_backup_cron_enabled | default(false) }}"
+    dest: "{{ download_cache_dir }}/awscli-archive/awscliv2.zip"
+    url: "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+    unarchive: true
+    owner: "root"
+    mode: "0755"
+    groups:
+      - "{{etcd_cluster_group}}"
+      - "{{etcd_certmanagers_group}}"
+  
+  step:
     file: true
     enabled: true
-    dest: "{{bin_dir}}/cfssl"
-    url: "https://pkg.cfssl.org/R{{cfssl_version}}/cfssl_linux-amd64"
+    dest: "{{ download_cache_dir }}/step-archive/step_linux_{{ step_version }}_amd64.tar.gz"         
+    url: "https://github.com/smallstep/cli/releases/download/v{{ step_version }}/step_linux_{{ step_version }}_amd64.tar.gz"
+    sha256: "{{ step_checksums[step_version] | default(omit) }}"
+    unarchive: true
+    owner: "root"
+    mode: "0755"
+    groups:
+      - "{{etcd_cluster_group}}"
+      - "{{etcd_clients_group}}"
+      - "{{etcd_certmanagers_group}}"
+  
+  step_ca:
+    file: true
+    enabled: true
+    dest: "{{ download_cache_dir }}/step-ca-archive/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    url: "https://github.com/smallstep/certificates/releases/download/v{{ step_ca_version }}/step-ca_linux_{{ step_ca_version }}_amd64.tar.gz"
+    sha256: "{{ step_ca_checksums[step_ca_version] | default(omit) }}"
+    unarchive: true
     owner: "root"
     mode: "0755"
     groups:
       - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
-  cfssljson:
-    file: true
-    enabled: true
-    dest: "{{bin_dir}}/cfssljson"
-    url: "https://pkg.cfssl.org/R{{cfssl_version}}/cfssljson_linux-amd64"
-    owner: "root"
-    mode: "0755"
-    groups:
-      - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
-  cfssl-certinfo:
-    file: true
-    enabled: true
-    dest: "{{bin_dir}}/cfssl-certinfo"
-    url: "https://pkg.cfssl.org/R1.2/cfssl-certinfo_linux-amd64"
-    owner: "root"
-    mode: "0755"
-    groups:
-      - "{{etcd_certmanagers_group}}"
-      - "{{etcd_cluster_group}}"
-
+  
 ###########
 ## CERTS
 ##########3
+# Note: cert_expiry kept for backward compatibility but not used with Smallstep
+# Smallstep uses step_cert_default_duration (2 years) defined in smallstep role
 cert_expiry: 175200h
 
 
@@ -126,8 +151,6 @@ etcd_events_cluster_enabled: false
 
 etcd_home: "/var/lib/etcd/"
 
-etcd_cert_group: root
-etcd_cert_user: root
 # Note: This does not set up DNS entries. It simply adds the following DNS
 # entries to the certificate
 etcd_cert_alt_names:
@@ -167,6 +190,165 @@ etcd_secure_client: true
 # Enable peer client cert authentication
 etcd_peer_client_auth: true
 
+# AWS credentials for backup encryption (set in vault.yml)
+aws_access_key_id: ""
+aws_secret_access_key: ""
+aws_default_region: "us-east-1"
+
+# ============================================================================
+# SMALLSTEP CA CONFIGURATION (used by roles/etcd3/certs/smallstep)
+# ============================================================================
+step_ca_name: "etcd-{{ etcd_cluster_name }}-ca"
+step_ca_port: 9000
+step_ca_provisioner: "etcd-provisioner"
+
+# CA DNS and URL (dynamic based on cert-manager node)
+# Use IP address for step-ca, following same pattern as etcd facts
+# Try access_ip first, then ip, then discovered IP
+step_ca_dns: "{{ hostvars[groups[etcd_certmanagers_group][0]].get('access_ip', hostvars[groups[etcd_certmanagers_group][0]].get('ip', hostvars[groups[etcd_certmanagers_group][0]]['ansible_default_ipv4']['address'])) }}"
+step_ca_url: "https://{{ step_ca_dns }}:{{ step_ca_port }}"
+
+# Paths
+step_path: "/etc/step-ca"
+step_ca_config: "{{ step_path }}/config/ca.json"
+step_ca_db: "{{ step_path }}/db"
+step_ca_certs: "{{ step_path }}/certs"
+step_ca_secrets: "{{ step_path }}/secrets"
+
+# Certificate settings
+step_cert_default_duration: "17520h"  # 2 years (730 days)
+step_cert_max_duration: "26280h"      # 3 years
+step_cert_min_duration: "1h"
+
+# Renewal settings - renew when 2/3 of lifetime has passed
+step_cert_renew_period: "11688h"  # ~487 days (2/3 of 2 years)
+
+# step-ca runtime limit (security: minimize CA exposure)
+# Time in minutes that step-ca will run before auto-shutdown
+# 0 = infinite (always running), recommended: 30-60 minutes
+step_ca_runtime_minutes: 60  # 1 hour default
+
+# Password for CA keys (should be stored in ansible-vault in production)
+step_ca_password: ""
+step_provisioner_password: ""
+
+# ============================================================================
+# CA BACKUP CONFIGURATION (used by roles/etcd3/backups/ca)
+# ============================================================================
+# Backup encryption configuration
+step_ca_backup_encryption_method: "aws-kms"  # Options: aws-kms, symmetric, none
+step_ca_backup_s3_bucket: "etcd-backups"  # S3 bucket for CA backups
+step_ca_backup_s3_prefix: "step-ca"  # S3 prefix/folder
+step_ca_backup_s3_enabled: true  # Enable S3 uploads
+step_ca_backup_retention_days: 365  # Delete backups older than this
+
+# AWS KMS encryption (when step_ca_backup_encryption_method: aws-kms)
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"  # AWS KMS key alias or ARN
+
+# Symmetric encryption (when step_ca_backup_encryption_method: symmetric)
+step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
+
+# ============================================================================
+# AUTOMATED BACKUP CRON CONFIGURATION (used by roles/etcd3/backups/cron)
+# ============================================================================
+# Backup scheduling - ENABLED BY DEFAULT
+etcd_backup_cron_enabled: true
+etcd_backup_cron_minute: "*/30"
+etcd_backup_cron_hour: "*"
+etcd_backup_interval: "*/30"  # Alias for cron_minute
+
+# Distributed backup strategy (high availability)
+etcd_backup_distributed: true  # Enable multi-node backups
+etcd_backup_independent: false  # If true, nodes don't check for existing backups (higher frequency)
+
+# Online-only backup mode (abort if cluster unhealthy)
+# Default: false (always backup regardless of health, filename indicates online/offline)
+# Set to true with: -e etcd_backup_online_only=true
+# etcd_backup_online_only: false  # Default is false (backup always, mark health in filename)
+
+# CA backup - only when changed - ENABLED BY DEFAULT
+ca_backup_cron_enabled: true
+ca_backup_cron_minute: "*/5"
+ca_backup_cron_hour: "*"
+ca_backup_check_interval: "*/5"  # Alias for cron_minute
+
+# Trigger initial backup after deployment
+etcd_backup_initial_run: true
+ca_backup_initial_run: true
+
+# Deadman monitoring (optional)
+backup_healthcheck_enabled: false
+backup_healthcheck_url: ""
+ca_backup_healthcheck_url: ""
+
+# Backup paths (all organized under /opt/backups)
+backup_scripts_dir: "/opt/backups"
+backup_log_dir: "/var/log/etcd-backups"
+backup_tmp_dir: "/opt/backups/tmp"
+
+# Backup retention
+etcd_backup_retention_days: 90
+ca_backup_retention_days: 365
+
+# Certificate renewal monitoring (optional)
+# Healthcheck URL for certificate renewal success/failure notifications
+# Examples:
+#   - Healthchecks.io: https://hc-ping.com/your-uuid
+#   - Deadman's Snitch: https://nosnch.in/your-snitch-id
+#   - Custom webhook: https://your-monitoring.example.com/webhook
+# Leave empty to disable
+step_cert_renewal_healthcheck_url: ""
+
+# ============================================================================
+# RESTORE CONFIGURATION (used by roles/etcd3/restore)
+# ============================================================================
+# What to restore
+restore_ca: false
+restore_etcd_data: false
+
+# CA restore options
+restore_ca_from: "s3"  # Options: s3, local, backup-node
+restore_ca_source_node: ""  # Source node name if restore_ca_from: backup-node
+restore_ca_s3_file: "latest"  # S3 object path or 'latest'
+
+# Etcd data restore options
+restore_etcd_s3_file: "latest"  # S3 object path or 'latest'
+restore_etcd_local_file: ""  # Local snapshot file path
+
+# Skip download phase (snapshot already downloaded to /tmp/etcd-restore-{cluster}.db)
+restore_skip_download: false
+
+# Revision bump (recommended for Kubernetes to invalidate informer caches)
+restore_bump_revision: 1000000000
+
+# Safety options
+restore_confirm: true  # Require confirmation before restore
+restore_backup_existing: true  # Backup existing data before restore
+
+# Force CA replication on backup cert-managers (cert-managers[1:]) during deployment
+# Set to true to replace existing CA on BACKUP nodes when replicating from primary
+# Set to false to preserve existing CA and fail if fingerprints don't match
+# Only affects backup cert-managers, never the primary
+# When true, automatically triggers cleanup (badger DB, cache) to prevent key mismatch errors
+# Default: true (automatic replication during deployment with cleanup)
+# Used during: Normal deployment when multiple cert-managers configured
+etcd_force_ca_replication: true
+
+# Force CA replacement on ALL cert-managers (including primary) - DISASTER RECOVERY ONLY
+# Set to true to replace CA on ALL nodes during restore/regeneration
+# THIS IS EXTREMELY RARE - only for complete CA rebuild scenarios
+# WARNING: Requires explicit confirmation (type 'yes-force-replace-all')
+# Default: false (must be explicitly requested, affects ALL cert-managers)
+# Used during: Disaster recovery when CA is compromised on all nodes
+# Normal replication: Use etcd_force_ca_replication instead (backup nodes only)
+etcd_force_ca_replacement: false
+
+# Force step-ca cleanup on backup cert-managers before CA restore
+# Set to true to clean badger database and cache (fixes "PrivateKey doesn't match" error)
+# Only affects backup cert-managers (cert-managers[1:]), never the primary
+# Default: false (cleanup must be explicitly requested)
+step_ca_force_cleanup: false
+
 etcd_user:
     name: etcd
     comment: "Etcd user"
@@ -175,16 +357,27 @@ etcd_user:
     system: yes
     shell: /bin/nologin
 
+# Systemd service tuning
+etcd_systemd_timeout_start_sec: "60s"
+etcd_systemd_restart_sec: "15s"
+etcd_systemd_limit_nofile: 40000
+# Optional performance tuning (undefined by default)
+# etcd_systemd_nice_level: 0  # -20 (highest) to 19 (lowest)
+# etcd_systemd_ionice_class: 2  # 0=none, 1=realtime, 2=best-effort, 3=idle
+# etcd_systemd_ionice_priority: 0  # 0 (highest) to 7 (lowest)
+# etcd_systemd_memory_limit: "2G"
+# etcd_systemd_cpu_quota: "200%"  # Percentage of CPU (200% = 2 cores)
+
 etcd_cert_paths:
   server:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-server-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"
+    key: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   client:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-client-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/client-ca.pem"
+    cert: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.crt"
+    key: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-client.key"
+    ca: "{{ etcd_cert_dir }}/client-ca.crt"
   peer:
-    cert: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer.pem"
-    key: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/{{inventory_hostname}}-peer-key.pem"
-    ca: "{{ etcd_cert_dir }}/{{ inventory_hostname }}/peer-ca.pem"
+    cert: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.crt"
+    key: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-peer.key"
+    ca: "{{ etcd_cert_dir }}/peer-ca.crt"

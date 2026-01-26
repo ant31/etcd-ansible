@@ -1,0 +1,8 @@
+---
+- name: Clean old local backups
+  hosts: etcd
+  gather_facts: no
+  roles:
+    - role: etcd3/cleanup
+      vars:
+        cleanup_action: backups

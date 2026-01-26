@@ -1,0 +1,24 @@
+---
+# Restore step-ca CA keys from encrypted S3 backup
+# Usage: ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml -e target_node=etcd-k8s-1
+
+- name: Validate parameters
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Check target_node is specified
+      assert:
+        that: target_node is defined
+        fail_msg: "target_node must be specified: -e target_node=NODE_NAME"
+
+- name: Restore CA keys from S3 backup
+  hosts: "{{ target_node }}"
+  gather_facts: yes
+  roles:
+    - role: etcd3/restore
+      vars:
+        restore_action: ca-from-backup
+        restore_ca: true
+        restore_ca_from: s3
+        restore_ca_s3_file: "{{ step_ca_restore_file | default('latest') }}"
+        restore_confirm: true

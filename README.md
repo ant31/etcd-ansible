@@ -1,139 +1,932 @@
 # etcd-ansible
-Deploy and manage etcd cluster via Ansible
 
+Deploy and manage production-grade etcd clusters with automated certificate management using Smallstep CA.
+
+## Features
+
+- ✅ **Automated Certificate Management** - Smallstep CA with automatic renewal
+- ✅ **High Availability** - Multi-node support with automated CA key replication
+- ✅ **Secure by Default** - 2-year certificates, private keys never transmitted
+- ✅ **Zero-Downtime Operations** - Rolling upgrades and certificate renewal
+- ✅ **Disaster Recovery** - AWS KMS encrypted backups with automated restore
+- ✅ **Production Ready** - Industry-standard PKI with best practices
+
+## Requirements
+
+- Ansible 2.9+
+- Python 3.6+
+- Target nodes: Ubuntu 20.04+, Debian 11+, RHEL 8+, or CoreOS
+- AWS CLI (for S3 backups and KMS encryption)
 
 ## Quick Start
 
-1. Create an inventory with the following groups
- - [etcd]:  list of the cluster nodes
- - [etcd-clients]: list of the nodes that must receive a client certificate
-See [inventory-example.ini](https://github.com/ant31/etcd-ansible/blob/master/inventory-example.ini)
+### 1. Setup AWS KMS Key for CA Backups (One-time)
+
+Create AWS KMS key for encrypting CA backups:
+
+```bash
+# Create KMS key
+aws kms create-key \
+  --description "Encryption key for etcd CA backups" \
+  --tags TagKey=Purpose,TagValue=etcd-ca-backup
+
+# Note the KeyId from output, then create alias
+aws kms create-alias \
+  --alias-name alias/etcd-ca-backup \
+  --target-key-id <KEY_ID_FROM_ABOVE>
+
+# Grant permissions to your etcd nodes IAM role
+aws kms put-key-policy \
+  --key-id alias/etcd-ca-backup \
+  --policy-name default \
+  --policy file://kms-policy.json
 ```
+
+Create `kms-policy.json`:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Enable IAM User Permissions",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:root"
+      },
+      "Action": "kms:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "Allow etcd nodes to use key",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::YOUR_ACCOUNT_ID:role/etcd-nodes-role"
+      },
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:DescribeKey",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+**Or use the automated playbook:**
+```bash
+ansible-playbook -i localhost, playbooks/setup-kms.yaml -e kms_key_alias=alias/etcd-ca-backup
+```
+
+### 2. Create Inventory
+
+Create an inventory with the following groups:
+- `[etcd]`: List of etcd cluster nodes
+- `[etcd-clients]`: Nodes that need client certificates to connect to etcd
+- `[etcd-cert-managers]`: Nodes that run step-ca (usually first etcd node + backups)
+
+```bash
 cp inventory-example.ini inventory.ini
 ```
 
-3. Install the cluster and distributes certificates to clients:
+Example inventory:
+```ini
+[etcd]
+etcd-k8s-1 ansible_host=10.0.1.10
+etcd-k8s-2 ansible_host=10.0.1.11
+etcd-k8s-3 ansible_host=10.0.1.12
+
+[etcd-clients]
+kube-apiserver-1 ansible_host=10.0.2.10
+kube-apiserver-2 ansible_host=10.0.2.11
+
+[etcd-cert-managers]
+etcd-k8s-1  # Primary cert-manager (runs step-ca)
+etcd-k8s-2  # Backup cert-manager (CA keys replicated)
 ```
-ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root   -e etcd_action=create
+
+### 3. Configure Secrets
+
+**IMPORTANT:** This repository includes a `.gitignore` file that prevents accidental commit of secrets. The following files are ignored:
+- `group_vars/all/vault.yml` (your actual vault file)
+- `.vault-pass` (vault password file)
+- `inventory.ini` (your actual inventory)
+- SSL certificates and keys in the root directory
+
+Create encrypted vault file for sensitive variables:
+
+```bash
+# Copy example vault file
+cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+
+# Edit with your values
+vi group_vars/all/vault.yml
+
+# Encrypt with ansible-vault
+ansible-vault encrypt group_vars/all/vault.yml
+
+# Store vault password securely (this file is gitignored)
+echo "your-vault-password" > .vault-pass
+chmod 600 .vault-pass
 ```
 
+Required secrets in `group_vars/all/vault.yml`:
+```yaml
+# Smallstep CA passwords
+step_ca_password: "your-secure-ca-password"
+step_provisioner_password: "your-secure-provisioner-password"
 
-### Roles
+# AWS S3 bucket for CA backups
+step_ca_backup_s3_bucket: "your-org-etcd-backups"
 
-The playbook is composed by 4 top levels roles: cluster, facts, certs, backups
+# AWS S3 bucket for etcd data backups
+etcd_upload_backup:
+  storage: s3
+  bucket: "your-org-etcd-backups"
 
-- Cluster: deploy and manage lifecycle of the etcd-nodes
-- Certs: generate and synchronize etcd peer/client/server certificates
-- Facts: configure some useful variables to be integrated with external roles
-- Backup: create a new snapshot and upload it to an object-storage if configured
-          a snapshot is created before an upgrade or delete.
+# KMS key for encryption
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
+```
+
+### 4. Deploy etcd Cluster
+
+```bash
+# Deploy cluster with Smallstep CA
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=create \
+  --vault-password-file ~/.vault-pass \
+  -b --become-user=root
+```
+
+This will:
+1. Install step-ca on cert-manager node (etcd-k8s-1)
+2. Initialize CA with root and intermediate certificates
+3. Install step CLI on all nodes
+4. Generate certificates for all nodes (2-year lifetime)
+5. Configure automatic renewal via systemd timers
+6. Deploy and start etcd cluster
+7. **Replicate CA keys securely to backup cert-managers (if multiple cert-managers configured):**
+   - Creates encrypted backup on primary (aws-kms or symmetric encryption)
+   - Uploads to S3 (never transmits plaintext keys over network)
+   - Restores on backup nodes from encrypted S3 backup
+   - Verifies CA fingerprints match across all cert-managers
+   - Tests backup/restore during deployment
+   - Manual replication (if needed) uses same secure method
+   - **Note:** Skipped if only one cert-manager in inventory (single node setup)
+
+### 5. Verify Installation
+
+```bash
+# Check cluster health
+ansible etcd -i inventory.ini -m shell -a "systemctl status etcd-*" -b
+
+# Check step-ca status
+ansible etcd-cert-managers -i inventory.ini -m shell -a "systemctl status step-ca" -b
+
+# Check certificate details
+ansible etcd -i inventory.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep -E '(Subject|Not After)'" -b
+
+# Verify etcd cluster
+ansible etcd[0] -i inventory.ini -m shell -a "
+  etcdctl --endpoints=https://10.0.1.10:2379,https://10.0.1.11:2379,https://10.0.1.12:2379 \
+  --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
+  --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
+  --cacert=/etc/etcd/ssl/root_ca.crt \
+  endpoint health
+" -b
+```
+
+## Architecture
+
+### Role Structure
+
+```
+roles/etcd3/
+├── cluster/           # Etcd cluster lifecycle management
+│   ├── install/       # Deploy and configure etcd nodes
+│   └── delete/        # Remove etcd cluster
+├── certs/             # Certificate management
+│   └── smallstep/     # Smallstep CA integration (default)
+├── facts/             # Populate etcd cluster facts for other roles
+├── backups/           # Snapshot creation and S3 upload
+└── download/          # Binary downloads (etcd, step-ca, step-cli)
+```
+
+### Certificate Architecture (Smallstep CA)
+
+```
+┌─────────────────────────────────────────────────────┐
+│ etcd-k8s-1 (Cert-Manager)                           │
+│ - etcd cluster member                               │
+│ - step-ca service (port 9000)                       │
+│ - CA keys in /etc/step-ca/secrets/                  │
+└─────────────────────────────────────────────────────┘
+                    │
+                    │ HTTPS
+                    │ Certificate requests
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+    ┌────────┐  ┌────────┐  ┌─────────┐
+    │ etcd-2 │  │ etcd-3 │  │ clients │
+    │ step   │  │ step   │  │ step    │
+    │ CLI    │  │ CLI    │  │ CLI     │
+    └────────┘  └────────┘  └─────────┘
+```
+
+**Key Features:**
+- Private keys generated on each node (never transmitted)
+- Automatic certificate renewal via systemd timers
+- 2-year certificate lifetime (configurable)
+- Zero-downtime certificate rotation
+- HA support with CA key replication
+
+See [CERTIFICATE_ARCHITECTURE.md](CERTIFICATE_ARCHITECTURE.md) for detailed documentation.
 
 ![Dependencies](Docs/ansible-roles.png)
 
-### Cluster management
+## Cluster Management
 
-This role provide several actions to manage the etcd-nodes.
-Possible actions are:
- - Install
- - Delete
- - Upgrade
+### Actions
 
-An action is defined with "etcd_action=$ACTION" variable. There's no default, if no action is provided the playbook is doing nothing.
+Cluster operations are controlled via the `etcd_action` variable:
 
-##### Playbook example
+| Action | Description | Usage |
+|--------|-------------|-------|
+| `create` | Deploy new cluster | First-time installation |
+| `deploy` | Deploy or update | Same as create but for existing clusters |
+| `upgrade` | Upgrade etcd version | Bump etcd version with rolling restart |
+| `backup` | Create snapshot | Manual backup trigger |
+
+### Install New Cluster
+
+Deploy a new cluster (first time only):
+
+```bash
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=create \
+  --vault-password-file ~/.vault-pass \
+  -b --become-user=root
+```
+
+**What happens:**
+1. Installs step-ca on cert-manager nodes
+2. Initializes CA with root and intermediate certificates
+3. Replicates CA keys to backup cert-managers (if configured)
+4. Installs step CLI on all nodes
+5. Generates certificates (2-year lifetime)
+6. Configures automatic renewal
+7. Deploys etcd cluster
+8. Verifies cluster health
+
+**Systemd service naming:** `etcd-{{cluster_name}}-{{index}}`
+
+Example:
+```bash
+# Check status
+systemctl status etcd-default-1
+
+# View logs
+journalctl -u etcd-default-1 -f
+```
+
+### Recover from Installation Failures
+
+If installation fails partway through:
+
+```bash
+# Retry with force flag
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=create \
+  -e etcd_force_create=true \
+  --vault-password-file ~/.vault-pass \
+  -b --become-user=root
+```
+
+### Upgrade Cluster
+
+**Recommended: Use the dedicated upgrade playbook**
+
+```bash
+ansible-playbook -i inventory.ini playbooks/upgrade-cluster.yaml \
+  -e etcd_version=v3.5.26 \
+  --vault-password-file ~/.vault-pass \
+  -b
+```
+
+**Safety features:**
+- ✅ Pre-upgrade validation (cluster health, disk space, version compatibility)
+- ✅ Automatic backup before upgrade
+- ✅ Serial rollout (one node at a time)
+- ✅ Health check after each node restart
+- ✅ Prevents version downgrades
+- ✅ Detailed error messages with troubleshooting steps
+
+**Alternative: Using main playbook**
+
+```bash
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=upgrade \
+  -e etcd_version=v3.5.26 \
+  --vault-password-file ~/.vault-pass \
+  -b
+```
+
+**Note:** When using the main playbook, add `serial: 1` to the etcd play for proper rolling upgrades.
+
+### Delete Cluster
+
+**WARNING:** This removes all data and certificates!
+
+```bash
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_delete_cluster=true \
+  -b --become-user=root
+```
+
+You will be prompted to confirm deletion.
+
+### Add New Node to Existing Cluster
+
+1. Add node to inventory:
+```ini
+[etcd]
+etcd-k8s-1
+etcd-k8s-2
+etcd-k8s-3
+etcd-k8s-4  # NEW
+```
+
+2. Deploy to new node only:
+```bash
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=create \
+  --limit=etcd-k8s-4 \
+  --vault-password-file ~/.vault-pass \
+  -b --become-user=root
+```
+
+The new node will automatically:
+- Request certificates from existing step-ca
+- Configure automatic renewal
+- Join the cluster
+
+## Certificate Management (Smallstep CA)
+
+### Overview
+
+This project uses **Smallstep CA (step-ca)** for automated certificate management. This provides:
+
+- **Automatic Issuance**: Nodes request certificates directly from step-ca
+- **Automatic Renewal**: Systemd timers renew at 2/3 of certificate lifetime
+- **Zero Downtime**: Certificates renewed without restarting etcd
+- **Modern Security**: Industry-standard PKI, private keys never leave nodes
+- **Easy Scaling**: New nodes automatically get certificates
+
+### Certificate Lifecycle
+
+| Certificate | Lifetime | Renewal | Location |
+|-------------|----------|---------|----------|
+| Root CA | 10 years | Manual | `/etc/step-ca/certs/root_ca.crt` |
+| Intermediate CA | 10 years | Manual | `/etc/step-ca/secrets/intermediate_ca_key` |
+| Node Certificates | 2 years | Automatic (~487 days) | `/etc/etcd/ssl/etcd-*-{peer,server,client}.crt` |
+
+### How It Works
+
+1. **step-ca runs on cert-manager node** (typically first etcd node)
+2. **Each node requests certificates** using `step ca certificate` command
+3. **Private keys generated locally** on each node during request
+4. **Certificates signed remotely** by step-ca and returned to node
+5. **Systemd timers** automatically renew certificates before expiration
+6. **Zero-downtime reload** of etcd after certificate renewal
+
+### Certificate Locations
+
+```
+/etc/etcd/ssl/
+├── etcd-k8s-1-peer.crt         # Peer certificate (public)
+├── etcd-k8s-1-peer.key         # Peer private key (0400)
+├── etcd-k8s-1-server.crt       # Server certificate (public)
+├── etcd-k8s-1-server.key       # Server private key (0400)
+├── etcd-k8s-1-client.crt       # Client certificate (public)
+├── etcd-k8s-1-client.key       # Client private key (0400)
+├── root_ca.crt                 # Root CA (public)
+├── peer-ca.crt → root_ca.crt   # Symlink for compatibility
+└── client-ca.crt → root_ca.crt # Symlink for compatibility
+```
+
+### Manual Certificate Operations
+
+```bash
+# Check certificate expiration
+step certificate inspect /etc/etcd/ssl/etcd-k8s-1-peer.crt
+
+# Force certificate renewal
+systemctl start step-renew-etcd-k8s-1-peer.service
+
+# Check renewal timer status
+systemctl list-timers 'step-renew-*'
+
+# View renewal logs
+journalctl -u step-renew-etcd-k8s-1-peer.service
+```
+
+### Security Model
+
+**Private Keys:**
+- ✅ Generated on each node locally
+- ✅ Never transmitted over network
+- ✅ Permissions: 0400 (read-only by owner)
+- ✅ Owner: etcd user
+
+**CA Keys:**
+- ✅ Stored only on cert-manager nodes
+- ✅ Backed up encrypted to S3 (AWS KMS)
+- ✅ Replicated to backup cert-managers
+- ✅ Permissions: 0400 (read-only by root)
+
+**Communication:**
+- ✅ All certificate requests over HTTPS
+- ✅ Only public data transmitted (signed certificates)
+- ✅ step-ca validates all requests before signing
+
+See [CERTIFICATE_ARCHITECTURE.md](CERTIFICATE_ARCHITECTURE.md) for detailed security documentation.
+
+## Backup and Disaster Recovery
+
+### Automated Backups
+
+Automated backups are configured during cluster deployment. Two types of backups run automatically:
+
+**1. CA Backups (Change-based)**
+- Checks CA files every 5 minutes for changes
+- Only backs up when CA keys/config changes
+- Uploads encrypted backup to S3 with KMS
+- Keeps latest backup always available
+
+**2. Etcd Data Backups (Time-based)**
+- Runs every 30 minutes (configurable)
+- Creates encrypted snapshot of cluster data
+- Uploads to S3 with KMS encryption
+- Automatic retention cleanup (90 days default)
+
+**Configuration variables:**
+```yaml
+# In group_vars/all/vault.yml or inventory
+etcd_backup_cron_enabled: true
+etcd_backup_interval: "*/30"  # Every 30 minutes
+
+ca_backup_cron_enabled: true
+ca_backup_check_interval: "*/5"  # Check every 5 minutes
+
+# Optional: Deadman monitoring (get alerted if backup stops working)
+backup_healthcheck_enabled: true
+backup_healthcheck_url: "https://hc-ping.com/your-uuid"
+ca_backup_healthcheck_url: "https://hc-ping.com/your-ca-uuid"
+
+# Retention
+etcd_backup_retention_days: 90
+ca_backup_retention_days: 365
+```
+
+**View backup logs:**
+```bash
+# CA backups
+tail -f /var/log/etcd-backups/ca-backup.log
+
+# Etcd data backups
+tail -f /var/log/etcd-backups/etcd-backup.log
+```
+
+**Disable automated backups:**
+```yaml
+# In inventory or group_vars
+etcd_backup_cron_enabled: false
+ca_backup_cron_enabled: false
+```
+
+### Automated etcd Data Backups
+
+```bash
+# Create snapshot backup
+ansible-playbook -i inventory.ini etcd.yaml \
+  -e etcd_action=backup \
+  --vault-password-file ~/.vault-pass \
+  -b --become-user=root
+```
+
+Snapshots are stored in:
+- Local: `{{ etcd_home }}/backups/{{ etcd_cluster_name }}/YYYY/MM/snapshot.db`
+- S3: `s3://{{ bucket }}/{{ etcd_cluster_name }}/YYYY/MM/snapshot.db` (if configured)
+
+### Disaster Recovery
+
+#### Scenario 1: Primary Cert-Manager Fails
+
+**RTO:** 5-10 minutes
+
+```bash
+# Activate step-ca on backup node
+ssh etcd-k8s-2
+systemctl start step-ca
+
+# Verify
+curl -k https://etcd-k8s-2:9000/health
+```
+
+#### Scenario 2: Restore CA from Backup
+
+**RTO:** 10-30 minutes
+
+```bash
+# From another cert-manager node
+ansible-playbook -i inventory.ini playbooks/restore-ca.yaml \
+  -e source_node=etcd-k8s-2 \
+  -e target_node=etcd-k8s-1
+
+# From S3 encrypted backup
+ansible-playbook -i inventory.ini playbooks/restore-ca-from-backup.yaml \
+  -e target_node=etcd-k8s-1 \
+  --vault-password-file ~/.vault-pass
+```
+
+#### Scenario 3: Restore etcd Data
+
+**Using Ansible playbook (recommended):**
+```bash
+# Restore from latest S3 backup
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml
+
+# Restore from specific backup
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_etcd_s3_file="etcd-cluster/2026/01/etcd-default-2026-01-20_14-30-00-snapshot.db.kms"
+
+# Restore from local file
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_etcd_local_file="/var/lib/etcd/backups/etcd-default-snapshot.db"
+
+# Skip confirmation prompt
+ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml \
+  -e restore_confirm=false
+```
+
+**Manual restore process:**
+```bash
+# List available backups
+aws s3 ls s3://etcd-backups/etcd-default/ --recursive
+
+# Download and decrypt
+aws s3 cp s3://etcd-backups/etcd-default/latest-snapshot.db.kms /tmp/
+aws kms decrypt --ciphertext-blob fileb:///tmp/latest-snapshot.db.kms \
+  --output text --query Plaintext | base64 -d > /tmp/restore.db
+
+# Stop etcd, restore, restart
+systemctl stop etcd-default-1
+mv {{ etcd_data_dir }} {{ etcd_data_dir }}.backup
+etcdutl snapshot restore /tmp/restore.db --data-dir {{ etcd_data_dir }}
+chown -R etcd:etcd {{ etcd_data_dir }}
+systemctl start etcd-default-1
+```
+
+See [CERTIFICATE_ARCHITECTURE.md](CERTIFICATE_ARCHITECTURE.md) for detailed DR procedures.
+
+## Configuration
+
+### Essential Variables
+
+All user-configurable variables are in `roles/etcd3/defaults/main.yaml` and `roles/etcd3/certs/smallstep/defaults/main.yml`.
+
+**Cluster Configuration** (`roles/etcd3/defaults/main.yaml`):
+```yaml
+# Cluster identity
+etcd_cluster_name: default
+etcd_version: v3.5.26
+
+# Ports
+etcd_ports:
+  client: 2379
+  peer: 2380
+
+# Paths
+bin_dir: /opt/bin
+etcd_home: /var/lib/etcd/
+etcd_config_dir: /etc/etcd
+etcd_cert_dir: /etc/etcd/ssl
+
+# Performance tuning
+etcd_heartbeat_interval: 250
+etcd_election_timeout: 5000
+etcd_snapshot_count: 10000
+etcd_compaction_retention: "8"
+
+# Backups
+etcd_backup: yes  # Auto-backup before upgrade/delete
+```
+
+**Certificate Configuration** (`roles/etcd3/certs/smallstep/defaults/main.yml`):
+```yaml
+# step-ca configuration
+step_ca_port: 9000
+step_ca_provisioner: "etcd-provisioner"
+
+# Certificate lifetimes
+step_cert_default_duration: "17520h"  # 2 years
+step_cert_max_duration: "26280h"      # 3 years
+step_cert_min_duration: "1h"
+
+# Backup configuration
+step_ca_backup_encryption_method: "aws-kms"
+step_ca_backup_kms_key_id: "alias/etcd-ca-backup"
+step_ca_backup_s3_bucket: "etcd-backups"
+```
+
+### Sensitive Variables (ansible-vault)
+
+Store in `group_vars/all/vault.yml` (encrypted):
+```yaml
+step_ca_password: "secure-password"
+step_provisioner_password: "secure-password"
+step_ca_backup_password: "backup-password"  # If using symmetric encryption
+```
+
+### Inventory Groups
+
+Required groups:
+- `[etcd]`: Etcd cluster member nodes
+- `[etcd-clients]`: Nodes needing client certificates
+- `[etcd-cert-managers]`: Nodes running step-ca (primary + backups)
+
+### Example Configurations
+
+**Small cluster (3 nodes):**
+```ini
+[etcd]
+etcd-1 ansible_host=10.0.1.10
+etcd-2 ansible_host=10.0.1.11
+etcd-3 ansible_host=10.0.1.12
+
+[etcd-cert-managers]
+etcd-1  # Single cert-manager
+```
+
+**HA cluster with backup cert-managers:**
+```ini
+[etcd]
+etcd-1 ansible_host=10.0.1.10
+etcd-2 ansible_host=10.0.1.11
+etcd-3 ansible_host=10.0.1.12
+
+[etcd-cert-managers]
+etcd-1  # Primary - step-ca running
+etcd-2  # Backup - CA keys replicated, step-ca stopped
+```
+
+**With client nodes:**
+```ini
+[etcd]
+etcd-1 ansible_host=10.0.1.10
+etcd-2 ansible_host=10.0.1.11
+etcd-3 ansible_host=10.0.1.12
+
+[etcd-clients]
+kube-apiserver-1 ansible_host=10.0.2.10
+kube-apiserver-2 ansible_host=10.0.2.11
+
+[etcd-cert-managers]
+etcd-1
+```
+
+## Integration with Other Systems
+
+### Kubernetes API Server
+
+Use the `etcd3/facts` role to populate connection variables:
 
 ```yaml
-# Manage etcd cluster
-- hosts: etcd
-  any_errors_fatal: true
+- hosts: kube-master
   roles:
-    - name: etcd/cluster
-
-```
-
-#### Install
-
-The install action works only once and should not be called again on an existing cluster.
-It deploys and configure an new etcd-cluster with name `etcd_cluster_name`.
-
-```
-ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root  -e etcd_action=create
-```
-
-It uses binaries and systemd to manage the process. The systemd service is called by default `etcd-{{cluste_name}}-{{index}}`
-```
-# display status in node2 of the k8s etcd-cluster
-$ systemd status etcd-k8s-2
-```
-
-
-##### Recover install failures
-
-In case of a failure during the first play, it's possible to retry the same command but with the variable "etcd_force_create=true".
-As an alternative, it's also possible to run an 'upgrade' with `-e etcd_action=upgrade -e etcd_sync_certs=true`
-
-#### Upgrade
-
-Upgrade are used to bump etcd versions, edit configuration (e.g retention_period) or rotate certificates.
-It can't be used to add or remove nodes to an existing cluster, cluster size if fixed.
-
-
-```
-ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root  -e etcd_action=upgrade -e etcd_verson=3.3.10
-```
-
-
-#### Delete
-
-Delete a cluster will remove all certificates, etcd-data and configuration.
-To trigger a deletion provide the variable `etcd_delete_cluster=true`
-```
-ansible-playbook -i inventory.ini etcd.yaml -vv  -b --become-user=root  -e etcd_delete_cluster=true
-```
-
-
-### Certs management
-
-The certificate are generate from the `etcd-cert-managers` hosts then distributed to each nodes (etcd clients and peers).
-To rotate the certificates (create new CA and keys) or only re-distribute the existing one, configure respectively `etcd_rotate_certs=true` and `etcd_sync_certs=true` variables.
-
-Create a group `etcd-clients` with all hosts that should receive a client certificate.
-
-##### Playbook example
-
-To only manage certificate (without deploying an etcd cluster), the following playbook initializes the CA and sends certificates to the specified 'clients' hosts
-
-```
-- hosts: etcd-clients
-  roles:
-    - name: etcd/certs
-```
-
-Also, `/etcd/certs` can be set as a role dependency. Actually, this how the etcd-peer certificate are generated: [roles/etcd/cluster/meta/main.yml](https://github.com/ant31/etcd-ansible/blob/master/roles/etcd/cluster/install/meta/main.yml#L13)
-
-Roles documentation can be found here: [/etcd/certs/README.md)](https://github.com/ant31/etcd-ansible/tree/master/roles/etcd/certs/README.md)
-
-### Etcd Facts
-
-To integrate the etcd role, and configure, for example kubernetes-apimaster with the list of etcd-client-urls, this role can be call to populate few variables.
- - etcd_access_addresses: etcd endpoints separated by a coma.
- - etcd_cert_paths: paths the certificates
- - etcd_members: dict with details about each etcd node.
-
-##### Playbook example
-
-The following playbook is populating `etcd_access_address` variable by calling the role etcd/facts
-```
-- hosts: clients
-  roles:
-    - name: etcd/facts
+    - etcd3/facts
   tasks:
-    - name: display members health
-      command: |
-        /opt/bin/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{etcd_cert_paths.client.cert}}
-        --cacert={{etcd_cert_paths.client.ca}}
-        --key={{etcd_cert_paths.client.key}}
-        endpoint health
-
+    - name: Configure kube-apiserver
+      template:
+        src: kube-apiserver.yaml.j2
+        dest: /etc/kubernetes/manifests/kube-apiserver.yaml
 ```
+
+Available facts:
+- `etcd_access_addresses`: Comma-separated etcd endpoints
+- `etcd_cert_paths.client.cert`: Path to client certificate
+- `etcd_cert_paths.client.key`: Path to client private key
+- `etcd_cert_paths.client.ca`: Path to CA certificate
+- `etcd_members`: Dict with details about each etcd node
+
+Example template:
+```yaml
+# kube-apiserver.yaml.j2
+spec:
+  containers:
+  - name: kube-apiserver
+    command:
+    - kube-apiserver
+    - --etcd-servers={{ etcd_access_addresses }}
+    - --etcd-cafile={{ etcd_cert_paths.client.ca }}
+    - --etcd-certfile={{ etcd_cert_paths.client.cert }}
+    - --etcd-keyfile={{ etcd_cert_paths.client.key }}
+```
+
+## Monitoring and Health Checks
+
+### Automated Health Check Playbook
+
+Run comprehensive health checks on your cluster:
+
+```bash
+# Full health check (human-readable output)
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml
+
+# JSON output for monitoring tools
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e output_format=json
+
+# Check specific components only
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags health
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags certs
+ansible-playbook -i inventory.ini playbooks/etcd-health.yaml --tags step-ca
+```
+
+**What it checks:**
+- ✅ Etcd endpoint health (all nodes)
+- ✅ Cluster member list and quorum
+- ✅ Endpoint status and leader election
+- ✅ Database size with quota warnings
+- ✅ Certificate expiration (peer, server, client)
+- ✅ Renewal timer status (ensures auto-renewal is working)
+- ✅ step-ca service health
+- ✅ Root CA certificate expiration
+
+**Example output:**
+```
+════════════════════════════════════════════════════════════════
+ETCD CLUSTER HEALTH CHECK - k8s
+════════════════════════════════════════════════════════════════
+
+┌─ ENDPOINT HEALTH ─────────────────────────────────────────┐
+https://10.0.1.10:2379 is healthy: successfully committed proposal
+https://10.0.1.11:2379 is healthy: successfully committed proposal
+https://10.0.1.12:2379 is healthy: successfully committed proposal
+└────────────────────────────────────────────────────────────┘
+
+┌─ OVERALL STATUS ──────────────────────────────────────────┐
+✅ Cluster is HEALTHY
+└────────────────────────────────────────────────────────────┘
+```
+
+### Manual Health Checks
+
+```bash
+# Check all endpoints
+etcdctl --endpoints=https://etcd-k8s-1:2379,https://etcd-k8s-2:2379,https://etcd-k8s-3:2379 \
+  --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
+  --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
+  --cacert=/etc/etcd/ssl/root_ca.crt \
+  endpoint health
+
+# Check cluster members
+etcdctl member list
+
+# Check database size
+etcdctl endpoint status --write-out=table
+```
+
+### Certificate Health
+
+```bash
+# Check certificate expiration
+ansible etcd -i inventory.ini -m shell -a \
+  "step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep 'Not After'" -b
+
+# Check renewal timer status
+ansible etcd -i inventory.ini -m shell -a \
+  "systemctl list-timers 'step-renew-*'" -b
+
+# Check step-ca health
+curl -k https://etcd-k8s-1:9000/health
+```
+
+### Systemd Service Status
+
+```bash
+# All etcd services
+ansible etcd -i inventory.ini -m shell -a "systemctl status 'etcd-*'" -b
+
+# step-ca service
+ansible etcd-cert-managers -i inventory.ini -m shell -a "systemctl status step-ca" -b
+
+# Renewal timers
+ansible etcd -i inventory.ini -m shell -a "systemctl status 'step-renew-*.timer'" -b
+```
+
+## Troubleshooting
+
+### step-ca Won't Start
+
+```bash
+# Check logs
+journalctl -u step-ca -n 100
+
+# Verify CA files exist
+ls -la /etc/step-ca/secrets/
+
+# Verify permissions
+stat -c '%a %U' /etc/step-ca/secrets/root_ca_key
+# Should be: 400 root
+
+# Test configuration
+/opt/bin/step-ca --dry-run /etc/step-ca/config/ca.json
+```
+
+### Certificate Request Fails
+
+```bash
+# Test connectivity to step-ca
+curl -k https://etcd-k8s-1:9000/health
+
+# Test certificate request
+step ca certificate test /tmp/test.crt /tmp/test.key \
+  --ca-url https://etcd-k8s-1:9000 \
+  --root /etc/etcd/ssl/root_ca.crt
+
+# Check provisioner password
+cat /etc/step-ca/secrets/password
+```
+
+### etcd Cluster Unhealthy
+
+```bash
+# Check individual members
+for i in 1 2 3; do
+  etcdctl --endpoints=https://etcd-k8s-$i:2379 \
+    --cert=/etc/etcd/ssl/etcd-k8s-1-client.crt \
+    --key=/etc/etcd/ssl/etcd-k8s-1-client.key \
+    --cacert=/etc/etcd/ssl/root_ca.crt \
+    endpoint health
+done
+
+# Check etcd logs
+journalctl -u etcd-default-1 -n 100
+
+# Verify certificates are valid
+openssl verify -CAfile /etc/etcd/ssl/root_ca.crt /etc/etcd/ssl/etcd-k8s-1-peer.crt
+```
+
+## Advanced Topics
+
+### Custom Certificate Lifetime
+
+Edit `roles/etcd3/certs/smallstep/defaults/main.yml`:
+```yaml
+step_cert_default_duration: "8760h"  # 1 year instead of 2 years
+```
+
+### Disable Automatic Renewal
+
+```bash
+# On specific node
+systemctl disable --now step-renew-etcd-k8s-1-peer.timer
+systemctl disable --now step-renew-etcd-k8s-1-server.timer
+systemctl disable --now step-renew-etcd-k8s-1-client.timer
+```
+
+### Multi-Cluster Setup
+
+Deploy multiple independent etcd clusters:
+
+```bash
+# Cluster 1 (Kubernetes)
+ansible-playbook -i inventory-k8s.ini etcd.yaml \
+  -e etcd_action=create \
+  -e etcd_cluster_name=k8s \
+  --vault-password-file ~/.vault-pass -b
+
+# Cluster 2 (Events)
+ansible-playbook -i inventory-events.ini etcd.yaml \
+  -e etcd_action=create \
+  -e etcd_cluster_name=events \
+  --vault-password-file ~/.vault-pass -b
+```
+
+Each cluster has independent CA and certificates.
+
+## Documentation
+
+- [CERTIFICATE_ARCHITECTURE.md](CERTIFICATE_ARCHITECTURE.md) - Detailed certificate architecture and security
+- [csr_workflow_clarification.md](csr_workflow_clarification.md) - Smallstep workflow explained
+- [improve_certs_todo.md](improve_certs_todo.md) - Certificate improvements roadmap
+- [roles/etcd3/certs/smallstep/README.md](roles/etcd3/certs/smallstep/README.md) - Smallstep CA role documentation
+
+## Contributing
+
+See [improve_todo.md](improve_todo.md) for known issues and improvement opportunities.
+
+## License
+
+See [LICENSE](LICENSE)

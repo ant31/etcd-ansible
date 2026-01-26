@@ -1,0 +1,26 @@
+[Unit]
+Description=Smallstep Certificate Authority
+Documentation=https://smallstep.com/docs/step-ca
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment=STEPPATH={{ step_path }}
+ExecStart={{ bin_dir }}/step-ca {{ step_ca_config }} --password-file {{ step_ca_secrets }}/password
+ExecReload=/bin/kill -HUP $MAINPID
+{% if step_ca_runtime_minutes | int > 0 %}
+# Auto-shutdown after {{ step_ca_runtime_minutes }} minutes (security: minimize CA exposure)
+# Restart disabled - service stays stopped after runtime limit (must manually restart)
+RuntimeMaxSec={{ step_ca_runtime_minutes * 60 }}
+Restart=no
+{% else %}
+# No runtime limit - restart on unexpected failures
+Restart=on-failure
+RestartSec=10
+{% endif %}
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

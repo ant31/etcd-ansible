@@ -1,0 +1,20 @@
+[Unit]
+Description=Send alert for certificate renewal failure: %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+
+# Send healthcheck ping with failure status
+{% if step_cert_renewal_healthcheck_url %}
+ExecStart=/usr/bin/curl -fsS --retry 3 "{{ step_cert_renewal_healthcheck_url }}?service=%i&status=failure"
+{% endif %}
+
+# Log to system journal for visibility
+ExecStart=/usr/bin/logger -t cert-renewal-failure -p user.err "Certificate renewal FAILED for %i - check 'journalctl -u %i'"
+
+# Optional: Send email (requires mail command)
+# ExecStart=/usr/bin/bash -c 'echo "Certificate renewal failed for %i on $(hostname). Check: journalctl -u %i" | mail -s "ALERT: Certificate Renewal Failure" ops@example.com'
+
+[Install]
+WantedBy=multi-user.target

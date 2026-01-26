@@ -1,0 +1,22 @@
+---
+# Service control role
+# Supports: stop, start, restart
+# Usage: Set service_action variable
+
+- name: Stop all etcd services
+  systemd:
+    name: etcd-*
+    state: stopped
+  when: service_action == 'stop'
+
+- name: Start all etcd services
+  systemd:
+    name: etcd-*
+    state: started
+  when: service_action == 'start'
+
+- name: Restart all etcd services
+  systemd:
+    name: etcd-*
+    state: restarted
+  when: service_action == 'restart'

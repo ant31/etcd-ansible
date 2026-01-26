@@ -1,0 +1,9 @@
+---
+- name: View etcd logs
+  command: journalctl -u etcd-* -n 50 --no-pager
+  register: etcd_logs
+  changed_when: false
+
+- name: Display logs
+  debug:
+    var: etcd_logs.stdout_lines

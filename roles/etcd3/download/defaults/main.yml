@@ -1,0 +1,38 @@
+---
+# Simplified download defaults - file downloads only
+
+# Skip all download tasks if already downloaded
+# Set to true in subsequent plays to avoid re-checking downloads
+# Example:
+#   - hosts: etcd
+#     roles:
+#       - etcd3/download  # Downloads files
+#   - hosts: etcd
+#     vars:
+#       skip_downloads: true
+#     roles:
+#       - etcd3/download  # Skips immediately, no overhead
+skip_downloads: false
+
+# Validate SSL certificates when downloading
+# Set to False if you have SSL proxy issues
+download_validate_certs: true
+
+# Default retry delay in seconds
+retry_stagger: 5
+
+# Downloads dictionary - should be passed in when calling the role
+# Expected structure:
+#   downloads:
+#     item_name:
+#       file: true
+#       enabled: true
+#       dest: /path/to/destination
+#       url: https://example.com/file.tar.gz
+#       sha256: sha256:checksum_here
+#       unarchive: true  # optional, to extract archives
+#       owner: root      # optional
+#       mode: "0755"     # optional
+#       groups:          # list of inventory groups that need this download
+#         - etcd
+downloads: {}

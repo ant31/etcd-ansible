@@ -8,17 +8,24 @@
 
 - name: check input
   fail:
-    msg: "User canceled action: '{{uinput.user_input}}'"
+    msg: "❌ Cluster deletion cancelled: user did not confirm with 'yes' (entered: '{{ uinput.user_input | default('no input') }}')"
   when:
-    - uinput.user_input != 'yes'
+    - etcd_delete_cluster | default(false) | bool
+    - uinput.user_input is not defined or uinput.user_input != 'yes'
   run_once: true
+
+- name: Backup before delete
+  import_role:
+    name: etcd3/backups
+  when:
+    - etcd_backup | d(true) | bool
 
 - name: stop the cluster {{etcd_cluster_name}}
   service:
     name: "{{etcd_name}}"
     state: stopped
     enabled: false
-  failed_when: false
+  ignore_errors: true
   when:
     - etcd_delete_cluster | default(false) | bool
 
