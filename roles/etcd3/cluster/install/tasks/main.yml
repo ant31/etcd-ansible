@@ -16,7 +16,7 @@
   copy:
     src: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64/{{item}}"
     dest: "{{ bin_dir }}/"
-    mode: 0700
+    mode: 0755
     remote_src: yes
   with_items:
     - etcd
@@ -34,7 +34,9 @@
   template:
     src: etcdctl.sh.j2
     dest: "{{ bin_dir }}/etcdctl.sh"
-    mode: 0700
+    mode: 0755
+    owner: root
+    group: root
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - import_tasks: 0010_cluster.yaml

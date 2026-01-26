@@ -26,6 +26,7 @@
   file:
     path: "{{ item.value.dest | dirname }}"
     state: directory
+    mode: 0755
     recurse: yes
   loop: "{{ downloads | dict2items }}"
   when:
@@ -99,6 +100,8 @@
     src: "{{ download_cache_dir }}/step-archive/step_{{ step_version }}/bin/step"
     dest: "{{ bin_dir }}/step"
     mode: 0755
+    owner: root
+    group: root
     remote_src: yes
   when:
     - not skip_downloads | default(false)
@@ -114,6 +117,8 @@
     src: "{{ download_cache_dir }}/step-ca-archive/step-ca"
     dest: "{{ bin_dir }}/step-ca"
     mode: 0755
+    owner: root
+    group: root
     remote_src: yes
   when:
     - not skip_downloads | default(false)

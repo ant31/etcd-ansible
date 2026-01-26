@@ -12,14 +12,14 @@ Environment=STEPPATH={{ etcd_cert_dir }}/.step
 
 # Renewal runs as root (step-ca runs as root)
 # Fix permissions before renewal
-ExecStartPre=/bin/chown -R {{ etcd_user.name }}:{{ etcd_user.name }} {{ etcd_cert_dir }}/.step
+ExecStartPre=/bin/chown -R {{ cert_user }}:{{ cert_user }} {{ etcd_cert_dir }}/.step
 ExecStartPre=/bin/chmod 0700 {{ etcd_cert_dir }}/.step
 
 # Renew certificate (runs as root)
 ExecStart={{ bin_dir }}/step ca renew --force --ca-url={{ step_ca_url }} --root={{ etcd_cert_dir }}/root_ca.crt {{ cert_path }} {{ key_path }}
 
-# Set certificate ownership and permissions to etcd user after renewal
-ExecStartPost=/bin/chown {{ etcd_user.name }}:{{ etcd_user.name }} {{ cert_path }} {{ key_path }}
+# Set certificate ownership and permissions to cert owner after renewal
+ExecStartPost=/bin/chown {{ cert_user }}:{{ cert_user }} {{ cert_path }} {{ key_path }}
 ExecStartPost=/bin/chmod 0400 {{ cert_path }} {{ key_path }}
 
 # NOTE: etcd is NOT automatically restarted after renewal

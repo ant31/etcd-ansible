@@ -70,11 +70,15 @@
     - "{{ etcd_cert_paths.client.cert }}"
   when: inventory_hostname in groups[etcd_cluster_group]
 
-- name: Set client certificate permissions (etcd user only)
+- name: Determine certificate owner for this node (for client certs)
+  set_fact:
+    cert_owner_user: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
+
+- name: Set client certificate permissions (cert owner only)
   file:
     path: "{{ item }}"
-    owner: "{{ etcd_user.name }}"
-    group: "{{ etcd_user.name }}"
+    owner: "{{ cert_owner_user.name }}"
+    group: "{{ cert_owner_user.name }}"
     mode: 0400
   loop:
     - "{{ etcd_cert_paths.client.key }}"
@@ -98,6 +102,7 @@
     cert_name: "{{ etcd_cluster_name }}-peer"
     cert_path: "{{ etcd_cert_paths.peer.cert }}"
     key_path: "{{ etcd_cert_paths.peer.key }}"
+    cert_user: "{{ etcd_user.name }}"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Create failure notification service template
@@ -125,6 +130,7 @@
     cert_name: "{{ etcd_cluster_name }}-server"
     cert_path: "{{ etcd_cert_paths.server.cert }}"
     key_path: "{{ etcd_cert_paths.server.key }}"
+    cert_user: "{{ etcd_user.name }}"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Create certificate renewal timer for server cert
@@ -145,6 +151,7 @@
     cert_name: "{{ etcd_cluster_name }}-client"
     cert_path: "{{ etcd_cert_paths.client.cert }}"
     key_path: "{{ etcd_cert_paths.client.key }}"
+    cert_user: "{{ cert_owner_user.name }}"
 
 - name: Create certificate renewal timer for client cert
   template:

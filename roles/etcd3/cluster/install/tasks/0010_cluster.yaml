@@ -91,9 +91,123 @@
     - etcd_action == "create"
     - not etcd_force_create |default(false) | bool
 
-- name: UPDATE | fail if not data dir exists
+- name: Find a node with existing etcd data to query cluster
+  set_fact:
+    query_node: "{{ groups[etcd_cluster_group] | map('extract', hostvars) | selectattr('etcd_data', 'defined') | selectattr('etcd_data.stat.exists', 'equalto', true) | map(attribute='inventory_hostname') | first | default(groups[etcd_cluster_group][0]) }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  loop: "{{ ansible_play_hosts }}"
+  run_once: true
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - groups[etcd_cluster_group] | length > 1
+
+- name: Query existing cluster members from a running node
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ hostvars[query_node].etcd_client_url | default('https://' + hostvars[query_node].ansible_default_ipv4.address + ':' + etcd_ports.client | string) }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    member list -w json
+  environment:
+    ETCDCTL_API: "3"
+  register: cluster_members_raw
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ query_node }}"
+  run_once: true
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - groups[etcd_cluster_group] | length > 1
+    - query_node is defined
+
+- name: Parse cluster member names from member list
+  set_fact:
+    existing_member_names: "{{ cluster_members_raw.stdout | from_json | json_query('members[*].name') }}"
+  run_once: true
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - groups[etcd_cluster_group] | length > 1
+    - cluster_members_raw.rc == 0
+
+- name: Check if current node is a new addition (not in cluster member list)
+  set_fact:
+    is_new_node_addition: "{{ etcd_name not in existing_member_names | default([]) }}"
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - groups[etcd_cluster_group] | length > 1
+    - cluster_members_raw.rc == 0
+
+- name: Automatically add new node to cluster
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}
+  environment:
+    ETCDCTL_API: "3"
+  register: member_add_result
+  delegate_to: "{{ groups[etcd_cluster_group][0] }}"
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - is_new_node_addition | default(false)
+    - not etcd_data.stat.exists
+
+- name: Display automatic member add result
+  debug:
+    msg:
+      - "✅ Node automatically added to cluster"
+      - "Node: {{ etcd_name }}"
+      - "Peer URL: {{ etcd_peer_url }}"
+      - ""
+      - "{{ member_add_result.stdout }}"
+      - ""
+      - "Continuing with deployment..."
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - is_new_node_addition | default(false)
+    - member_add_result is defined
+    - member_add_result is changed
+
+- name: Fail if automatic member add failed
+  fail:
+    msg:
+      - "❌ AUTOMATIC MEMBER ADD FAILED"
+      - "Node: {{ inventory_hostname }}"
+      - "Cluster: {{ etcd_cluster_name }}"
+      - ""
+      - "Error from etcdctl member add:"
+      - "{{ member_add_result.stderr | default('No error message') }}"
+      - ""
+      - "Common causes:"
+      - "1. Node already exists in cluster (check: etcdctl member list)"
+      - "2. Network connectivity issues between nodes"
+      - "3. Certificate issues"
+      - "4. Cluster is unhealthy"
+      - ""
+      - "Manual troubleshooting:"
+      - "1. Check cluster health:"
+      - "   etcdctl --endpoints={{ etcd_access_addresses }} endpoint health"
+      - ""
+      - "2. List existing members:"
+      - "   etcdctl --endpoints={{ etcd_access_addresses }} member list"
+      - ""
+      - "3. Try manual member add:"
+      - "   etcdctl --endpoints={{ etcd_access_addresses }} member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}"
+      - ""
+      - "4. If member already exists, remove and re-add:"
+      - "   etcdctl --endpoints={{ etcd_access_addresses }} member remove <MEMBER_ID>"
+      - "   etcdctl --endpoints={{ etcd_access_addresses }} member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}"
+  when:
+    - etcd_action in ['deploy', 'upgrade']
+    - is_new_node_addition | default(false)
+    - member_add_result is defined
+    - member_add_result is failed
+
+- name: UPDATE | fail if data dir doesn't exist and not adding new node
   assert:
-    that: etcd_data.stat.exists
+    that: etcd_data.stat.exists or is_new_node_addition | default(false)
     fail_msg:
       - "❌ ETCD DATA NOT FOUND on {{ inventory_hostname }}"
       - "Cannot upgrade cluster: {{ etcd_cluster_name }}"
@@ -102,8 +216,8 @@
       - "This indicates etcd was never initialized on this node."
       - ""
       - "Options:"
-      - "1. Use 'create' action to deploy new cluster:"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create"
+      - "1. Use 'deploy' action to deploy new cluster or add new nodes:"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
       - ""
       - "2. Check if data directory path is correct:"
       - "   Current setting: {{ etcd_data_dir }}"
@@ -114,68 +228,19 @@
   when:
     - etcd_action == "upgrade"
 
-- name: set cluster_state
+- name: set cluster_state based on actual cluster status
   set_fact:
     etcd_cluster_state: >-
-      {%- if etcd_action != "create" -%}
+      {%- if etcd_action == "create" -%}
+      new
+      {%- elif cluster_members_raw is defined and cluster_members_raw.rc == 0 -%}
+      existing
+      {%- elif etcd_data.stat.exists -%}
       existing
       {%- else -%}
       new
       {%- endif -%}
     etcd_binary_sha256: "{{etcdbin.stat.checksum}}"
-
-- name: ETCD | Check if etcd cluster is healthy
-  command: >-
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{etcd_cert_paths.client.cert}}
-    --cacert={{etcd_cert_paths.client.ca}}
-    --key={{etcd_cert_paths.client.key}}
-    endpoint health
-  register: etcd_cluster_is_healthy
-  changed_when: false
-  retries: 10
-  delay: "{{ retry_stagger | default(5)}}"
-  until: etcd_cluster_is_healthy.rc == 0
-  ignore_errors: true
-  environment:
-    ETCDCTL_API: "3"
-  when:
-    - etcd_cluster_state == "existing"
-
-- name: Fail if cluster is unhealthy
-  fail:
-    msg:
-      - "❌ ETCD CLUSTER IS UNHEALTHY"
-      - "Cluster: {{ etcd_cluster_name }}"
-      - ""
-      - "Health check failed:"
-      - "{{ etcd_cluster_is_healthy.stderr }}"
-      - ""
-      - "Cannot proceed with {{ etcd_action }} on unhealthy cluster."
-      - ""
-      - "Troubleshooting:"
-      - "1. Check cluster status:"
-      - "   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
-      - ""
-      - "2. Check logs on all nodes:"
-      - "   ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b"
-      - ""
-      - "3. Verify connectivity between nodes:"
-      - "   ansible etcd -i inventory.ini -m shell -a 'etcdctl member list' -b"
-      - ""
-      - "4. Check certificate expiration:"
-      - "   ansible etcd -i inventory.ini -m shell -a 'step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep \"Not After\"' -b"
-      - ""
-      - "Recovery options:"
-      - "1. Fix the issue and retry"
-      - "2. Force deploy (RISKY - may cause data loss):"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action={{ etcd_action }} -e etcd_force_deploy=true"
-      - "3. Restore from backup:"
-      - "   ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml"
-  when:
-    - etcd_cluster_state == "existing"
-    - etcd_cluster_is_healthy.rc != 0
-    - not etcd_force_deploy | default(false) | bool
 
 - name: Create a backup on upgrade, deploy
   import_role:
@@ -194,12 +259,16 @@
     state: directory
     owner: "{{ etcd_user.name}}"
     group: "{{ etcd_user.name}}"
+    mode: '0700'
 
 
 - name: ETCD | Create etcd env file
   template:
     src: etcd.env.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}.env"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0400'
     backup: yes
   register: envchanged
 
@@ -207,9 +276,19 @@
   template:
     src: etcd-conf.yaml.j2
     dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0400'
     force: "{{(etcd_force_reconfigure|default(false) | bool) or (etcd_force_create | d(false) | bool)}}"
     backup: yes
   register: confchanged
+
+- name: ETCD | Fix config file permissions (ensure etcd user ownership)
+  file:
+    path: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0400'
 
 # Should be safe to update the etcd service file when needed
 - name: ETCD | Copy etcd.service systemd file
@@ -276,7 +355,7 @@
   tags:
     - etcd-restart
 
-- name: ETCD | Check if etcd cluster is healthy
+- name: ETCD | Check if etcd cluster is healthy (FINAL VALIDATION)
   command: >-
     {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
     --cert={{etcd_cert_paths.client.cert}}
@@ -290,6 +369,36 @@
   until: etcd_cluster_is_healthy.rc == 0
   environment:
     ETCDCTL_API: "3"
+
+- name: Fail if cluster is unhealthy after deployment
+  fail:
+    msg:
+      - "❌ ETCD CLUSTER IS UNHEALTHY AFTER DEPLOYMENT"
+      - "Cluster: {{ etcd_cluster_name }}"
+      - "Node: {{ inventory_hostname }}"
+      - ""
+      - "Health check failed:"
+      - "{{ etcd_cluster_is_healthy.stderr }}"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check if service started:"
+      - "   systemctl status {{ etcd_name }}"
+      - ""
+      - "2. Check logs on this node:"
+      - "   journalctl -u {{ etcd_name }} -n 100"
+      - ""
+      - "3. Verify certificates exist and are valid:"
+      - "   ls -la {{ etcd_cert_dir }}"
+      - "   step certificate inspect {{ etcd_cert_paths.peer.cert }}"
+      - ""
+      - "4. Check connectivity between nodes:"
+      - "   ansible etcd -i inventory.ini -m shell -a 'etcdctl member list' -b"
+      - ""
+      - "5. Check cluster health from all nodes:"
+      - "   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+  when:
+    - etcd_cluster_is_healthy.rc != 0
+    - not etcd_force_deploy | default(false) | bool
 
 - name: set cluster_state to existing
   set_fact:

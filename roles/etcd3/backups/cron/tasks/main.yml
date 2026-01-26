@@ -73,7 +73,7 @@
   when:
     - ca_backup_initial_run | default(true) | bool
     - ca_backup_cron_enabled | bool
-    - inventory_hostname in groups[etcd_certmanagers_group]
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
     - skip_initial_backup is not defined or not skip_initial_backup | bool
   ignore_errors: yes
   register: initial_ca_backup

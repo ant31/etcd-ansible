@@ -25,6 +25,11 @@ This directory contains all operational playbooks for managing etcd clusters.
 
 | Playbook | Purpose | Usage |
 |----------|---------|-------|
+| `generate-client-certs.yaml` | Generate client certificates only | `ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml` |
+| `regenerate-node-certs.yaml` | Regenerate node certificates (routine) | `ansible-playbook -i inventory.ini playbooks/regenerate-node-certs.yaml` |
+| `regenerate-ca.yaml` | Regenerate CA (disaster recovery) | `ansible-playbook -i inventory.ini playbooks/regenerate-ca.yaml` |
+| `renew-certs.yaml` | Manually renew all certificates | `ansible-playbook -i inventory.ini playbooks/renew-certs.yaml` |
+| `rotate-certs.yaml` | Force certificate rotation | `ansible-playbook -i inventory.ini playbooks/rotate-certs.yaml` |
 | `replicate-ca.yaml` | Replicate CA to backup nodes | `ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml` |
 | `setup-kms.yaml` | Setup AWS KMS for encryption | `ansible-playbook playbooks/setup-kms.yaml -e kms_key_alias=alias/etcd-ca-backup` |
 

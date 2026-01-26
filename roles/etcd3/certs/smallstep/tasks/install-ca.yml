@@ -155,40 +155,73 @@
     - "{{ step_ca_certs }}/intermediate_ca.crt"
   failed_when: false
 
-- name: Enable and start step-ca service
+- name: Enable and start step-ca service (PRIMARY cert-manager only)
   systemd:
     name: step-ca
     enabled: yes
     state: started
     daemon_reload: yes
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
   register: step_ca_service
 
 - name: Display step-ca runtime configuration
   debug:
     msg: "{{ ['step-ca runtime limit: ' + ('INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes')] + (['', 'Security note: step-ca will automatically stop after ' + (step_ca_runtime_minutes | string) + ' minutes.', 'This minimizes attack surface by only running the CA when needed.', '', 'To restart step-ca manually:', '  systemctl start step-ca', '', 'step-ca will also restart automatically when certificates are renewed.'] if step_ca_runtime_minutes | int > 0 else []) }}"
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+- name: Ensure step-ca is installed but STOPPED on backup cert-managers (before replication)
+  systemd:
+    name: step-ca
+    enabled: no
+    state: stopped
+    daemon_reload: yes
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  failed_when: false
+
+- name: Display backup cert-manager status
+  debug:
+    msg:
+      - "📋 Backup cert-manager configuration"
+      - ""
+      - "Node: {{ inventory_hostname }}"
+      - "Role: BACKUP (step-ca installed but STOPPED)"
+      - ""
+      - "step-ca will be replicated from primary: {{ groups[etcd_certmanagers_group][0] }}"
+      - "CA replication happens next (encrypted backup/restore method)"
+  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
 
 - name: Check step-ca service status
   command: systemctl status step-ca
   register: step_ca_status
   failed_when: false
   changed_when: false
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
 
 - name: Show step-ca service status if it failed to start
   debug:
     var: step_ca_status.stdout_lines
-  when: step_ca_service.state != 'started'
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
 
 - name: Show step-ca logs if service failed
   command: journalctl -u step-ca -n 50 --no-pager
   register: step_ca_logs
-  when: step_ca_service.state != 'started'
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
   failed_when: false
   changed_when: false
 
 - name: Display step-ca logs on failure
   debug:
     var: step_ca_logs.stdout_lines
-  when: step_ca_service.state != 'started'
+  when:
+    - inventory_hostname == groups[etcd_certmanagers_group][0]
+    - step_ca_service.state is defined
+    - step_ca_service.state != 'started'
 
 - name: Wait for step-ca to be ready (localhost check)
   uri:
@@ -199,11 +232,13 @@
   until: result.status == 200
   retries: 10
   delay: 3
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
 
-- name: Get root CA certificate (force fresh read)
+- name: Get root CA certificate (force fresh read - from primary only)
   slurp:
     src: "{{ step_ca_certs }}/root_ca.crt"
   register: step_root_ca
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
   
 - name: Clear any cached root CA facts (ensure fresh distribution)
   set_fact:
@@ -213,12 +248,13 @@
   loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
   when: etcd_force_certs | default(false) | bool
 
-- name: Store root CA as fact (fresh from regenerated CA)
+- name: Store root CA as fact (fresh from regenerated CA - from primary)
   set_fact:
     step_ca_root_cert: "{{ step_root_ca.content | b64decode }}"
   delegate_to: "{{ item }}"
   delegate_facts: true
   loop: "{{ groups[etcd_cluster_group] + groups[etcd_clients_group] }}"
+  when: inventory_hostname == groups[etcd_certmanagers_group][0]
 
 
 - name: Replicate CA keys to backup cert-managers using encrypted backup/restore

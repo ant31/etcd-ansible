@@ -294,7 +294,7 @@
     - restore-ca
 
 
-- name: Remove existing CA directories if force replacement enabled (ALL cert-managers - DISASTER RECOVERY ONLY)
+- name: Remove existing CA directories before restore (replacement or replication)
   file:
     path: "{{ item }}"
     state: absent
@@ -305,14 +305,16 @@
     - /etc/step-ca/db
   when:
     - ca_backup_exists | default(true) | bool
-    - etcd_force_ca_replacement | default(false) | bool
+    - |
+      etcd_force_ca_replacement | default(false) | bool or
+      (inventory_hostname in groups[etcd_certmanagers_group][1:] and etcd_force_ca_replication | default(true) | bool)
   tags:
     - restore-ca
 
-- name: Display force CA replacement status
+- name: Display CA directory cleanup status
   debug:
     msg:
-      - "⚠️  FORCE CA REPLACEMENT executed on {{ inventory_hostname }}"
+      - "✅ Existing CA directories cleaned on {{ inventory_hostname }}"
       - ""
       - "Deleted CA directories:"
       - "  - /etc/step-ca/secrets (private keys)"
@@ -320,11 +322,14 @@
       - "  - /etc/step-ca/config (configuration)"
       - "  - /etc/step-ca/db (database)"
       - ""
-      - "This node's CA will be completely replaced from backup."
-      - "{% if inventory_hostname == groups[etcd_certmanagers_group][0] %}WARNING: This is the PRIMARY cert-manager - step-ca will have new CA after restore{% endif %}"
+      - "Triggered by: {% if etcd_force_ca_replacement | default(false) | bool %}DISASTER RECOVERY (etcd_force_ca_replacement=true) - CAN affect ALL cert-managers{% else %}NORMAL REPLICATION (etcd_force_ca_replication=true) - backup cert-managers only{% endif %}"
+      - "This node's CA will be completely replaced from S3 backup."
+      - "{% if inventory_hostname == groups[etcd_certmanagers_group][0] %}⚠️  This is the PRIMARY cert-manager (disaster recovery mode){% else %}✓ This is a backup cert-manager{% endif %}"
   when:
     - ca_backup_exists | default(true) | bool
-    - etcd_force_ca_replacement | default(false) | bool
+    - |
+      etcd_force_ca_replacement | default(false) | bool or
+      (inventory_hostname in groups[etcd_certmanagers_group][1:] and etcd_force_ca_replication | default(true) | bool)
   tags:
     - restore-ca
 

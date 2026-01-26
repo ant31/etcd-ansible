@@ -19,6 +19,11 @@ step_ca_db: "{{ step_path }}/db"
 step_ca_certs: "{{ step_path }}/certs"
 step_ca_secrets: "{{ step_path }}/secrets"
 
+# Client certificate ownership (for etcd-clients group)
+# Override this in inventory for different applications
+# Example: etcd_client_cert_user: { name: "kube", group: "kube" }
+etcd_client_cert_user: "{{ etcd_user }}"  # Default to etcd user for backward compatibility
+
 # Certificate settings
 step_cert_default_duration: "17520h"  # 2 years (730 days)
 step_cert_max_duration: "26280h"      # 3 years
