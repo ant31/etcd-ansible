@@ -305,7 +305,7 @@
   when:
     - etcdsystemd is changed
 
-- name: CREATE | Ensure etcd is running
+- name: CREATE | Ensure etcd is running (SKIP for restore - uses parallel start)
   service:
     name: "{{ etcd_name }}"
     state: started
@@ -315,8 +315,52 @@
   delay: 10
   until: started_etcd is succeeded
   failed_when: started_etcd is failed
+  when:
+    - not (etcd_restored | default(false) | bool)  # Skip for restore - must start all nodes together
   tags:
     - etcd-start
+
+- name: RESTORE | Start etcd services in parallel (NO WAIT - all nodes start together)
+  shell: systemctl start {{ etcd_name }}
+  async: 60  # Allow 60s for service to start
+  poll: 0    # Don't wait - continue immediately
+  when:
+    - etcd_restored | default(false) | bool
+  register: etcd_restore_start_async
+  tags:
+    - etcd-start
+    - etcd-restore
+
+- name: RESTORE | Brief pause to let all nodes begin starting
+  pause:
+    seconds: 5
+  when:
+    - etcd_restored | default(false) | bool
+  run_once: true
+  tags:
+    - etcd-start
+    - etcd-restore
+
+- name: RESTORE | Wait for cluster to form (all nodes starting together)
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+    --cert={{ etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_cert_paths.client.ca }}
+    --key={{ etcd_cert_paths.client.key }}
+    endpoint health
+  register: restore_cluster_health
+  retries: 30
+  delay: 10
+  until: restore_cluster_health.rc == 0
+  changed_when: false
+  environment:
+    ETCDCTL_API: "3"
+  when:
+    - etcd_restored | default(false) | bool
+  run_once: true
+  tags:
+    - etcd-start
+    - etcd-restore
 
 
 # CRITICAL: Restart one node at a time to maintain quorum
@@ -333,6 +377,7 @@
   until: restarted_etcd is succeeded
   when:
     - started_etcd is not changed
+    - not (etcd_restored | default(false) | bool)  # Skip for restore - already started in parallel
     - etcd_action in ['upgrade', 'deploy'] or etcd_force_create | default(false) | bool
     - confchanged is changed or envchanged is changed or etcdsystemd is changed or etcd_force_restart | d(false) | bool
   tags:
@@ -354,6 +399,7 @@
     ETCDCTL_API: "3"
   when:
     - restarted_etcd is changed
+    - not (etcd_restored | default(false) | bool)  # Skip - restore health check already done
   tags:
     - etcd-restart
 
