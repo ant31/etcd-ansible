@@ -296,6 +296,34 @@
   tags:
     - restore-etcd
 
+- name: Set cluster state to 'new' after restore (required by etcd)
+  set_fact:
+    etcd_cluster_state: new
+    etcd_restored: true
+  tags:
+    - restore-etcd
+
+- name: Display restore completion notice
+  debug:
+    msg:
+      - "✅ Etcd data restored on {{ inventory_hostname }}"
+      - ""
+      - "⚠️  CRITICAL: Cluster state set to 'new' (required after restore)"
+      - ""
+      - "Next steps (required for all nodes):"
+      - "1. Ensure ALL nodes have completed restore"
+      - "2. Regenerate etcd configuration on ALL nodes (picks up state='new')"
+      - "3. Start etcd on ALL nodes simultaneously"
+      - ""
+      - "The configuration will be regenerated with:"
+      - "  initial-cluster-state: new"
+      - "  initial-cluster: {{ etcd_peer_addresses }}"
+      - "  initial-cluster-token: {{ cluster_token | default(etcd_cluster_name) }}"
+      - ""
+      - "This is required by etcd after snapshot restore to start a new logical cluster."
+  tags:
+    - restore-etcd
+
 # Note: etcd service is NOT started here
 # It must be started on ALL nodes together after ALL nodes are restored
 # This is done in the playbook level to ensure proper cluster formation
