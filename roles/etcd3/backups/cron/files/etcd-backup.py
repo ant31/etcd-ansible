@@ -634,10 +634,10 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     
     logger.info("✓ Upload verification PASSED")
     
-    # Update latest pointer (s3_prefix already includes cluster name)
+    # Update latest pointer - include cluster name in path
     logger.info("Updating 'latest' pointer...")
-    latest_path = f"{config['s3_prefix']}/latest-snapshot.db{s3_suffix}"
-    latest_sha256_path = f"{config['s3_prefix']}/latest-snapshot.db.sha256"
+    latest_path = f"{config['s3_prefix']}{config['cluster_name']}/latest-snapshot.db{s3_suffix}"
+    latest_sha256_path = f"{config['s3_prefix']}{config['cluster_name']}/latest-snapshot.db.sha256"
     
     try:
         run_command([
