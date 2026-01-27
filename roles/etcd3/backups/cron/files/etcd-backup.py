@@ -362,7 +362,7 @@ def check_recent_backup(config: dict) -> bool:
         result = run_command([
             config['bin_dir'] / 'aws', 's3api', 'list-objects-v2',
             '--bucket', config['s3_bucket'],
-            '--prefix', f"{config['s3_prefix']}/",
+            '--prefix', f"{config['s3_prefix']}{config['cluster_name']}/",
             '--query', f"Contents[?LastModified>=`{cutoff_datetime}`].{{Key:Key,Modified:LastModified}}",
             '--output', 'text'
         ], check=False)
@@ -570,8 +570,9 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     final_checksum = calculate_sha256(final_file)
     logger.info(f"Final file checksum: {final_checksum}")
     
-    # Upload to S3 (s3_prefix already includes cluster name from template)
-    s3_path = f"{config['s3_prefix']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
+    # Upload to S3 - include cluster name in path
+    # Format: s3_prefix/cluster_name/YYYY/MM/filename
+    s3_path = f"{config['s3_prefix']}{config['cluster_name']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
     logger.info(f"Uploading backup to S3: s3://{config['s3_bucket']}/{s3_path}")
     
     try:
