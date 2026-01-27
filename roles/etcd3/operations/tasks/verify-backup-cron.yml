@@ -108,16 +108,16 @@
     - "{{ backup_scripts_dir }}/ca-backup-check.sh"
   when: etcd_user_check.rc == 0
   
-- name: Check recent backup log files
+- name: Check recent backup log files (cluster-specific)
   shell: |
-    if [ -f {{ backup_log_dir }}/etcd-backup.log ]; then
+    if [ -f {{ etcd_backup_log_file }} ]; then
       echo "=== ETCD BACKUP LOG (last 5 lines) ==="
-      tail -5 {{ backup_log_dir }}/etcd-backup.log
+      tail -5 {{ etcd_backup_log_file }}
     fi
-    if [ -f {{ backup_log_dir }}/ca-backup.log ]; then
+    if [ -f {{ ca_backup_log_file }} ]; then
       echo ""
       echo "=== CA BACKUP LOG (last 5 lines) ==="
-      tail -5 {{ backup_log_dir }}/ca-backup.log
+      tail -5 {{ ca_backup_log_file }}
     fi
   register: recent_logs
   changed_when: false
@@ -183,24 +183,24 @@
       - ""
       - "3. Manually trigger a backup to test:"
       - "   # Etcd data backup (runs as root)"
-      - "   sudo python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+      - "   sudo python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }}"
       - "   "
       - "   # CA backup (runs as root)"
-      - "   sudo python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+      - "   sudo python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} --force"
       - ""
       - "4. View current configuration:"
       - "   # Etcd backup config (root-owned)"
-      - "   sudo cat {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+      - "   sudo cat {{ etcd_backup_config_file }}"
       - "   "
       - "   # CA backup config (root-owned)"
-      - "   sudo cat {{ backup_scripts_dir }}/ca-backup-config.yaml"
+      - "   sudo cat {{ ca_backup_config_file }}"
       - ""
       - "5. Check backup directory permissions:"
       - "   ls -la {{ etcd_backup_dir }}"
       - ""
       - "6. Check cron logs:"
-      - "   tail -f {{ backup_log_dir }}/etcd-backup.log"
-      - "   tail -f {{ backup_log_dir }}/ca-backup.log"
+      - "   tail -f {{ etcd_backup_log_file }}"
+      - "   tail -f {{ ca_backup_log_file }}"
       - ""
       - "7. Verify backup configuration in vault.yml:"
       - "   ansible-vault view group_vars/all/vault.yml | grep -A5 backup"

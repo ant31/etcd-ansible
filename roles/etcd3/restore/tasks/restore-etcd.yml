@@ -117,7 +117,7 @@
 - name: Decrypt etcd backup using backup script (reuses encryption logic)
   command: >
     /usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py
-    --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
+    --config {{ etcd_backup_config_file }}
     --decrypt
     --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
     --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db

@@ -6,7 +6,7 @@
 # (skip_initial_backup=true is set in meta/main.yaml)
 
 - name: Run CA backup script (always force mode, runs as root)
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} --force"
   become: yes
   become_user: root
   register: manual_ca_backup_result
@@ -31,16 +31,16 @@
       - ""
       - "To decrypt and verify a backup:"
       - "  python3 {{ backup_scripts_dir }}/ca-backup-check.py \\"
-      - "    --config {{ backup_scripts_dir }}/ca-backup-config.yaml \\"
+      - "    --config {{ ca_backup_config_file }} \\"
       - "    --decrypt --input backup.tar.gz.kms --output backup.tar.gz"
       - "  (Checksum verification is automatic if .sha256 file exists)"
       - ""
       - "To decrypt without verification:"
       - "  python3 {{ backup_scripts_dir }}/ca-backup-check.py \\"
-      - "    --config {{ backup_scripts_dir }}/ca-backup-config.yaml \\"
+      - "    --config {{ ca_backup_config_file }} \\"
       - "    --decrypt --input backup.tar.gz.kms --output backup.tar.gz --no-verify"
       - ""
-      - "Check logs: {{ backup_log_dir }}/ca-backup.log"
+      - "Check logs: {{ ca_backup_log_file }}"
   when: manual_ca_backup_result.rc == 0
   tags:
     - backup
@@ -54,8 +54,8 @@
       - "{{ manual_ca_backup_result.stderr | default(manual_ca_backup_result.stdout) | default('No error output') }}"
       - ""
       - "Troubleshooting:"
-      - "1. Check backup logs: tail -f {{ backup_log_dir }}/ca-backup.log"
-      - "2. Check config: cat {{ backup_scripts_dir }}/ca-backup-config.yaml"
+      - "1. Check backup logs: tail -f {{ ca_backup_log_file }}"
+      - "2. Check config: cat {{ ca_backup_config_file }}"
       - "3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}"
       - "4. Verify step-ca is running: systemctl status step-ca"
       - "5. Check CA files exist: ls -la /etc/step-ca/secrets/"
