@@ -916,6 +916,9 @@ def main():
         result = backup_ca(config, dry_run=args.dry_run)
         
         if result and not args.dry_run:
+            # Ensure state file directory exists before writing
+            config['state_file'].parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            
             # Update state file
             config['state_file'].write_text(current_checksum)
             logger.info("✓ State file updated with new checksum")
