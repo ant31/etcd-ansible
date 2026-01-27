@@ -4,8 +4,8 @@
 # Node identification
 node_name: "{{ inventory_hostname }}"
 
-# State file (tracks last backup checksum)
-state_file: "{{ etcd_backup_dir }}/ca/last-backup-checksum"
+# State file (tracks last backup checksum - cluster-specific for multi-cluster support)
+state_file: "{{ ca_backup_state_file }}"
 
 # CA backup directory
 ca_backup_dir: "{{ etcd_backup_dir }}/ca"

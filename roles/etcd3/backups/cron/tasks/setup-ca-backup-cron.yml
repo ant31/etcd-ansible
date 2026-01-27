@@ -9,10 +9,10 @@
   tags:
     - ca-backup-cron
 
-- name: Install CA backup configuration (templated, tracked)
+- name: Install CA backup configuration (templated, tracked, cluster-specific)
   template:
     src: ca-backup-config.yaml.j2
-    dest: "{{ backup_scripts_dir }}/ca-backup-config.yaml"
+    dest: "{{ ca_backup_config_file }}"
     owner: root
     group: root
     mode: 0600
@@ -23,10 +23,10 @@
 
 - name: Setup CA backup cron job (runs as root - CA files are root-only)
   cron:
-    name: "Check and backup CA if changed"
+    name: "Check and backup CA if changed - {{ etcd_cluster_name }}"
     minute: "{{ ca_backup_cron_minute }}"
     hour: "{{ ca_backup_cron_hour }}"
-    job: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml >> {{ backup_log_dir }}/ca-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} >> {{ ca_backup_log_file }} 2>&1"
     user: root
     state: present
   when: ca_backup_cron_enabled | default(true) | bool
@@ -77,11 +77,11 @@
   tags:
     - ca-backup-cron
 
-- name: Setup CA backup log rotation
+- name: Setup CA backup log rotation (cluster-specific)
   copy:
-    dest: /etc/logrotate.d/etcd-ca-backup
+    dest: /etc/logrotate.d/etcd-ca-backup-{{ etcd_cluster_name }}
     content: |
-      {{ backup_log_dir }}/ca-backup.log {
+      {{ ca_backup_log_file }} {
         daily
         rotate 30
         compress

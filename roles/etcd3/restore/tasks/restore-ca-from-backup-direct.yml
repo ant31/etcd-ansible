@@ -274,7 +274,7 @@
 - name: Decrypt CA backup using backup script (handles envelope encryption)
   command: >
     /usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py
-    --config {{ backup_scripts_dir }}/ca-backup-config.yaml
+    --config {{ ca_backup_config_file }}
     --decrypt
     --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ ca_backup_filename }}
     --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/ca-restore.tar.gz

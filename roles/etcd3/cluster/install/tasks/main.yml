@@ -30,10 +30,10 @@
     get_checksum: yes
   register: etcdbin
 
-- name: Install etcdctl wrapper script
+- name: Install etcdctl wrapper script (cluster-specific)
   template:
     src: etcdctl.sh.j2
-    dest: "{{ bin_dir }}/etcdctl.sh"
+    dest: "{{ bin_dir }}/etcdctl-{{ etcd_cluster_name }}.sh"
     mode: 0755
     owner: root
     group: root
@@ -41,8 +41,8 @@
 
 - import_tasks: 0010_cluster.yaml
 
-- name: Create etcd profile.d script
+- name: Create etcd profile.d script (cluster-specific)
   template:
     src: etcd-profile.sh.j2
-    dest: /etc/profile.d/etcd.sh
+    dest: /etc/profile.d/etcd-{{ etcd_cluster_name }}.sh
     mode: 0600

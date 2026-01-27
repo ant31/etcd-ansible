@@ -286,6 +286,13 @@ backup_scripts_dir: "/opt/backups"
 backup_log_dir: "/var/log/etcd-backups"
 backup_tmp_dir: "/opt/backups/tmp"
 
+# Cluster-specific backup paths (includes cluster name for multi-cluster support)
+etcd_backup_config_file: "{{ backup_scripts_dir }}/etcd-backup-config-{{ etcd_cluster_name }}.yaml"
+ca_backup_config_file: "{{ backup_scripts_dir }}/ca-backup-config-{{ etcd_cluster_name }}.yaml"
+etcd_backup_log_file: "{{ backup_log_dir }}/etcd-backup-{{ etcd_cluster_name }}.log"
+ca_backup_log_file: "{{ backup_log_dir }}/ca-backup-{{ etcd_cluster_name }}.log"
+ca_backup_state_file: "/var/lib/etcd-ca-backup/last-backup-checksum-{{ etcd_cluster_name }}"
+
 # Backup retention
 etcd_backup_retention_days: 90
 ca_backup_retention_days: 365

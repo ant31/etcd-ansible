@@ -46,7 +46,7 @@
 - name: Decrypt CA backup using backup script (handles envelope encryption)
   command: >
     /usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py
-    --config {{ backup_scripts_dir }}/ca-backup-config.yaml
+    --config {{ ca_backup_config_file }}
     --decrypt
     --input /tmp/ca-restore-encrypted-{{ ansible_date_time.epoch }}
     --output /tmp/ca-restore.tar.gz

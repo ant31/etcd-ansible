@@ -6,7 +6,7 @@
 # (skip_initial_backup=true is set in meta/main.yaml)
 
 - name: Run backup script (always independent mode, runs as root)
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent {{ '--online-only' if etcd_backup_online_only | default(false) | bool else '' }}"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} --independent {{ '--online-only' if etcd_backup_online_only | default(false) | bool else '' }}"
   become: yes
   become_user: root
   environment:
@@ -38,16 +38,16 @@
       - ""
       - "To decrypt and verify a backup:"
       - "  python3 {{ backup_scripts_dir }}/etcd-backup.py \\"
-      - "    --config {{ backup_scripts_dir }}/etcd-backup-config.yaml \\"
+      - "    --config {{ etcd_backup_config_file }} \\"
       - "    --decrypt --input backup.db.kms --output backup.db"
       - "  (Checksum verification is automatic if .sha256 file exists)"
       - ""
       - "To decrypt without verification:"
       - "  python3 {{ backup_scripts_dir }}/etcd-backup.py \\"
-      - "    --config {{ backup_scripts_dir }}/etcd-backup-config.yaml \\"
+      - "    --config {{ etcd_backup_config_file }} \\"
       - "    --decrypt --input backup.db.kms --output backup.db --no-verify"
       - ""
-      - "Check logs: {{ backup_log_dir }}/etcd-backup.log"
+      - "Check logs: {{ etcd_backup_log_file }}"
   when: manual_backup_result.rc == 0
   tags:
     - backup
@@ -61,8 +61,8 @@
       - "{{ manual_backup_result.stderr | default(manual_backup_result.stdout) | default('No error output') }}"
       - ""
       - "Troubleshooting:"
-      - "1. Check backup logs: tail -f {{ backup_log_dir }}/etcd-backup.log"
-      - "2. Check config: cat {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+      - "1. Check backup logs: tail -f {{ etcd_backup_log_file }}"
+      - "2. Check config: cat {{ etcd_backup_config_file }}"
       - "3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}"
       - "4. Verify cluster health: etcdctl endpoint health"
       - "5. Check if etcd is running: systemctl status etcd-*"

@@ -33,7 +33,7 @@
   tags:
     - backup-cron
 
-- name: Create empty log files with proper permissions
+- name: Create empty log files with proper permissions (cluster-specific)
   file:
     path: "{{ item }}"
     state: touch
@@ -43,8 +43,8 @@
     modification_time: preserve
     access_time: preserve
   loop:
-    - "{{ backup_log_dir }}/etcd-backup.log"
-    - "{{ backup_log_dir }}/ca-backup.log"
+    - "{{ etcd_backup_log_file }}"
+    - "{{ ca_backup_log_file }}"
   tags:
     - backup-cron
 
@@ -67,7 +67,7 @@
     - etcd-backup-cron
 
 - name: Run initial CA backup after deployment
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ backup_scripts_dir }}/ca-backup-config.yaml --force"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} --force"
   become: yes
   become_user: root
   when:
@@ -93,7 +93,7 @@
     - initial-backup
 
 - name: Run initial etcd backup after deployment
-  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml"
+  command: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }}"
   become: yes
   become_user: root
   when:

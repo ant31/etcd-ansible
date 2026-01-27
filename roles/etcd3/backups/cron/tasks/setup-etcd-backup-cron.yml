@@ -9,10 +9,10 @@
   tags:
     - etcd-backup-cron
 
-- name: Install etcd backup configuration (templated, tracked, root-owned)
+- name: Install etcd backup configuration (templated, tracked, root-owned, cluster-specific)
   template:
     src: etcd-backup-config.yaml.j2
-    dest: "{{ backup_scripts_dir }}/etcd-backup-config.yaml"
+    dest: "{{ etcd_backup_config_file }}"
     owner: root
     group: root
     mode: 0600
@@ -49,10 +49,10 @@
 
 - name: Setup etcd backup cron job (distributed mode - coordinated with deduplication)
   cron:
-    name: "Backup etcd cluster data"
+    name: "Backup etcd cluster data - {{ etcd_cluster_name }}"
     minute: "{{ backup_time_offset | default(0) }},{{ (backup_time_offset | default(0) | int + (backup_interval_minutes | int)) % 60 }}"
     hour: "{% if (backup_interval_minutes | int) < 60 %}*{% else %}*/{{ (backup_interval_minutes | int / 60) | int }}{% endif %}"
-    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} >> {{ etcd_backup_log_file }} 2>&1"
     user: root
     state: present
   when: 
@@ -64,10 +64,10 @@
 
 - name: Setup etcd backup cron job (independent mode - no deduplication)
   cron:
-    name: "Backup etcd cluster data"
+    name: "Backup etcd cluster data - {{ etcd_cluster_name }}"
     minute: "{{ backup_time_offset | default(0) }}"
     hour: "*/{{ (backup_interval_minutes | int / 60) | int if (backup_interval_minutes | int) >= 60 else '*' }}"
-    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml --independent >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} --independent >> {{ etcd_backup_log_file }} 2>&1"
     user: root
     state: present
   when: 
@@ -79,10 +79,10 @@
 
 - name: Setup etcd backup cron job (legacy single-node mode)
   cron:
-    name: "Backup etcd cluster data"
+    name: "Backup etcd cluster data - {{ etcd_cluster_name }}"
     minute: "{{ etcd_backup_cron_minute }}"
     hour: "{{ etcd_backup_cron_hour }}"
-    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ backup_scripts_dir }}/etcd-backup-config.yaml >> {{ backup_log_dir }}/etcd-backup.log 2>&1"
+    job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} >> {{ etcd_backup_log_file }} 2>&1"
     user: root
     state: present
   when: 
@@ -205,11 +205,11 @@
   tags:
     - etcd-backup-cron
 
-- name: Setup etcd backup log rotation
+- name: Setup etcd backup log rotation (cluster-specific)
   copy:
-    dest: /etc/logrotate.d/etcd-backup
+    dest: /etc/logrotate.d/etcd-backup-{{ etcd_cluster_name }}
     content: |
-      {{ backup_log_dir }}/etcd-backup.log {
+      {{ etcd_backup_log_file }} {
         daily
         rotate 30
         compress
