@@ -204,37 +204,14 @@
   tags:
     - restore-data
 
-- name: Start all etcd services
+- name: Start all etcd services (PARALLEL - required after restore)
   hosts: etcd
   gather_facts: no
   roles:
     - etcd3/facts
-  tasks:
-    - name: Start etcd service
-      systemd:
-        name: "{{ etcd_name }}"
-        state: started
-        enabled: yes
-      throttle: 1  # Start nodes serially to avoid race conditions during cluster formation
-      register: etcd_start
-      tags:
-        - restore-start
-    
-    - name: Wait for etcd to be ready
-      command: >
-        {{ bin_dir }}/etcdctl
-        --endpoints={{ etcd_client_url }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
-        endpoint health
-      register: etcd_health
-      until: etcd_health.rc == 0
-      retries: 20
-      delay: 5
-      environment:
-        ETCDCTL_API: "3"
-      changed_when: false
+    - role: etcd3/cluster/install
+      vars:
+        etcd_action: deploy  # Use deploy action (handles both new and existing)
       tags:
         - restore-start
 
