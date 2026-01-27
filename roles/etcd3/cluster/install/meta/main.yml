@@ -26,6 +26,8 @@ dependencies:
       - download
 
   - name: etcd3/backups/cron
+    vars:
+      skip_initial_backup: true
     when: etcd_backup_cron_enabled | default(true)
     tags:
       - backup-cron
