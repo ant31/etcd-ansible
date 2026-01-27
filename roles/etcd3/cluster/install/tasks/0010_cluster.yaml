@@ -88,7 +88,7 @@
       - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_delete_cluster=true"
       - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
   when:
-    - etcd_action in ["create", "deploy"]
+    - etcd_action == "create"
     - not etcd_force_create |default(false) | bool
 
 - name: Find a node with existing etcd data to query cluster
