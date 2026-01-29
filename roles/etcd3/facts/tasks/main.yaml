@@ -1,4 +1,311 @@
 ---
+# ============================================================================
+# MULTI-CLUSTER MODE SETUP (ALWAYS CHECK - DRY PRINCIPLE)
+# ============================================================================
+# Always check for multi-cluster configuration, regardless of playbook
+# This ensures single-cluster and multi-cluster use the same code path
+
+- name: Discover and validate all clusters (always check if configured)
+  include_tasks: discover-clusters.yml
+  when:
+    - etcd_cluster_configs is defined
+    - etcd_cluster_configs | length > 0
+    - inventory_hostname == ansible_play_hosts[0]
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Share deployment matrix across all hosts
+  set_fact:
+    etcd_deployment_matrix: "{{ hostvars[ansible_play_hosts[0]].etcd_deployment_matrix }}"
+  when:
+    - etcd_cluster_configs is defined
+    - etcd_cluster_configs | length > 0
+    - inventory_hostname != ansible_play_hosts[0]
+    - hostvars[ansible_play_hosts[0]].etcd_deployment_matrix is defined
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Determine if we're deploying multiple clusters or single cluster
+  set_fact:
+    _deploying_multiple_clusters: "{{ (etcd_cluster_configs | default({}) | length) > 1 }}"
+    _clusters_to_deploy: "{{ etcd_cluster_configs.keys() | list if etcd_cluster_configs is defined else [etcd_cluster_name] }}"
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Display deployment mode
+  debug:
+    msg:
+      - "Deployment mode: {{ 'MULTI-CLUSTER (' + (_clusters_to_deploy | length | string) + ' clusters)' if _deploying_multiple_clusters else 'SINGLE CLUSTER' }}"
+      - "Clusters: {{ _clusters_to_deploy | join(', ') }}"
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster
+
+# ============================================================================
+# CLUSTER-SPECIFIC CONFIGURATION MERGING
+# ============================================================================
+# Apply cluster-specific configuration if defined
+# This allows per-cluster overrides of ports, backup settings, etc.
+# Top-level variables are ALWAYS the defaults
+# etcd_cluster_configs provides OPTIONAL overrides only
+
+- name: "Resolve cluster name (priority: config.cluster_name → dict key → global default)"
+  set_fact:
+    _resolved_cluster_name: |
+      {%- if etcd_cluster_configs is defined -%}
+      {%-   set found_clusters = [] -%}
+      {%-   for dict_key, config in etcd_cluster_configs.items() -%}
+      {%-     if config.get('cluster_group', 'etcd_' + dict_key) == etcd_cluster_group -%}
+      {%-       set _ = found_clusters.append(config.get('cluster_name', dict_key)) -%}
+      {%-     endif -%}
+      {%-   endfor -%}
+      {%-   if found_clusters | length == 1 -%}
+      {{      found_clusters[0] }}
+      {%-   elif found_clusters | length > 1 -%}
+      ERROR:MULTIPLE_CLUSTERS_MATCH:{{ found_clusters | join(',') }}
+      {%-   else -%}
+      {{ etcd_cluster_name }}
+      {%-   endif -%}
+      {%- else -%}
+      {{ etcd_cluster_name }}
+      {%- endif -%}
+  when: 
+    - etcd_cluster_configs is defined
+  tags:
+    - facts
+
+- name: Validate cluster name resolution (no ambiguity allowed)
+  assert:
+    that:
+      - _resolved_cluster_name is defined
+      - not _resolved_cluster_name.startswith('ERROR:MULTIPLE_CLUSTERS_MATCH')
+    fail_msg: |
+      ❌ CLUSTER NAME RESOLUTION FAILED: Multiple clusters match the same inventory group!
+      
+      Inventory group: {{ etcd_cluster_group }}
+      Matching clusters: {{ _resolved_cluster_name.split(':')[2] if _resolved_cluster_name is defined and _resolved_cluster_name.startswith('ERROR:') else 'unknown' }}
+      
+      Problem:
+        Multiple clusters in etcd_cluster_configs are configured to use the same inventory group.
+        Each cluster MUST have a unique 'cluster_group' setting.
+      
+      Example of INCORRECT configuration:
+        etcd_cluster_configs:
+          k8s:
+            cluster_group: etcd  # ❌ Both use 'etcd'
+          k8s-events:
+            cluster_group: etcd  # ❌ Both use 'etcd'
+      
+      Fix in group_vars/all/etcd.yaml:
+        etcd_cluster_configs:
+          k8s:
+            cluster_group: etcd_k8s  # ✅ Unique group
+            # OR omit cluster_group to use default: etcd_k8s
+          k8s-events:
+            cluster_group: etcd_k8s_events  # ✅ Unique group
+            # OR omit cluster_group to use default: etcd_k8s_events
+      
+      Then update inventory.ini:
+        [etcd_k8s]
+        node1 ansible_host=10.15.2.6
+        node2 ansible_host=10.15.2.2
+        node3 ansible_host=10.15.2.3
+        
+        [etcd_k8s_events]
+        node1 ansible_host=10.15.2.6
+        node2 ansible_host=10.15.2.2
+        node3 ansible_host=10.15.2.3
+        
+        [etcd-all:children]
+        etcd_k8s
+        etcd_k8s_events
+  when: 
+    - etcd_cluster_configs is defined
+    - _resolved_cluster_name is defined
+  tags:
+    - facts
+
+- name: Use resolved cluster name if found, otherwise use provided name
+  set_fact:
+    etcd_cluster_name: "{{ _resolved_cluster_name | trim if _resolved_cluster_name is defined and (_resolved_cluster_name | trim | length > 0) else etcd_cluster_name }}"
+  when: 
+    - etcd_cluster_configs is defined
+    - _resolved_cluster_name is defined
+  tags:
+    - facts
+
+- name: Set cluster config defaults (top-level variables are the source of truth)
+  set_fact:
+    _cluster_config: "{{ etcd_cluster_configs.get(etcd_cluster_name, {}) }}"
+  when: 
+    - etcd_cluster_configs is defined
+  tags:
+    - facts
+
+- name: Apply cluster-specific configuration (optional overrides - flat variables)
+  set_fact:
+    # Ports (flat - easy CLI override)
+    etcd_client_port: "{{ _cluster_config.get('client_port', etcd_client_port) }}"
+    etcd_peer_port: "{{ _cluster_config.get('peer_port', etcd_peer_port) }}"
+    
+    # Backup settings (flat - easy CLI override)
+    etcd_backup_cron_enabled: "{{ _cluster_config.get('backup_enabled', etcd_backup_cron_enabled) }}"
+    etcd_backup_interval: "{{ _cluster_config.get('backup_interval', etcd_backup_interval) }}"
+    etcd_backup_cron_minute: "{{ _cluster_config.get('backup_interval', etcd_backup_cron_minute) }}"
+    etcd_backup_local_retention_days: "{{ _cluster_config.get('backup_retention_days', etcd_backup_local_retention_days) }}"
+    etcd_backup_distributed: "{{ _cluster_config.get('backup_distributed', etcd_backup_distributed) }}"
+    etcd_backup_independent: "{{ _cluster_config.get('backup_independent', etcd_backup_independent) }}"
+    etcd_backup_online_only: "{{ _cluster_config.get('backup_online_only', etcd_backup_online_only | default(false)) }}"
+    etcd_backup_s3_bucket: "{{ _cluster_config.get('backup_s3_bucket', etcd_backup_s3_bucket) }}"
+    etcd_backup_s3_prefix: "{{ _cluster_config.get('backup_s3_prefix', etcd_backup_s3_prefix) }}"
+    
+    # CA backup settings (flat - easy CLI override)
+    ca_backup_cron_enabled: "{{ _cluster_config.get('ca_backup_enabled', ca_backup_cron_enabled) }}"
+    ca_backup_check_interval: "{{ _cluster_config.get('ca_backup_check_interval', ca_backup_check_interval) }}"
+    ca_backup_cron_minute: "{{ _cluster_config.get('ca_backup_check_interval', ca_backup_cron_minute) }}"
+    ca_backup_local_retention_days: "{{ _cluster_config.get('ca_backup_retention_days', ca_backup_local_retention_days) }}"
+    
+    # Load balancer settings (flat - easy CLI override)
+    etcd_lb_enabled: "{{ _cluster_config.get('lb_enabled', etcd_lb_enabled | default(false)) }}"
+    etcd_lb_host: "{{ _cluster_config.get('lb_host', etcd_lb_host | default('')) }}"
+    etcd_lb_port: "{{ _cluster_config.get('lb_port', etcd_lb_port | default(etcd_client_port)) }}"
+    etcd_lb_ip: "{{ _cluster_config.get('lb_ip', etcd_lb_ip | default('')) }}"
+    
+    # Certificate SANs (flat - easy CLI override)
+    etcd_cert_alt_names: "{{ _cluster_config.get('cert_alt_names', etcd_cert_alt_names | default([])) }}"
+    etcd_cert_alt_ips: "{{ _cluster_config.get('cert_alt_ips', etcd_cert_alt_ips | default([])) }}"
+    
+    # Performance settings (flat - easy CLI override)
+    etcd_heartbeat_interval: "{{ _cluster_config.get('heartbeat_interval', etcd_heartbeat_interval | default(250)) }}"
+    etcd_election_timeout: "{{ _cluster_config.get('election_timeout', etcd_election_timeout | default(5000)) }}"
+    etcd_snapshot_count: "{{ _cluster_config.get('snapshot_count', etcd_snapshot_count | default(10000)) }}"
+    etcd_compaction_retention: "{{ _cluster_config.get('compaction_retention', etcd_compaction_retention | default('8')) }}"
+    etcd_quota_backend_bytes: "{{ _cluster_config.get('quota_backend_bytes', etcd_quota_backend_bytes | default(0)) }}"
+    etcd_metrics: "{{ _cluster_config.get('metrics', etcd_metrics | default('extensive')) }}"
+    
+    # Systemd service settings (flat - easy CLI override)
+    etcd_systemd_timeout_start_sec: "{{ _cluster_config.get('systemd_timeout_start_sec', etcd_systemd_timeout_start_sec | default('60s')) }}"
+    etcd_systemd_restart_sec: "{{ _cluster_config.get('systemd_restart_sec', etcd_systemd_restart_sec | default('15s')) }}"
+    etcd_systemd_limit_nofile: "{{ _cluster_config.get('systemd_limit_nofile', etcd_systemd_limit_nofile | default(40000)) }}"
+    etcd_systemd_nice_level: "{{ _cluster_config.get('systemd_nice_level', etcd_systemd_nice_level | default(omit)) }}"
+    etcd_systemd_ionice_class: "{{ _cluster_config.get('systemd_ionice_class', etcd_systemd_ionice_class | default(omit)) }}"
+    etcd_systemd_ionice_priority: "{{ _cluster_config.get('systemd_ionice_priority', etcd_systemd_ionice_priority | default(omit)) }}"
+    etcd_systemd_memory_limit: "{{ _cluster_config.get('systemd_memory_limit', etcd_systemd_memory_limit | default(omit)) }}"
+    etcd_systemd_cpu_quota: "{{ _cluster_config.get('systemd_cpu_quota', etcd_systemd_cpu_quota | default(omit)) }}"
+    
+    # Security settings (flat - easy CLI override)
+    etcd_secure_client: "{{ _cluster_config.get('secure_client', etcd_secure_client | default(true)) }}"
+    etcd_peer_client_auth: "{{ _cluster_config.get('peer_client_auth', etcd_peer_client_auth | default(true)) }}"
+    
+    # step-ca settings (flat - easy CLI override)
+    step_ca_runtime_minutes: "{{ _cluster_config.get('step_ca_runtime_minutes', step_ca_runtime_minutes | default(60)) }}"
+    step_ca_port: "{{ _cluster_config.get('step_ca_port', step_ca_port | default(9000)) }}"
+    
+    # Monitoring settings (flat - easy CLI override)
+    backup_healthcheck_url: "{{ _cluster_config.get('backup_healthcheck_url', backup_healthcheck_url | default('')) }}"
+    ca_backup_healthcheck_url: "{{ _cluster_config.get('ca_backup_healthcheck_url', ca_backup_healthcheck_url | default('')) }}"
+  when: 
+    - etcd_cluster_configs is defined
+    - _cluster_config is defined
+  tags:
+    - facts
+
+- name: Display cluster-specific configuration applied
+  debug:
+    msg:
+      - "✅ Cluster-specific configuration applied for: {{ etcd_cluster_name }}"
+      - ""
+      - "Network:"
+      - "  client port: {{ etcd_client_port }}"
+      - "  peer port: {{ etcd_peer_port }}"
+      - "{% if etcd_lb_enabled | default(false) %}  load balancer: {{ etcd_lb_host }} ({{ etcd_lb_ip | default('no IP') }}){% endif %}"
+      - "{% if etcd_lb_enabled | default(false) %}  lb port: {{ etcd_lb_port }}{% endif %}"
+      - ""
+      - "Backup:"
+      - "  enabled: {{ etcd_backup_cron_enabled }}"
+      - "  interval: {{ etcd_backup_interval }}"
+      - "  local retention: {{ etcd_backup_local_retention_days }} days (S3 needs lifecycle policy)"
+      - "  distributed: {{ etcd_backup_distributed }}"
+      - "  s3 bucket: {{ etcd_backup_s3_bucket }}"
+      - "  s3 prefix: {{ etcd_backup_s3_prefix }}{{ etcd_cluster_name }}/"
+      - "{% if backup_healthcheck_url | default('') %}  healthcheck: {{ backup_healthcheck_url }}{% endif %}"
+      - ""
+      - "CA backup:"
+      - "  enabled: {{ ca_backup_cron_enabled }}"
+      - "  interval: {{ ca_backup_check_interval }}"
+      - "  local retention: {{ ca_backup_local_retention_days }} days (S3 needs lifecycle policy)"
+      - "{% if ca_backup_healthcheck_url | default('') %}  healthcheck: {{ ca_backup_healthcheck_url }}{% endif %}"
+      - ""
+      - "Performance:"
+      - "  heartbeat: {{ etcd_heartbeat_interval }}ms"
+      - "  election timeout: {{ etcd_election_timeout }}ms"
+      - "  snapshot count: {{ etcd_snapshot_count | default(10000) }}"
+      - "  compaction retention: {{ etcd_compaction_retention }}h"
+      - "  metrics: {{ etcd_metrics }}"
+      - "{% if etcd_quota_backend_bytes | default(0) | int > 0 %}  quota: {{ etcd_quota_backend_bytes }}{% endif %}"
+      - ""
+      - "Systemd:"
+      - "  timeout_start: {{ etcd_systemd_timeout_start_sec }}"
+      - "  restart_sec: {{ etcd_systemd_restart_sec }}"
+      - "  limit_nofile: {{ etcd_systemd_limit_nofile }}"
+      - "{% if etcd_systemd_nice_level is defined %}  nice_level: {{ etcd_systemd_nice_level }}{% endif %}"
+      - "{% if etcd_systemd_memory_limit is defined %}  memory_limit: {{ etcd_systemd_memory_limit }}{% endif %}"
+      - "{% if etcd_systemd_cpu_quota is defined %}  cpu_quota: {{ etcd_systemd_cpu_quota }}{% endif %}"
+      - ""
+      - "Security:"
+      - "  secure_client: {{ etcd_secure_client }}"
+      - "  peer_client_auth: {{ etcd_peer_client_auth }}"
+      - ""
+      - "step-ca:"
+      - "  runtime_minutes: {{ step_ca_runtime_minutes }}"
+      - "  port: {{ step_ca_port }}"
+      - ""
+      - "Configuration source: etcd_cluster_configs.{{ etcd_cluster_name }}"
+  when:
+    - etcd_cluster_configs is defined
+    - etcd_cluster_name in etcd_cluster_configs
+  tags:
+    - facts
+
+- name: Display default configuration (no cluster-specific override)
+  debug:
+    msg:
+      - "ℹ️  Using default configuration for: {{ etcd_cluster_name }}"
+      - ""
+      - "No cluster-specific config found in etcd_cluster_configs"
+      - ""
+      - "Current settings (all defaults):"
+      - "  Ports: {{ etcd_client_port }}/{{ etcd_peer_port }}"
+      - "  Backup: {{ 'enabled' if etcd_backup_cron_enabled else 'disabled' }} ({{ etcd_backup_interval }})"
+      - "  Load balancer: {{ 'enabled' if etcd_lb_enabled | default(false) else 'disabled' }}"
+      - ""
+      - "To customize this cluster, add to group_vars/all/etcd.yaml:"
+      - ""
+      - "etcd_cluster_configs:"
+      - "  {{ etcd_cluster_name }}:"
+      - "    client_port: 2379"
+      - "    peer_port: 2380"
+      - "    backup_interval: '*/30'"
+      - "    backup_s3_prefix: 'custom/'"
+      - "    lb_enabled: true"
+      - "    lb_host: 'etcd-lb.internal'"
+      - "    quota_backend_bytes: '8G'"
+      - "    systemd_memory_limit: '4G'"
+      - "    systemd_cpu_quota: '200%'"
+      - "    backup_healthcheck_url: 'https://...'"
+      - ""
+      - "See docs/advanced/multi-cluster-config.md for complete reference"
+  when:
+    - etcd_cluster_configs is defined
+    - etcd_cluster_name not in etcd_cluster_configs
+  tags:
+    - facts
+
 - name: Etcd general fact
   set_fact:
     etcd_members: >-
@@ -14,8 +321,8 @@
         "etcd_name": node_name,
         "etcd_address": etcd_address,
         "etcd_access_address": etcd_access_address,
-        "etcd_peer_url": "https://" + etcd_access_address + ":" + etcd_ports['peer']|string,
-        "etcd_client_url": "https://" + etcd_access_address +":" + etcd_ports['client']|string,
+        "etcd_peer_url": "https://" + etcd_access_address + ":" + etcd_peer_port|string,
+        "etcd_client_url": "https://" + etcd_access_address +":" + etcd_client_port|string,
         "etcd_data_dir": etcd_home + "/" + node_name,
         }} -%}
         {%- set _tmp = _d.update(_member) -%}
@@ -25,9 +332,100 @@
   tags:
     - facts
 
-- name: Etcd general fact2
+# ============================================================================
+# BUILD FACTS FOR ALL CLUSTERS UPFRONT (CRITICAL FOR MULTI-CLUSTER)
+# ============================================================================
+# Build facts for ALL clusters defined in etcd_cluster_configs.
+# This ensures templates can reference ANY cluster's variables.
+# Since everything is namespaced (etcd_clusters[cluster_name]),
+# there's no conflict - we just need ALL facts available.
+
+- name: Build list of ALL clusters to create facts for
   set_fact:
-    etcd_clusters: >-
+    _all_clusters: |
+      {%- set clusters_list = [] -%}
+      {%- if etcd_cluster_configs is defined -%}
+      {%-   for cluster_key, cluster_config in etcd_cluster_configs.items() -%}
+      {%-     set cluster_group = cluster_config.get('cluster_group', 'etcd_' + cluster_key) -%}
+      {%-     set _ = clusters_list.append({'key': cluster_key, 'group': cluster_group}) -%}
+      {%-   endfor -%}
+      {%- else -%}
+      {%-   set _ = clusters_list.append({'key': etcd_cluster_name, 'group': etcd_cluster_group}) -%}
+      {%- endif -%}
+      {{ clusters_list }}
+  tags:
+    - facts
+
+- name: Display ALL clusters we're building facts for
+  debug:
+    msg:
+      - "Host: {{ inventory_hostname }}"
+      - "Building facts for {{ _all_clusters | length }} cluster(s):"
+      - "{% for cluster in _all_clusters %}  - {{ cluster.key }} (group: {{ cluster.group }}){% endfor %}"
+      - ""
+      - "Note: Facts built for ALL clusters, regardless of host participation"
+      - "This ensures templates can reference any cluster's variables"
+  tags:
+    - facts
+
+- name: Build facts for ALL clusters (loop - no host participation check)
+  include_tasks: build-cluster-facts.yml
+  loop: "{{ _all_clusters }}"
+  loop_control:
+    loop_var: cluster_item
+  tags:
+    - facts
+
+- name: Validate ALL cluster facts are built
+  assert:
+    that:
+      - etcd_clusters is defined
+      - etcd_clusters | length > 0
+      - cluster_item.key in etcd_clusters
+    fail_msg: |
+      ❌ CLUSTER FACTS NOT BUILT: {{ cluster_item.key }}
+      
+      This is a critical error - facts must be built for all clusters before deployment.
+      
+      Check:
+      1. Cluster group exists in inventory: {{ cluster_item.group }}
+      2. Inventory has nodes in group: {{ groups.get(cluster_item.group, []) | length }} nodes
+      3. Facts role build-cluster-facts.yml completed successfully
+    success_msg: "✅ Facts built for cluster: {{ cluster_item.key }}"
+  loop: "{{ _all_clusters }}"
+  loop_control:
+    loop_var: cluster_item
+  tags:
+    - facts
+
+- name: Display all built cluster facts summary
+  debug:
+    msg:
+      - "✅ ALL CLUSTER FACTS BUILT FOR ALL NODES"
+      - ""
+      - "Host: {{ inventory_hostname }}"
+      - "Current etcd_cluster_name: {{ etcd_cluster_name }}"
+      - "Current etcd_cluster_group: {{ etcd_cluster_group }}"
+      - "Clusters with facts ready: {{ etcd_clusters.keys() | list | join(', ') }}"
+      - ""
+      - "DEBUG - Current cluster ({{ etcd_cluster_name }}) details:"
+      - "  In cluster group: {{ inventory_hostname in groups[etcd_cluster_group] }}"
+      - "  Group members: {{ groups[etcd_cluster_group] | join(', ') }}"
+      - "  Ports (flat vars): {{ etcd_client_port }}/{{ etcd_peer_port }}"
+      - "  Ports (cluster dict): {{ etcd_clusters[etcd_cluster_name].cluster.etcd_client_port }}/{{ etcd_clusters[etcd_cluster_name].cluster.etcd_peer_port if etcd_clusters is defined and etcd_cluster_name in etcd_clusters else 'N/A' }}"
+      - "  Access addresses: {{ etcd_clusters[etcd_cluster_name].etcd_access_addresses if etcd_clusters is defined and etcd_cluster_name in etcd_clusters else 'N/A' }}"
+      - ""
+      - "{% for cluster_name, cluster_info in etcd_clusters.items() %}Cluster: {{ cluster_name }}\n  etcd_name: {{ cluster_info.get('etcd_name', 'N/A') }}\n  data_dir: {{ cluster_info.get('etcd_data_dir', 'N/A') }}\n  ports: {{ cluster_info.cluster.etcd_client_port }}/{{ cluster_info.cluster.etcd_peer_port }}\n  endpoints: {{ cluster_info.etcd_access_addresses }}\n  peer_addresses: {{ cluster_info.etcd_peer_addresses }}\n{% endfor %}"
+      - ""
+      - "All templates can now safely reference: etcd_clusters[any_cluster_name].variable_name"
+      - "Deployment will only run on nodes in each cluster's group"
+  tags:
+    - facts
+
+# Backward compatibility: set non-namespaced variables for single-cluster mode
+- name: Build current cluster info into temporary variable (DEPRECATED - for backward compatibility only)
+  set_fact:
+    _current_cluster_info: >-
       {%- set _cluster_info = {} -%}
       {%- set _etcd_access_addresses_list = etcd_access_addresses_list|d([]) -%}
       {%- set _etcd_peer_addresses_list = etcd_peer_addresses_list|d([]) -%}
@@ -39,14 +437,41 @@
       {%- endif -%}
       {%- endfor -%}
 
+      {%- set _lb_address = 'https://' + etcd_lb_host + ':' + (etcd_lb_port|default(etcd_client_port))|string if etcd_lb_enabled|default(false) and etcd_lb_host else '' -%}
+      {%- set _client_addresses = _lb_address if _lb_address else _etcd_access_addresses_list | join(',') -%}
+
+      {%- set _cert_paths = {
+        'server': {
+          'cert': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-server.crt',
+          'key': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-server.key',
+          'ca': etcd_cert_dir + '/client-ca.crt'
+        },
+        'client': {
+          'cert': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-client.crt',
+          'key': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-client.key',
+          'ca': etcd_cert_dir + '/client-ca.crt'
+        },
+        'peer': {
+          'cert': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-peer.crt',
+          'key': etcd_cert_dir + '/etcd-' + etcd_cluster_name + '-peer.key',
+          'ca': etcd_cert_dir + '/peer-ca.crt'
+        }
+      } -%}
+
       {%- set _tmp =  _cluster_info.update({
       'cluster': {
       'etcd_cluster_name': etcd_cluster_name,
-      'etcd_ports': etcd_ports},
+      'etcd_client_port': etcd_client_port,
+      'etcd_peer_port': etcd_peer_port},
       'etcd_members': etcd_members,
       'etcd_cert_dir': etcd_cert_dir,
-      'etcd_access_addresses': _etcd_access_addresses_list | join(','),
-      'etcd_access_addresses_semicolon': _etcd_access_addresses_list | join(';'),
+      'etcd_cert_paths': _cert_paths,
+      'etcd_access_addresses': _client_addresses,
+      'etcd_access_addresses_semicolon': _client_addresses.replace(',', ';'),
+      'etcd_access_addresses_direct': _etcd_access_addresses_list | join(','),
+      'etcd_access_addresses_direct_semicolon': _etcd_access_addresses_list | join(';'),
+      'etcd_lb_address': _lb_address,
+      'etcd_lb_enabled': etcd_lb_enabled|default(false),
       'etcd_peer_addresses': _etcd_peer_addresses_list | join(','),
       'etcd_peer_addresses_semicolon': _etcd_peer_addresses_list | join(';')
       }) -%}
@@ -55,10 +480,13 @@
   tags:
     - facts
 
-- name: Etcd top-level
+- name: Create non-namespaced variables for backward compatibility (SINGLE CLUSTER ONLY)
   set_fact:
-    "{{item.key}}_{{etcd_cluster_name|replace('-','_')}}": "{{item.value}}"
     "{{item.key}}": "{{item.value}}"
   tags:
     - facts
   loop: "{{etcd_clusters[etcd_cluster_name] | dict2items}}"
+  when: 
+    - not (_deploying_multiple_clusters | default(false))
+    - etcd_cluster_name in etcd_clusters
+

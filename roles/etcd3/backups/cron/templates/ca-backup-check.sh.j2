@@ -31,7 +31,7 @@ export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
 export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
 export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
 
-BACKUP_DIR="{{ etcd_cluster_backup.directory }}"
+BACKUP_DIR="{{ etcd_cluster_backup_directory }}"
 STATE_FILE="/var/lib/etcd-ca-backup/last-backup-checksum"
 CA_SECRETS_DIR="/etc/step-ca/secrets"
 CA_CONFIG_DIR="/etc/step-ca/config"

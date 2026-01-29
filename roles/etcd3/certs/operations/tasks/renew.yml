@@ -37,7 +37,17 @@
   systemd:
     daemon_reload: yes
 
-- name: Fix step configuration directory permissions BEFORE renewal (ensures etcd user can access)
+- name: Fix step configuration directory permissions BEFORE renewal (client cert dir)
+  file:
+    path: "{{ etcd_client_cert_dir }}/.step"
+    state: directory
+    owner: "{{ etcd_client_cert_user.name }}"
+    group: "{{ etcd_client_cert_user.name }}"
+    mode: 0700
+    recurse: yes
+  when: inventory_hostname in groups[etcd_clients_group]
+
+- name: Fix step configuration directory permissions BEFORE renewal (cluster nodes)
   file:
     path: "{{ etcd_cert_dir }}/.step"
     state: directory
@@ -45,6 +55,7 @@
     group: "{{ etcd_user.name }}"
     mode: 0700
     recurse: yes
+  when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Trigger certificate renewal services
   systemd:
@@ -101,12 +112,12 @@
     group: "{{ etcd_user.name }}"
     mode: 0400
   loop:
-    - "{{ etcd_cert_paths.peer.cert }}"
-    - "{{ etcd_cert_paths.peer.key }}"
-    - "{{ etcd_cert_paths.server.cert }}"
-    - "{{ etcd_cert_paths.server.key }}"
-    - "{{ etcd_cert_paths.client.cert }}"
-    - "{{ etcd_cert_paths.client.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
   when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Fix certificate permissions after renewal (client nodes)
@@ -116,8 +127,8 @@
     group: "{{ etcd_user.name }}"
     mode: 0400
   loop:
-    - "{{ etcd_cert_paths.client.cert }}"
-    - "{{ etcd_cert_paths.client.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
   when: inventory_hostname in groups[etcd_clients_group]
 
 - name: Display renewal completion
@@ -126,9 +137,9 @@
       - "✅ Certificate renewal complete on {{ inventory_hostname }}"
       - ""
       - "Renewed certificates:"
-      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Peer certificate: {{ etcd_cert_paths.peer.cert }}{% endif %}"
-      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Server certificate: {{ etcd_cert_paths.server.cert }}{% endif %}"
-      - "- Client certificate: {{ etcd_cert_paths.client.cert }}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Peer certificate: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}{% endif %}"
+      - "{% if inventory_hostname in groups[etcd_cluster_group] %}- Server certificate: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}{% endif %}"
+      - "- Client certificate: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
       - ""
       - "Permissions verified:"
       - "- Owner: {{ etcd_user.name }}:{{ etcd_user.name }}"

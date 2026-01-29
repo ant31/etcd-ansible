@@ -1,5 +1,11 @@
 ---
-# Backup a cluster
+# ============================================================================
+# UNIFIED CLUSTER DEPLOYMENT (DRY - same path for single and multi-cluster)
+# ============================================================================
+# The facts role has already determined if we're deploying multiple clusters
+# This role handles both cases using the same logic
+
+# Backup a cluster (manual backup action)
 - name: etcd3/backups
   import_role:
     name: etcd3/backups
@@ -10,15 +16,54 @@
   tags:
     - etcd-backups
 
-# install/upgrade a cluster
-- import_role:
+# Backward compatibility warning for 'upgrade' action
+- name: Warn about deprecated upgrade action
+  debug:
+    msg:
+      - "⚠️  WARNING: etcd_action=upgrade is DEPRECATED"
+      - ""
+      - "The 'upgrade' action has been merged with 'deploy'"
+      - ""
+      - "Migration:"
+      - "  OLD: -e etcd_action=upgrade -e etcd_version=v3.5.26"
+      - "  NEW: -e etcd_action=deploy -e etcd_version=v3.5.26"
+      - ""
+      - "Continuing with 'deploy' action..."
+  when: etcd_action | default('none') == 'upgrade'
+
+# Deploy clusters (single or multiple - uses same path)
+- name: Deploy single cluster (when no etcd_cluster_configs or only 1 cluster)
+  import_role:
     name: etcd3/cluster/install
     public: yes
   when:
-    - etcd_action | default('none') in ['upgrade', 'create', 'deploy']
+    - etcd_action | default('none') in ['create', 'deploy', 'upgrade']
+    - not (_deploying_multiple_clusters | default(false))
   tags:
     - etcd
     - etcd-cluster
+
+- name: Deploy multiple clusters (loops internally)
+  include_role:
+    name: etcd3/cluster/install
+    public: yes
+  loop: "{{ _clusters_to_deploy }}"
+  loop_control:
+    loop_var: current_cluster_name
+  vars:
+    # Override cluster-specific variables for this iteration
+    etcd_cluster_name: "{{ etcd_deployment_matrix[current_cluster_name].name }}"
+    etcd_cluster_group: "{{ etcd_deployment_matrix[current_cluster_name].group }}"
+    etcd_certmanagers_group: "{{ etcd_deployment_matrix[current_cluster_name].cert_managers_group }}"
+    etcd_clients_group: "{{ etcd_deployment_matrix[current_cluster_name].clients_group }}"
+  when:
+    - etcd_action | default('none') in ['create', 'deploy', 'upgrade']
+    - _deploying_multiple_clusters | default(false)
+    - inventory_hostname in groups[etcd_deployment_matrix[current_cluster_name].group]
+  tags:
+    - etcd
+    - etcd-cluster
+    - multi-cluster
 
 # Teardown a cluster
 - name: etcd3/cluster/delete

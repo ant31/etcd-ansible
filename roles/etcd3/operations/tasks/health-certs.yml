@@ -8,13 +8,13 @@
 
 - name: Check if peer certificate file exists
   stat:
-    path: "{{ etcd_cert_paths.peer.cert }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}"
   register: peer_cert_file
   changed_when: false
 
 - name: Check peer certificate expiration
   shell: >
-    {{ bin_dir }}/step certificate inspect {{ etcd_cert_paths.peer.cert }}
+    {{ bin_dir }}/step certificate inspect {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}
     --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: peer_cert_expiry
   changed_when: false
@@ -23,13 +23,13 @@
 
 - name: Check if server certificate file exists
   stat:
-    path: "{{ etcd_cert_paths.server.cert }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}"
   register: server_cert_file
   changed_when: false
 
 - name: Check server certificate expiration
   shell: >
-    {{ bin_dir }}/step certificate inspect {{ etcd_cert_paths.server.cert }}
+    {{ bin_dir }}/step certificate inspect {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}
     --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: server_cert_expiry
   changed_when: false
@@ -38,13 +38,13 @@
 
 - name: Check if client certificate file exists
   stat:
-    path: "{{ etcd_cert_paths.client.cert }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
   register: client_cert_file
   changed_when: false
 
 - name: Check client certificate expiration
   shell: >
-    {{ bin_dir }}/step certificate inspect {{ etcd_cert_paths.client.cert }}
+    {{ bin_dir }}/step certificate inspect {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
     --format json | python3 -c "import sys, json; print(json.load(sys.stdin)['validity']['end'])"
   register: client_cert_expiry
   changed_when: false
@@ -80,7 +80,7 @@
 
 - name: Get peer certificate fingerprint
   shell: >
-    {{ bin_dir }}/step certificate fingerprint {{ etcd_cert_paths.peer.cert }}
+    {{ bin_dir }}/step certificate fingerprint {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}
   register: peer_cert_fingerprint
   changed_when: false
   failed_when: false
@@ -88,7 +88,7 @@
 
 - name: Get server certificate fingerprint
   shell: >
-    {{ bin_dir }}/step certificate fingerprint {{ etcd_cert_paths.server.cert }}
+    {{ bin_dir }}/step certificate fingerprint {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}
   register: server_cert_fingerprint
   changed_when: false
   failed_when: false
@@ -96,7 +96,7 @@
 
 - name: Get client certificate fingerprint
   shell: >
-    {{ bin_dir }}/step certificate fingerprint {{ etcd_cert_paths.client.cert }}
+    {{ bin_dir }}/step certificate fingerprint {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
   register: client_cert_fingerprint
   changed_when: false
   failed_when: false
@@ -118,7 +118,7 @@
   set_fact:
     peer_cert_msg: |
       {%- if not peer_cert_file.stat.exists -%}
-      ["❌ Peer certificate file NOT FOUND", "Expected: {{ etcd_cert_paths.peer.cert }}"]
+      ["❌ Peer certificate file NOT FOUND", "Expected: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}"]
       {%- elif peer_cert_expiry.rc != 0 -%}
       ["❌ Failed to inspect peer certificate", "File exists but inspection failed", "Error: {{ peer_cert_expiry.stderr | default('Unknown error') }}"]
       {%- else -%}
@@ -130,7 +130,7 @@
   set_fact:
     server_cert_msg: |
       {%- if not server_cert_file.stat.exists -%}
-      ["Server cert:                FILE NOT FOUND ({{ etcd_cert_paths.server.cert }})"]
+      ["Server cert:                FILE NOT FOUND ({{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }})"]
       {%- elif server_cert_expiry.rc != 0 -%}
       ["Server cert:                INSPECTION FAILED"]
       {%- else -%}
@@ -142,7 +142,7 @@
   set_fact:
     client_cert_msg: |
       {%- if not client_cert_file.stat.exists -%}
-      ["Client cert:                FILE NOT FOUND ({{ etcd_cert_paths.client.cert }})"]
+      ["Client cert:                FILE NOT FOUND ({{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }})"]
       {%- elif client_cert_expiry.rc != 0 -%}
       ["Client cert:                INSPECTION FAILED"]
       {%- else -%}

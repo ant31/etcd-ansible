@@ -3,20 +3,20 @@
 # Supports: stop, start, restart
 # Usage: Set service_action variable
 
-- name: Stop all etcd services
+- name: Stop etcd service (cluster-specific)
   systemd:
-    name: etcd-*
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: stopped
   when: service_action == 'stop'
 
-- name: Start all etcd services
+- name: Start etcd service (cluster-specific)
   systemd:
-    name: etcd-*
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: started
   when: service_action == 'start'
 
-- name: Restart all etcd services
+- name: Restart etcd service (cluster-specific)
   systemd:
-    name: etcd-*
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: restarted
   when: service_action == 'restart'

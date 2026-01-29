@@ -9,10 +9,10 @@
 
 - name: Check etcd endpoint health
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     endpoint health
   environment:
     ETCDCTL_API: "3"
@@ -22,10 +22,10 @@
 
 - name: Check cluster member list
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     member list -w table
   environment:
     ETCDCTL_API: "3"
@@ -35,10 +35,10 @@
 
 - name: Check endpoint status
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     endpoint status -w table
   environment:
     ETCDCTL_API: "3"
@@ -48,10 +48,10 @@
 
 - name: Get database metrics (JSON)
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     endpoint status -w json
   environment:
     ETCDCTL_API: "3"

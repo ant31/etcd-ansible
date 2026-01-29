@@ -5,7 +5,7 @@ dependencies:
   - name: etcd3/backups/cron
     vars:
       skip_initial_backup: true
-    when: inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_certmanagers_group]
+    when: (inventory_hostname in groups[etcd_cluster_group]) or (inventory_hostname in groups[etcd_certmanagers_group])
     tags:
       - backup-cron
       - restore

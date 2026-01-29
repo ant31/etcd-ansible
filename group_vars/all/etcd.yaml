@@ -1,0 +1,211 @@
+---
+# ============================================================================
+# ETCD-ANSIBLE CONFIGURATION
+# ============================================================================
+
+# ============================================================================
+# CLUSTER IDENTITY
+# ============================================================================
+# Default cluster name (overridden per cluster via etcd_cluster_configs)
+etcd_cluster_name: k8s
+
+# ============================================================================
+# ETCD VERSION
+# ============================================================================
+etcd_version: v3.5.26
+# Available versions: v3.5.13, v3.5.26, v3.6.7
+
+# ============================================================================
+# INVENTORY GROUPS
+# ============================================================================
+etcd_cluster_group: etcd
+etcd_clients_group: etcd-clients
+etcd_certmanagers_group: etcd-cert-managers
+
+# ============================================================================
+# DEFAULT NETWORK PORTS (apply to ALL clusters)
+# ============================================================================
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# ============================================================================
+# DEFAULT FILESYSTEM PATHS (apply to ALL clusters)
+# ============================================================================
+bin_dir: /opt/bin
+download_cache_dir: /opt/bin
+etcd_home: /var/lib/etcd
+etcd_config_dir: /etc/etcd
+etcd_cert_dir: /etc/etcd/ssl
+
+# ============================================================================
+# DEFAULT ETCD PERFORMANCE TUNING (apply to ALL clusters)
+# ============================================================================
+etcd_heartbeat_interval: 250
+etcd_election_timeout: 5000
+etcd_snapshot_count: 10000
+etcd_compaction_retention: "8"
+etcd_max_snapshots: 5
+etcd_max_wals: 5
+etcd_metrics: extensive
+
+# ============================================================================
+# DEFAULT SECURITY SETTINGS (apply to ALL clusters)
+# ============================================================================
+etcd_secure_client: true
+etcd_peer_client_auth: true
+dns_domain: cluster.local
+
+# Default certificate SANs
+etcd_cert_alt_names:
+  - "etcd.kube-system.svc.{{ dns_domain }}"
+  - "etcd.kube-system.svc"
+  - "etcd.kube-system"
+  - "etcd"
+etcd_cert_alt_ips: []
+
+# ============================================================================
+# DEFAULT SMALLSTEP CA CONFIGURATION (apply to ALL clusters)
+# ============================================================================
+step_version: "0.29.0"
+step_ca_version: "0.29.0"
+step_ca_port: 9000
+
+# Certificate lifetimes
+step_cert_default_duration: "17520h"  # 2 years
+step_cert_max_duration: "26280h"      # 3 years
+step_cert_min_duration: "1h"
+step_cert_renew_period: "11688h"      # ~487 days (2/3 of 2 years)
+
+# step-ca runtime limit (60 minutes default)
+step_ca_runtime_minutes: 60
+
+# CA paths
+step_path: /etc/step-ca
+
+# ============================================================================
+# DEFAULT BACKUP CONFIGURATION (apply to ALL clusters)
+# ============================================================================
+
+# Etcd data backups - DEFAULT: Every 30 minutes, distributed
+etcd_backup_cron_enabled: true
+etcd_backup_interval: "*/30"            # Every 30 minutes (overridden per cluster below)
+etcd_backup_local_retention_days: 90    # Local disk retention (S3 needs lifecycle policy)
+etcd_backup_distributed: true           # Multi-node coordination
+etcd_backup_independent: false          # Check for existing backups (overridden per cluster below)
+etcd_backup_online_only: false          # Backup even if unhealthy
+
+# CA backups - DEFAULT: Check every hour if changed
+ca_backup_cron_enabled: true
+ca_backup_check_interval: "0 * * * *"   # Every hour (at :00 minutes)
+ca_backup_local_retention_days: 365     # Local disk retention (S3 needs lifecycle policy)
+
+# Trigger initial backup after deployment
+etcd_backup_initial_run: true
+ca_backup_initial_run: true
+
+# Backup paths
+backup_scripts_dir: "/opt/backups"
+backup_log_dir: "/var/log/etcd-backups"
+backup_tmp_dir: "/opt/backups/tmp"
+
+# ============================================================================
+# DEFAULT SYSTEMD SERVICE TUNING (apply to ALL clusters)
+# ============================================================================
+etcd_systemd_timeout_start_sec: "60s"
+etcd_systemd_restart_sec: "15s"
+etcd_systemd_limit_nofile: 40000
+
+# ============================================================================
+# ETCD USER/GROUP
+# ============================================================================
+etcd_user:
+  name: etcd
+  comment: "Etcd user"
+  createhome: yes
+  home: "{{ etcd_home }}"
+  system: yes
+  shell: /bin/nologin
+
+# Client certificate owner (for etcd-clients group)
+etcd_client_cert_user:
+  name: kube
+  group: kube
+
+# ============================================================================
+# PER-CLUSTER CONFIGURATION OVERRIDES
+# ============================================================================
+# Only specify what's DIFFERENT from defaults above
+
+etcd_cluster_configs:
+  
+  # ========================================
+  # Main Kubernetes cluster
+  # ========================================
+  k8s:
+    # Ports: Use defaults (2379/2380) - no override needed
+    # client_port: 2379
+    # peer_port: 2380
+    
+    # Backup: Every 3 hours, INDEPENDENT mode (no deduplication)
+    backup_interval: "0 */3 * * *"       # Every 3 hours (at :00 minutes)
+    backup_s3_prefix: "prod/k8s/"        # S3 path: s3://bucket/prod/k8s/YYYY/MM/
+    backup_independent: true             # No deduplication check (all nodes backup independently)
+    backup_distributed: true             # Enable multi-node backups
+    backup_retention_days: 90            # Keep 90 days locally (configure S3 lifecycle separately)
+    # backup_enabled: true (inherited from default)
+    # backup_online_only: false (inherited - backup even if unhealthy)
+    
+    # CA backup: Use defaults (check every hour, 365 day local retention)
+    
+    # Certificate SANs: Use defaults
+    
+    # Performance: Use defaults
+    
+    # Systemd: Use defaults
+    
+    # Load balancer: Disabled by default (override if needed)
+    # lb_enabled: true
+    # lb_host: "etcd-k8s.internal.example.com"
+    # lb_ip: "10.0.1.100"
+  
+  # ========================================
+  # Events cluster
+  # ========================================
+  k8s-events:
+    # Ports: Different to avoid conflicts on same nodes
+    client_port: 2381
+    peer_port: 2382
+    
+    # Backup: Once daily at 2 AM
+    backup_interval: "0 2 * * *"         # Daily at 2:00 AM
+    backup_s3_prefix: "prod/events/"     # S3 path: s3://bucket/prod/events/YYYY/MM/
+    backup_retention_days: 30            # Shorter local retention (configure S3 lifecycle separately)
+    backup_distributed: false            # Single-node backup (simpler for daily)
+    backup_independent: false            # Check for existing backups (default)
+    # backup_enabled: true (inherited from default)
+    # backup_online_only: false (inherited - backup even if unhealthy)
+    
+    # CA backup: DISABLED (shares same CA with k8s cluster)
+    ca_backup_enabled: false             # Don't backup CA from events nodes (k8s nodes do it)
+    
+    # Certificate SANs: Minimal
+    cert_alt_names:
+      - "etcd-events.kube-system.svc.{{ dns_domain }}"
+      - "etcd-events.kube-system.svc"
+    # cert_alt_ips: [] (inherited - no extra IPs)
+    
+    # Performance: Use defaults
+    # (heartbeat: 250ms, election: 5000ms, etc.)
+    
+    # Systemd: Use defaults
+    # (timeout_start: 60s, limit_nofile: 40000)
+    
+    # Load balancer: Disabled for events cluster
+    # (inherited - lb_enabled: false by default)
+
+# ============================================================================
+# DOWNLOAD CONFIGURATION
+# ============================================================================
+skip_downloads: false
+download_validate_certs: true
+retry_stagger: 5

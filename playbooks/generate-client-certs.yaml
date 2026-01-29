@@ -25,8 +25,8 @@
     - name: Check if required groups exist
       assert:
         that:
-          - groups.get('etcd-cert-managers', []) | length > 0
-          - groups.get('etcd-clients', []) | length > 0
+          - groups.get('etcd_cert_managers', []) | length > 0
+          - groups.get('etcd_clients', []) | length > 0
         fail_msg: |
           ❌ Required inventory groups are missing or empty!
           
@@ -37,8 +37,8 @@
           4. Missing required groups
           
           Required groups:
-          - [etcd-cert-managers] : Nodes running step-ca (at least 1)
-          - [etcd-clients]       : Nodes needing client certificates (at least 1)
+          - [etcd_cert_managers] : Nodes running step-ca (at least 1)
+          - [etcd_clients]       : Nodes needing client certificates (at least 1)
           
           Example inventory.ini:
           
@@ -46,16 +46,16 @@
           etcd-1 ansible_host=10.0.1.10
           etcd-2 ansible_host=10.0.1.11
           
-          [etcd-clients]
+          [etcd_clients]
           kube-apiserver-1 ansible_host=10.0.2.10
           kube-apiserver-2 ansible_host=10.0.2.11
           
-          [etcd-cert-managers]
+          [etcd_cert_managers]
           etcd-1
           
           Current inventory state:
-          - etcd-cert-managers: {{ groups.get('etcd-cert-managers', []) | length }} hosts
-          - etcd-clients: {{ groups.get('etcd-clients', []) | length }} hosts
+          - etcd_cert_managers: {{ groups.get('etcd_cert_managers', []) | length }} hosts
+          - etcd_clients: {{ groups.get('etcd_clients', []) | length }} hosts
           
           Fix this by:
           1. Creating inventory.ini (see inventory/inventory-example.ini)
@@ -63,7 +63,7 @@
           3. Verifying syntax: ansible-inventory -i inventory.ini --list
 
 - name: Ensure step-ca is running on cert-managers
-  hosts: etcd-cert-managers[0]
+  hosts: etcd_cert_managers[0]
   gather_facts: yes
   become: yes
   roles:
@@ -98,7 +98,7 @@
           - "URL: {{ step_ca_url }}"
 
 - name: Generate client certificates only
-  hosts: etcd-clients
+  hosts: etcd_clients
   gather_facts: yes
   become: yes
   vars:
@@ -117,21 +117,21 @@
         msg:
           - "✅ Client certificate generated for {{ inventory_hostname }}"
           - ""
-          - "Certificate: {{ etcd_cert_paths.client.cert }}"
-          - "Private key: {{ etcd_cert_paths.client.key }}"
-          - "Certificate directory: {{ etcd_cert_dir }}"
+          - "Certificate: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+          - "Private key: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
+          - "Certificate directory: {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}"
           - ""
           - "Automatic renewal configured:"
           - "  Timer: step-renew-{{ etcd_cluster_name }}-client.timer"
           - ""
           - "Verify certificate:"
-          - "  step certificate inspect {{ etcd_cert_paths.client.cert }}"
+          - "  step certificate inspect {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
           - ""
           - "Test connection:"
-          - "  etcdctl --endpoints={{ etcd_access_addresses }}"
-          - "    --cert={{ etcd_cert_paths.client.cert }}"
-          - "    --key={{ etcd_cert_paths.client.key }}"
-          - "    --cacert={{ etcd_cert_dir }}/root_ca.crt"
+          - "  etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}"
+          - "    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+          - "    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
+          - "    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/root_ca.crt"
           - "    endpoint health"
 
 - name: Display summary
@@ -157,7 +157,7 @@
           3. You used --limit to exclude all hosts
           
           To fix:
-          1. Add hosts to [etcd-clients] in your inventory.ini
+          1. Add hosts to [etcd_clients] in your inventory.ini
           2. Verify: ansible-inventory -i inventory.ini --graph
           3. Re-run: ansible-playbook -i inventory.ini playbooks/generate-client-certs.yaml
       when: clients_processed | int == 0

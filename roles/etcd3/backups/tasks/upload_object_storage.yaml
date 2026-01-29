@@ -1,4 +1,0 @@
----
-# This file is deprecated - manual backups now call the same script as cron
-# See roles/etcd3/backups/tasks/main.yaml
-# The script at {{ backup_scripts_dir }}/etcd-backup.sh handles encryption and upload

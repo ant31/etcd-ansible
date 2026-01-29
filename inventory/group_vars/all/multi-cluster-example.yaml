@@ -1,0 +1,390 @@
+---
+# ============================================================================
+# MULTI-CLUSTER CONFIGURATION EXAMPLE
+# ============================================================================
+# This file demonstrates how to configure multiple etcd clusters with
+# different settings using the etcd_cluster_configs dictionary.
+#
+# Copy this to group_vars/all/etcd.yaml or include in your inventory file.
+#
+# Benefits:
+# - Define defaults once (top-level variables)
+# - Override only what's different per cluster
+# - Automatic dict merging (no YAML anchors needed)
+# - Clean separation of concerns
+# - Flexible inventory group naming (no regex constraints)
+#
+# Pattern:
+# 1. Set top-level variables as defaults for ALL clusters
+# 2. Use etcd_cluster_configs for optional per-cluster overrides
+# 3. Dict key is the cluster name (can be overridden with explicit cluster_name)
+# 4. Map to any inventory group via 'group' field
+# 5. Unspecified settings inherit from defaults
+#
+# Cluster Name Resolution (priority order):
+#   1. config[dict_key].cluster_name (explicit override)
+#   2. dict_key (the key in etcd_cluster_configs)
+#   3. etcd_cluster_name (global default)
+
+# ============================================================================
+# DEFAULT SETTINGS (apply to ALL clusters unless overridden)
+# ============================================================================
+
+# Default network ports
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# Default backup configuration
+etcd_backup_cron_enabled: true
+etcd_backup_interval: "*/30"  # Every 30 minutes
+etcd_backup_retention_days: 90  # 90 days
+etcd_backup_distributed: true  # Multi-node coordination
+etcd_backup_independent: false  # Check for existing backups
+etcd_backup_online_only: false  # Backup even if unhealthy
+
+# Default CA backup configuration
+ca_backup_cron_enabled: true
+ca_backup_check_interval: "*/5"  # Check every 5 minutes
+ca_backup_retention_days: 365  # 1 year
+
+# ============================================================================
+# OPTIONAL PER-CLUSTER OVERRIDES (only specify what's different)
+# ============================================================================
+
+etcd_cluster_configs:
+  
+  # ========================================
+  # Example 1: Simple cluster (dict key = cluster name)
+  # ========================================
+  myapp:
+    # Cluster name: "myapp" (from dict key)
+    # Inventory group: [etcd] (explicit mapping)
+    cluster_group: etcd
+    
+    # Ports: Use defaults (2379/2380)
+    
+    # Backup configuration
+    backup:
+      s3_prefix: "prod/myapp/"
+      interval: "*/30"
+  
+  # ========================================
+  # Example 2: Main Kubernetes cluster (production with load balancer)
+  # ========================================
+  k8s:
+    # Cluster name: "k8s" (from dict key)
+    # Inventory group: [etcd-k8s] (auto-detected: etcd-CLUSTERNAME convention)
+    # To use different cluster_group: cluster_group: your-custom-group-name
+    
+    # Ports (flat): Use defaults (2379/2380) - no override needed
+    # To override: client_port: 2379, peer_port: 2380
+    
+    # Load balancer configuration
+    lb:
+      enabled: true
+      host: "etcd-k8s.internal.example.com"
+      port: 2379
+      ip: "10.0.1.100"  # Optional VIP
+    
+    # Certificate SANs (include LB hostname/IP)
+    cert:
+      alt_names:
+        - "etcd-k8s.internal.example.com"
+        - "etcd.kube-system.svc.cluster.local"
+        - "etcd.kube-system.svc"
+      alt_ips:
+        - "10.0.1.100"  # LB VIP
+    
+    # Backup: Override S3 prefix and monitoring
+    backup:
+      s3_prefix: "prod/k8s/"
+      # enabled: true (inherited from default)
+      # interval: "*/30" (inherited from default)
+      # local_retention_days: 90 (inherited from default)
+      # distributed: true (inherited from default)
+    
+    # CA backup: Use all defaults
+    # (enabled: true, check_interval: "*/5", retention_days: 365)
+    
+    # Monitoring: Healthcheck URLs for deadman monitoring
+    monitoring:
+      backup_healthcheck_url: "https://hc-ping.com/k8s-etcd-backup-uuid"
+      ca_backup_healthcheck_url: "https://hc-ping.com/k8s-ca-backup-uuid"
+    
+    # Performance: Default settings work well
+    # (heartbeat: 250ms, election: 5000ms, metrics: extensive)
+    
+    # Systemd: Default settings work well
+    # (timeout_start: 60s, limit_nofile: 40000)
+    
+    # Security: Defaults (secure_client: true, peer_client_auth: true)
+    
+    # step-ca: Defaults (runtime: 60 minutes, port: 9000)
+  
+  # ========================================
+  # Example 3: Events cluster with custom group name
+  # ========================================
+  events:
+    # Cluster name: "events" (from dict key)
+    # Inventory group: [etcd-production] (explicit mapping - any name works!)
+    cluster_group: etcd-production
+    
+    # Different ports to avoid conflicts on same nodes (flat)
+    client_port: 2381
+    peer_port: 2382
+    
+    # Override backup settings
+    backup:
+      interval: "*/60"
+      s3_prefix: "prod/events/"
+  
+  # ========================================
+  # Example 4: Legacy naming pattern (backward compatible)
+  # ========================================
+  k8s-events:
+    # Cluster name: "k8s-events" (from dict key)
+    # Inventory group: [etcd-k8s-events] (convention: etcd-CLUSTERNAME)
+    # No explicit 'group' needed - follows old pattern
+    
+    # Override: Different ports to avoid conflicts on same nodes (flat)
+    client_port: 2383
+    peer_port: 2384
+    
+    # Load balancer: Disabled for events (direct connection)
+    lb:
+      enabled: false
+    
+    # Certificate SANs: Just standard SANs, no LB
+    cert:
+      alt_names:
+        - "etcd-events.kube-system.svc"
+      # No alt_ips needed without LB
+    
+    # Override: Less frequent backups (events are less critical)
+    backup:
+      interval: "*/60"  # Every 60 minutes (override default */30)
+      s3_prefix: "prod/events/"
+      local_retention_days: 30  # Override (shorter local retention)
+      # enabled: true (inherited)
+      # distributed: true (inherited)
+    
+    # Override: Less frequent CA backup checks
+    ca_backup:
+      check_interval: "*/10"  # Override (less frequent than default */5)
+      retention_days: 180  # Override (shorter than default 365)
+      # enabled: true (inherited)
+    
+    # Performance: Lower priority, smaller quota
+    performance:
+      quota_backend_bytes: "4G"  # Smaller than main cluster
+      snapshot_count: 5000       # More frequent snapshots
+      compaction_retention: "4"  # Less history retained
+      metrics: "basic"           # Less detailed metrics
+    
+    # Systemd: Lower resource limits
+    systemd:
+      nice_level: 5              # Lower priority than main cluster
+      memory_limit: "2G"
+      cpu_quota: "100%"          # 1 CPU core
+    
+    # Monitoring: Separate healthcheck URLs
+    monitoring:
+      backup_healthcheck_url: "https://hc-ping.com/events-backup-uuid"
+      ca_backup_healthcheck_url: "https://hc-ping.com/events-ca-uuid"
+  
+  # ========================================
+  # Development/staging cluster (minimal resources)
+  # ========================================
+  dev:
+    # Override: Different ports (flat)
+    client_port: 2383
+    peer_port: 2384
+    
+    # Load balancer: Disabled for dev
+    lb:
+      enabled: false
+    
+    # Certificates: Minimal SANs
+    cert:
+      alt_names: ["etcd-dev.local"]
+      # No alt_ips
+    
+    # Override: Minimal backups for dev
+    backup:
+      interval: "0 2 * * *"  # Override (daily at 2 AM)
+      s3_prefix: "dev/k8s/"
+      local_retention_days: 7  # Override (1 week local retention)
+      distributed: false  # Override (single-node)
+      online_only: true  # Override (only when healthy)
+    
+    # Override: Disable CA backups in dev
+    ca_backup:
+      enabled: false
+    
+    # Performance: Minimal settings for dev
+    performance:
+      quota_backend_bytes: "2G"     # Small database
+      snapshot_count: 10000
+      compaction_retention: "2"     # Minimal history
+      metrics: "basic"              # Basic metrics only
+    
+    # Systemd: Minimal resources for dev
+    systemd:
+      timeout_start_sec: "30s"      # Shorter timeout
+      nice_level: 10                # Lower priority
+      memory_limit: "1G"            # Limited memory
+      cpu_quota: "100%"             # 1 CPU core
+    
+    # step-ca: Always running in dev (no auto-shutdown)
+    step_ca:
+      runtime_minutes: 0            # Always running (easier dev workflow)
+      port: 9000
+    
+    # Monitoring: No healthcheck URLs in dev
+    # (monitoring.backup_healthcheck_url not set - inherited as empty string)
+  
+  # ========================================
+  # Legacy cluster (being decommissioned)
+  # ========================================
+  legacy:
+    # Override: Different ports (flat)
+    client_port: 2385
+    peer_port: 2386
+    
+    # Load balancer: Disabled
+    lb:
+      enabled: false
+    
+    # Override: Disable all backups (being decommissioned)
+    backup:
+      enabled: false
+    
+    ca_backup:
+      enabled: false
+    
+    # Performance: Minimal monitoring
+    performance:
+      metrics: "basic"
+    
+    # Systemd: Default settings sufficient
+    
+    # Security: Keep defaults for security
+    
+    # step-ca: Stop after 30 minutes (rarely needed)
+    step_ca:
+      runtime_minutes: 30
+  
+  # ========================================
+  # High-performance cluster (large database, tuned for throughput)
+  # ========================================
+  high-perf:
+    # Standard ports (flat)
+    client_port: 2387
+    peer_port: 2388
+    
+    # Load balancer with dedicated VIP
+    lb:
+      enabled: true
+      host: "etcd-perf.internal.example.com"
+      ip: "10.0.1.200"
+    
+    # Certificates include LB
+    cert:
+      alt_names: ["etcd-perf.internal.example.com", "etcd-perf"]
+      alt_ips: ["10.0.1.200"]
+    
+    # Backup: More frequent due to high write rate
+    backup:
+      interval: "*/15"              # Every 15 minutes
+      s3_prefix: "prod/high-perf/"
+      retention_days: 60
+      distributed: true
+    
+    # Performance: Tuned for large database
+    performance:
+      heartbeat_interval: 200       # Faster heartbeat
+      election_timeout: 3000        # Faster election
+      quota_backend_bytes: "16G"    # Large database
+      snapshot_count: 100000        # Less frequent snapshots
+      compaction_retention: "12"    # More history
+      metrics: "extensive"
+    
+    # Systemd: High resource limits
+    systemd:
+      timeout_start_sec: "120s"     # Longer startup (large db)
+      limit_nofile: 65536           # More file handles
+      nice_level: -10               # High CPU priority
+      ionice_class: 1               # Realtime I/O
+      ionice_priority: 0            # Highest I/O priority
+      memory_limit: "8G"            # Large memory
+      cpu_quota: "400%"             # 4 CPU cores
+    
+    # Monitoring
+    monitoring:
+      backup_healthcheck_url: "https://hc-ping.com/perf-backup"
+      ca_backup_healthcheck_url: "https://hc-ping.com/perf-ca"
+
+# ============================================================================
+# USAGE IN PLAYBOOKS
+# ============================================================================
+#
+# The facts role automatically resolves cluster name from inventory group:
+#
+# - hosts: etcd  # Uses [etcd] group
+#   roles:
+#     - etcd3/cluster
+#   # Cluster name auto-resolved: 
+#   #   If etcd_cluster_configs has entry with group: etcd → uses that dict key
+#   #   Otherwise uses etcd_cluster_name variable
+#
+# Variables are automatically merged:
+# - Cluster-specific settings override defaults
+# - Defaults used if cluster config not defined
+# - No need to repeat unchanged settings
+#
+# ============================================================================
+# INVENTORY EXAMPLES
+# ============================================================================
+#
+# Example 1: Simple group names with explicit mapping
+# ----------------------------------------------------
+# [etcd]
+# node1 ansible_host=10.0.1.10
+# node2 ansible_host=10.0.1.11
+#
+# [etcd_production]
+# node4 ansible_host=10.0.1.14
+# node5 ansible_host=10.0.1.15
+#
+# [etcd_all:children]
+# etcd
+# etcd_production
+#
+# group_vars/all/etcd.yaml:
+#   etcd_cluster_configs:
+#     myapp:              # Cluster name = "myapp"
+#       cluster_group: etcd       # Maps to [etcd] group
+#     events:             # Cluster name = "events"
+#       cluster_group: etcd_production  # Maps to [etcd_production] group
+#       client_port: 2381
+#
+# Example 2: Convention-based naming (backward compatible)
+# ---------------------------------------------------------
+# [etcd_k8s]
+# node1 ansible_host=10.0.1.10
+#
+# [etcd_events]
+# node4 ansible_host=10.0.1.14
+#
+# [etcd_all:children]
+# etcd_k8s
+# etcd_events
+#
+# group_vars/all/etcd.yaml:
+#   etcd_cluster_configs:
+#     k8s:      # Cluster name = "k8s", group = [etcd_k8s] (auto)
+#       backup: { s3_prefix: "prod/k8s/" }
+#     events:   # Cluster name = "events", group = [etcd_events] (auto)
+#       client_port: 2381
+#
+# ============================================================================

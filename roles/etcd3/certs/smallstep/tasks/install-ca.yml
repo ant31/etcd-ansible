@@ -155,19 +155,38 @@
     - "{{ step_ca_certs }}/intermediate_ca.crt"
   failed_when: false
 
-- name: Enable and start step-ca service (PRIMARY cert-manager only)
+# Determine primary cert-manager (first from etcd_cert_managers_all if exists, else first from cluster group)
+- name: Determine primary cert-manager for multi-cluster
+  set_fact:
+    _primary_cert_manager: "{{ groups['etcd_cert_managers_all'][0] if 'etcd_cert_managers_all' in groups else groups[etcd_certmanagers_group][0] }}"
+  run_once: true
+
+- name: Enable and restart step-ca service (PRIMARY cert-manager only, refresh runtime timer)
   systemd:
     name: step-ca
     enabled: yes
-    state: started
+    state: restarted
     daemon_reload: yes
-  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+  when: inventory_hostname == _primary_cert_manager
   register: step_ca_service
 
 - name: Display step-ca runtime configuration
   debug:
-    msg: "{{ ['step-ca runtime limit: ' + ('INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes')] + (['', 'Security note: step-ca will automatically stop after ' + (step_ca_runtime_minutes | string) + ' minutes.', 'This minimizes attack surface by only running the CA when needed.', '', 'To restart step-ca manually:', '  systemctl start step-ca', '', 'step-ca will also restart automatically when certificates are renewed.'] if step_ca_runtime_minutes | int > 0 else []) }}"
-  when: inventory_hostname == groups[etcd_certmanagers_group][0]
+    msg:
+      - "step-ca runtime limit: {{ 'INFINITE (always running)' if step_ca_runtime_minutes | int == 0 else (step_ca_runtime_minutes | string) + ' minutes' }}"
+      - ""
+      - "{% if step_ca_runtime_minutes | int > 0 %}Security note: step-ca will automatically stop after {{ step_ca_runtime_minutes }} minutes.{% endif %}"
+      - "{% if step_ca_runtime_minutes | int > 0 %}This minimizes attack surface by only running the CA when needed.{% endif %}"
+      - ""
+      - "Multi-cluster mode: {{ 'ENABLED - This step-ca serves ALL clusters' if 'etcd_all' in groups else 'Single cluster' }}"
+      - "Primary cert-manager: {{ _primary_cert_manager }}"
+      - "{% if 'etcd_all' in groups %}Clusters served: {{ etcd_cluster_configs.keys() | list | join(', ') }}{% endif %}"
+  when: inventory_hostname == _primary_cert_manager
+
+- name: Get all backup cert-managers across all clusters
+  set_fact:
+    _all_backup_cert_managers: "{{ (groups['etcd_cert_managers_all'][1:] if 'etcd_cert_managers_all' in groups else groups[etcd_certmanagers_group][1:]) | default([]) }}"
+  run_once: true
 
 - name: Ensure step-ca is installed but STOPPED on backup cert-managers (before replication)
   systemd:
@@ -175,7 +194,8 @@
     enabled: no
     state: stopped
     daemon_reload: yes
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+  when: 
+    - inventory_hostname in _all_backup_cert_managers
   failed_when: false
 
 - name: Display backup cert-manager status
@@ -186,9 +206,10 @@
       - "Node: {{ inventory_hostname }}"
       - "Role: BACKUP (step-ca installed but STOPPED)"
       - ""
-      - "step-ca will be replicated from primary: {{ groups[etcd_certmanagers_group][0] }}"
+      - "step-ca will be replicated from primary: {{ _primary_cert_manager }}"
       - "CA replication happens next (encrypted backup/restore method)"
-  when: inventory_hostname in groups[etcd_certmanagers_group][1:]
+      - "{% if 'etcd_all' in groups %}Multi-cluster: This CA serves all clusters{% endif %}"
+  when: inventory_hostname in _all_backup_cert_managers
 
 - name: Check step-ca service status
   command: systemctl status step-ca
@@ -257,6 +278,32 @@
   when: inventory_hostname == groups[etcd_certmanagers_group][0]
 
 
+- name: Display CA replication skip notice for new clusters
+  debug:
+    msg:
+      - "⏭️  SKIPPING CA REPLICATION (New Cluster Mode)"
+      - ""
+      - "Reason: etcd_new_cluster={{ etcd_new_cluster | default(false) }}"
+      - ""
+      - "This is EXPECTED for initial cluster deployment."
+      - "No CA backup exists yet because this is the first deployment."
+      - ""
+      - "What happens:"
+      - "1. ✅ Primary cert-manager ({{ groups[etcd_certmanagers_group][0] }}) has step-ca RUNNING"
+      - "2. ⏭️  Backup cert-managers ({{ groups[etcd_certmanagers_group][1:] | join(', ') }}) will NOT get CA replicated yet"
+      - "3. ✅ CA backup will be created by automated cron (runs every 5 minutes)"
+      - ""
+      - "To replicate CA to backup cert-managers after deployment:"
+      - "  Wait 5-10 minutes for first CA backup, then run:"
+      - "  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml -b"
+      - ""
+      - "Or deploy again without etcd_new_cluster flag (auto-detects existing cluster):"
+      - "  ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -b"
+  when:
+    - groups[etcd_certmanagers_group] | length > 1
+    - etcd_new_cluster | default(false) | bool
+  run_once: true
+
 - name: Replicate CA keys to backup cert-managers using encrypted backup/restore
   block:
     - name: Create encrypted CA backup on primary
@@ -270,7 +317,7 @@
       shell: >
         {{ bin_dir }}/aws s3api head-object
         --bucket {{ step_ca_backup_s3_bucket }}
-        --key {{ step_ca_backup_s3_prefix }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else ('enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
+        --key {{ step_ca_backup_s3_prefix | regex_replace('/$', '') }}/{{ etcd_cluster_name }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else ('enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}
       environment:
         PATH: "{{ bin_dir }}:{{ ansible_env.PATH }}"
         AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
@@ -281,7 +328,52 @@
       delay: 3
       until: s3_backup_check.rc == 0
       changed_when: false
+      failed_when: s3_backup_check.rc != 0
       when: inventory_hostname == groups[etcd_certmanagers_group][0]
+
+    - name: Fail with helpful message if S3 backup not found
+      fail:
+        msg:
+          - "❌ CA BACKUP NOT FOUND IN S3"
+          - ""
+          - "Expected S3 key: {{ step_ca_backup_s3_prefix | regex_replace('/$', '') }}/{{ etcd_cluster_name }}/latest-ca-backup.tar.gz.{{ 'kms' if step_ca_backup_encryption_method == 'aws-kms' else ('enc' if step_ca_backup_encryption_method == 'symmetric' else '') }}"
+          - "S3 bucket: {{ step_ca_backup_s3_bucket }}"
+          - ""
+          - "Error from AWS:"
+          - "{{ s3_backup_check.stderr | default('S3 check was skipped or failed') }}"
+          - ""
+          - "This is likely because:"
+          - "1. This is a NEW cluster (first deployment) - backup doesn't exist yet"
+          - "2. CA backup failed to upload to S3"
+          - "3. S3 path is incorrect (check for double slashes or wrong prefix)"
+          - ""
+          - "Solutions:"
+          - ""
+          - "For NEW cluster deployment:"
+          - "  This is EXPECTED on first deployment. Deploy without HA cert-managers first:"
+          - "  1. Remove backup cert-managers from inventory temporarily"
+          - "  2. Deploy with single cert-manager:"
+          - "     ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e etcd_new_cluster=true -b"
+          - "  3. Wait for CA backup to be created (automated cron runs every 5 minutes)"
+          - "  4. Add backup cert-managers back to inventory"
+          - "  5. Run replication:"
+          - "     ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml -b"
+          - ""
+          - "For existing cluster (backup should exist):"
+          - "  1. Check S3 bucket and path:"
+          - "     aws s3 ls s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix | regex_replace('/$', '') }}/{{ etcd_cluster_name }}/ --recursive"
+          - "  2. Verify CA backup ran on primary:"
+          - "     ssh {{ groups[etcd_certmanagers_group][0] }} 'tail -50 {{ ca_backup_log_file }}'"
+          - "  3. Manually trigger backup:"
+          - "     ansible {{ groups[etcd_certmanagers_group][0] }} -i inventory.ini -m shell -a 'python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} --force' -b"
+          - ""
+          - "Skip HA cert-managers for now:"
+          - "  Deploy with only primary cert-manager (etcd_new_cluster=true skips replication)"
+      when:
+        - inventory_hostname == groups[etcd_certmanagers_group][0]
+        - s3_backup_check is defined
+        - s3_backup_check.rc is defined
+        - s3_backup_check.rc != 0
 
     - name: Restore CA on backup cert-managers from encrypted S3 backup
       include_role:
@@ -293,8 +385,9 @@
         restore_ca_s3_file: latest
         restore_confirm: false  # No prompt during deployment
       when: inventory_hostname in groups[etcd_certmanagers_group][1:]
-      ignore_errors: true  # Allow failure during initial deployment when no backup exists yet
       register: ca_restore_result
+      # Role will fail automatically if restore fails
+      # This prevents deploying with mismatched CA keys across cert-managers
 
     - name: Check if step-ca service exists on backup cert-managers
       stat:
@@ -426,6 +519,8 @@
           - ""
           - "CA fingerprint: {{ ca_fingerprint.stdout }}"
           - ""
+          - "{% if 'etcd_all' in groups %}Multi-cluster: This CA serves all clusters{% endif %}"
+          - ""
           - "NOTE: This is the first deployment, so backup cert-managers do not have CA keys yet."
           - ""
           - "CA backup is being created and will be available for replication soon."
@@ -441,3 +536,4 @@
   when:
     - groups[etcd_certmanagers_group] | length > 1
     - not (etcd_force_certs | default(false) | bool)  # Skip during certificate regeneration
+    - not (etcd_new_cluster | default(false) | bool)  # Skip CA replication for new clusters (no backup exists yet)

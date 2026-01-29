@@ -1,35 +1,74 @@
 ---
+# ============================================================================
+# MULTI-CLUSTER ETCD DEPLOYMENT (Legacy - loops in playbook)
+# ============================================================================
+# ⚠️  DEPRECATED: This playbook loops in the playbook itself
+#
+# NEW: Use playbooks/deploy-all-clusters.yaml instead
+#      (loops in role, better for tool integration)
+#
+# This playbook deploys multiple independent etcd clusters using the
+# etcd_cluster_configs system for easy per-cluster configuration.
+#
+# Migration:
+#   OLD: ansible-playbook -i inventory.ini playbooks/multi-cluster-etcd.yaml -e etcd_action=create -b
+#   NEW: ansible-playbook -i inventory.ini playbooks/deploy-all-clusters.yaml -e etcd_action=create -b
+#
+# Benefits of new playbook:
+#   - Shared preparation (downloads run once, not per cluster)
+#   - Role-based looping (better for external tool integration)
+#   - Cleaner playbook structure (complexity in roles)
+#
+# This playbook is kept for backward compatibility but may be removed in future versions.
+#
+# ============================================================================
 
-# Install the etcd cluster
-- hosts: etcd
+# Install main Kubernetes cluster
+- hosts: etcd_k8s
   strategy: linear
   any_errors_fatal: true
   vars:
     etcd_cluster_name: k8s
-    etcd_ports:
-      client: 2379
-      peer: 2380
+    etcd_cluster_group: etcd_k8s
+    # Ports and backup settings are automatically loaded from etcd_cluster_configs.k8s
+    # No need to repeat them here!
   tasks:
-    - name: Manage etcd cluster
+    - name: Manage k8s etcd cluster
       import_role:
         name: etcd3/cluster
       tags:
         - etcd
+        - etcd-k8s
 
-# Install second etcd cluster
-- hosts: etcd-events
+# Install events cluster (different ports, different backup cadence)
+- hosts: etcd_k8s_events
   strategy: linear
   any_errors_fatal: true
   vars:
-    etcd_cluster_group: etcd-events
     etcd_cluster_name: k8s-events
-    etcd_ports:
-      client: 2388
-      peer: 2389
+    etcd_cluster_group: etcd_k8s_events
+    # Ports and backup settings automatically loaded from etcd_cluster_configs.k8s-events
   tasks:
-    - name: Manage etcd cluster
+    - name: Manage k8s-events etcd cluster
       import_role:
         name: etcd3/cluster
       tags:
         - etcd
-        - etcd-event
+        - etcd-events
+
+# ============================================================================
+# WHAT HAPPENED?
+# ============================================================================
+#
+# The facts role (dependency of etcd3/cluster) automatically:
+# 1. Detected etcd_cluster_name (k8s or k8s-events)
+# 2. Loaded settings from etcd_cluster_configs[etcd_cluster_name]
+# 3. Merged with defaults (overrides only what you specified)
+# 4. Applied to all dependent roles (cluster, backups, certs)
+#
+# Result:
+# - k8s cluster: ports 2379/2380, backup every 30min to etcd/k8s/
+# - k8s-events: ports 2381/2382, backup every 60min to etcd/events/
+# - No duplicate variable definitions in playbook!
+#
+# ============================================================================

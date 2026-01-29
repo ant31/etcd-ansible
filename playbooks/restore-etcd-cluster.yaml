@@ -17,6 +17,11 @@
   hosts: localhost
   gather_facts: no
   tasks:
+    - name: Determine target cluster group
+      set_fact:
+        _restore_target_group: "{{ etcd_cluster_group | default('etcd') }}"
+        _restore_cluster_name: "{{ etcd_cluster_name | default('default') }}"
+    
     - name: Warning about cluster restore
       pause:
         prompt: |
@@ -28,7 +33,8 @@
           3. REPLACE cluster data with backup (fast - local operation)
           4. RESTART cluster with new data
           
-          Cluster: {{ groups['etcd'] | length }} nodes
+          Cluster: {{ _restore_cluster_name }}
+          Nodes: {{ groups[_restore_target_group] | length }}
           
           ⚠️  Downtime minimized: Only during stop → restore → start
           
@@ -65,8 +71,8 @@
     - name: Find latest etcd backup in S3
       command: >
         {{ bin_dir }}/aws s3api list-objects-v2
-        --bucket {{ etcd_upload_backup.bucket }}
-        --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
+        --bucket {{ etcd_backup_s3_bucket }}
+        --prefix {{ etcd_backup_s3_prefix }}{{ etcd_cluster_name }}/
         --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
         --output text
         --no-cli-pager
@@ -108,7 +114,7 @@
         msg: |
           📥 Downloading backup to all nodes (etcd still running)
           
-          Backup: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
+          Backup: s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path }}
           Encryption: {{ backup_encryption_method }}
           Restore directory: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/
           Target file: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
@@ -122,7 +128,7 @@
     - name: Download etcd backup from S3 (parallel on all nodes)
       command: >
         {{ bin_dir }}/aws s3 cp
-        s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
+        s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path }}
         {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}
       environment:
         AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
@@ -135,7 +141,7 @@
     - name: Decrypt etcd backup using backup script (parallel on all nodes)
       command: >
         /usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py
-        --config {{ backup_scripts_dir }}/etcd-backup-config.yaml
+        --config {{ etcd_backup_config_file }}
         --decrypt
         --input {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_file_path | basename }}
         --output {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
@@ -185,7 +191,7 @@
   tasks:
     - name: Stop etcd service on all nodes
       systemd:
-        name: "{{ etcd_name }}"
+        name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
         state: stopped
       failed_when: false
       tags:
@@ -211,7 +217,7 @@
     - etcd3/facts
     - role: etcd3/cluster/install
       vars:
-        etcd_action: deploy  # Use deploy action (handles both new and existing)
+        etcd_action: create  # Use CREATE action for parallel start (cluster state already set to 'new' by restore)
       tags:
         - restore-start
 
@@ -223,10 +229,10 @@
   tasks:
     - name: Check cluster status
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"

@@ -1,0 +1,9 @@
+---
+dependencies:
+  - name: etcd3
+    tags:
+      - always
+  
+  - name: etcd3/facts
+    tags:
+      - always

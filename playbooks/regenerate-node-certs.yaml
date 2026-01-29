@@ -59,11 +59,13 @@
   gather_facts: yes
   roles:
     - role: etcd3/backups
+      when:
+        - not skip_backups |d('no')|bool
       tags:
         - backup
 
 - name: Cleanup old node certificates (CA stays intact)
-  hosts: etcd,etcd-clients
+  hosts: etcd,etcd_clients
   become: yes
   gather_facts: yes
   vars:
@@ -74,7 +76,7 @@
         - regenerate-nodes
 
 - name: Generate new node certificates from existing CA
-  hosts: etcd,etcd-clients
+  hosts: etcd,etcd_clients
   become: yes
   gather_facts: yes
   roles:
@@ -90,7 +92,7 @@
   tasks:
     - name: Restart etcd service with new certificates
       systemd:
-        name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+        name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
         state: restarted
       throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
       register: etcd_restart
@@ -100,10 +102,10 @@
     
     - name: Wait for node to be healthy after restart
       command: >
-        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:2379
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_client_url }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"

@@ -22,7 +22,7 @@
 
 - name: stop the cluster {{etcd_cluster_name}}
   service:
-    name: "{{etcd_name}}"
+    name: "{{etcd_clusters[etcd_cluster_name].etcd_name}}"
     state: stopped
     enabled: false
   ignore_errors: true
@@ -34,8 +34,8 @@
     path: "{{ item }}"
     state: "absent"
   loop:
-    - "{{ etcd_data_dir }}"
-    - "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
-    - "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
+    - "{{etcd_config_dir}}/{{etcd_clusters[etcd_cluster_name].etcd_name}}-conf.yaml"
+    - "{{etcd_config_dir}}/{{etcd_clusters[etcd_cluster_name].etcd_name}}-conf.yaml"
   when:
     - etcd_delete_cluster | default(false) | bool

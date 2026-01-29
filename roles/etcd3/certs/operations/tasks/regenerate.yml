@@ -62,8 +62,8 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - "{{ etcd_cert_dir }}"
-    - "{{ etcd_cert_dir }}/.step"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/.step"
     - /root/.step
     - /home/{{ etcd_user.name }}/.step
   tags:
@@ -72,10 +72,10 @@
 - name: Remove step CLI bootstrap cache and temporary files
   shell: |
     # Remove root CA certificate
-    rm -f {{ etcd_cert_dir }}/root_ca.crt
+    rm -f {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/root_ca.crt
     
     # Remove step CLI config directories
-    rm -rf {{ etcd_cert_dir }}/.step
+    rm -rf {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/.step
     rm -rf /root/.step
     rm -rf /home/{{ etcd_user.name }}/.step
     
@@ -117,9 +117,9 @@
       - "✅ Old certificates and cached CA cleaned up on {{ inventory_hostname }}"
       - ""
       - "Cleaned up:"
-      - "- Certificate directory: {{ etcd_cert_dir }}"
-      - "- Cached root CA: {{ etcd_cert_dir }}/root_ca.crt"
-      - "- Step CLI bootstrap cache: {{ etcd_cert_dir }}/.step"
+      - "- Certificate directory: {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}"
+      - "- Cached root CA: {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/root_ca.crt"
+      - "- Step CLI bootstrap cache: {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/.step"
       - "- Root step cache: /root/.step"
       - "- User step cache: /home/{{ etcd_user.name }}/.step"
       - ""

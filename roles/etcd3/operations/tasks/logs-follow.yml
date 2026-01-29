@@ -1,4 +1,4 @@
 ---
-- name: Follow etcd logs (live)
-  command: journalctl -u etcd-* -f
+- name: Follow etcd logs (live) - use cluster-specific service name
+  command: journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -f
   changed_when: false

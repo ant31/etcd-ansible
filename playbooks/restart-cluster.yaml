@@ -19,10 +19,10 @@
   tasks:
     - name: Check cluster health before restart
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -58,7 +58,7 @@
 
     - name: Restart etcd service
       systemd:
-        name: "{{ etcd_name }}"
+        name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
         state: restarted
       throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
       register: etcd_restart
@@ -68,10 +68,10 @@
 
     - name: Wait for node to be healthy after restart
       command: >
-        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:{{ etcd_ports.client }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_client_url }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -93,10 +93,10 @@
   tasks:
     - name: Verify cluster health after all restarts
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -107,10 +107,10 @@
 
     - name: Check cluster member list
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         member list -w table
       environment:
         ETCDCTL_API: "3"

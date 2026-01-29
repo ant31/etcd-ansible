@@ -1,35 +1,56 @@
 ---
-# Main playbook for etcd cluster management
+# ============================================================================
+# UNIFIED ETCD CLUSTER MANAGEMENT (Single or Multi-Cluster)
+# ============================================================================
+# This playbook works for BOTH single-cluster and multi-cluster deployments
+# No need for separate playbooks - DRY principle
+#
 # Usage:
-#   Create:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b
-#   Deploy:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=deploy -b
-#   Upgrade:  ansible-playbook -i inventory/inventory.ini playbooks/upgrade-cluster.yaml -b (recommended)
-#   Backup:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=backup -b
-#   Delete:   ansible-playbook -i inventory/inventory.ini playbooks/etcd-cluster.yaml -e etcd_delete_cluster=true -b
+#   Create single cluster:
+#     ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b
+#
+#   Create multiple clusters (if etcd_cluster_configs has >1 cluster):
+#     ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b
+#
+#   Deploy/upgrade:
+#     ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=deploy -e etcd_version=v3.5.26 -b
+#
+#   Backup:
+#     ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=backup -b
+#
+#   Delete:
+#     ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_delete_cluster=true -b
+#
+# How it works:
+#   - Facts role discovers if etcd_cluster_configs has 1 or multiple clusters
+#   - Cluster role handles looping internally if multiple clusters configured
+#   - Same playbook, same code path, always consistent
 #
 # Variables:
-#   etcd_action: create|deploy|upgrade|backup (default: none)
-#   etcd_cluster_name: Cluster name (default: default)
+#   etcd_action: create|deploy|backup (default: deploy)
+#   etcd_cluster_name: Cluster name (default: default, ignored if etcd_cluster_configs defined)
 #   etcd_version: etcd version to install (default: v3.5.26)
 #   etcd_delete_cluster: Set to true to delete cluster (default: false)
+#
+# See: docs/advanced/multi-cluster-config.md
 
-# Install the etcd cluster
-- hosts: etcd
+# Determine target hosts based on configuration
+# If etcd_cluster_configs defined, use etcd_all (all clusters)
+# Otherwise use etcd (single cluster)
+- name: Deploy etcd cluster(s)
+  hosts: "{{ 'etcd_all' if (etcd_cluster_configs is defined and etcd_cluster_configs | length > 0) else 'etcd' }}"
   strategy: linear
   any_errors_fatal: true
-  vars:
-    etcd_ports:
-      client: 2379
-      peer: 2380
   tasks:
-    - name: Manage etcd cluster
+    - name: Manage etcd cluster (single or multi-cluster - same logic)
       import_role:
         name: etcd3/cluster
       tags:
         - etcd
 
-# Install the etcd client certificates to all hosts using etcd
-- hosts: etcd-clients
+# Client certificates (works for both single and multi-cluster)
+- name: Generate client certificates
+  hosts: "{{ 'etcd_clients_all' if (etcd_cluster_configs is defined and etcd_cluster_configs | length > 1) else 'etcd_clients' }}"
   strategy: linear
   tasks:
     - name: Create client certificates

@@ -1,0 +1,162 @@
+---
+# ============================================================================
+# BUILD FACTS FOR A SINGLE CLUSTER
+# ============================================================================
+# Called in loop from main.yaml for each cluster the host participates in
+# Variables:
+#   cluster_item.key: Cluster name (dict key from etcd_cluster_configs)
+#   cluster_item.group: Inventory group name for this cluster
+
+- name: Set cluster-specific variables for {{ cluster_item.key }}
+  set_fact:
+    _building_cluster_name: "{{ cluster_item.key }}"
+    _building_cluster_group: "{{ cluster_item.group }}"
+  tags:
+    - facts
+
+- name: Extract cluster-specific config for {{ cluster_item.key }}
+  set_fact:
+    _building_cluster_config: "{{ etcd_cluster_configs.get(_building_cluster_name, {}) if etcd_cluster_configs is defined else {} }}"
+  tags:
+    - facts
+
+- name: Set cluster-specific ports and settings for {{ cluster_item.key }}
+  set_fact:
+    _building_client_port: "{{ _building_cluster_config.get('client_port', etcd_client_port | default(2379)) }}"
+    _building_peer_port: "{{ _building_cluster_config.get('peer_port', etcd_peer_port | default(2380)) }}"
+    _building_lb_enabled: "{{ _building_cluster_config.get('lb_enabled', etcd_lb_enabled | default(false)) }}"
+    _building_lb_host: "{{ _building_cluster_config.get('lb_host', etcd_lb_host | default('')) }}"
+  tags:
+    - facts
+
+- name: Calculate LB port for {{ cluster_item.key }} (AFTER client_port is set to avoid pollution)
+  set_fact:
+    # Use cluster's client_port directly, NOT the global etcd_lb_port (which gets polluted by previous clusters)
+    _building_lb_port: "{{ _building_cluster_config.get('lb_port', _building_client_port) }}"
+  tags:
+    - facts
+
+- name: Debug LB port calculation for {{ cluster_item.key }}
+  debug:
+    msg:
+      - "DEBUG - LB port calculation for {{ cluster_item.key }}:"
+      - "  _building_client_port: {{ _building_client_port }}"
+      - "  _building_cluster_config.get('lb_port'): {{ _building_cluster_config.get('lb_port', 'NOT SET') }}"
+      - "  _building_lb_port (final): {{ _building_lb_port }}"
+      - "  _building_lb_enabled: {{ _building_lb_enabled }}"
+      - "  _building_lb_host: {{ _building_lb_host }}"
+  tags:
+    - facts
+
+- name: Build etcd members dict for {{ cluster_item.key }} (using cluster-specific ports)
+  set_fact:
+    _cluster_members: >-
+      {%- set _d = {} -%}
+      {%- for host in groups[_building_cluster_group] -%}
+      {%- set node_name = hostvars[host]['etcd_member_name']|default(['etcd', _building_cluster_name, hostvars[host]['etcd_member_index']|d(loop.index)|string] | join('-')) -%}
+      {%- set etcd_address = hostvars[host][ipvar|d("ip")] | default(hostvars[host]['ansible_default_ipv4']['address']) -%}
+      {%- set etcd_access_address = hostvars[host].access_ip | default(etcd_address) -%}
+      {%- set _member = {
+      host: {
+        "etcd_member_index": hostvars[host]['etcd_member_index']|d(loop.index)|string,
+        "etcd_name": node_name,
+        "etcd_address": etcd_address,
+        "etcd_access_address": etcd_access_address,
+        "etcd_peer_url": "https://" + etcd_access_address + ":" + _building_peer_port|string,
+        "etcd_client_url": "https://" + etcd_access_address +":" + _building_client_port|string,
+        "etcd_data_dir": etcd_home + "/" + node_name,
+        }} -%}
+        {%- set _tmp = _d.update(_member) -%}
+        {%- endfor -%}
+        {{ _d }}
+  tags:
+    - facts
+
+- name: Build cluster info for {{ cluster_item.key }} (using cluster-specific settings)
+  set_fact:
+    _building_cluster_info: >-
+      {%- set _cluster_info = {} -%}
+      {%- set _etcd_access_addresses_list = [] -%}
+      {%- set _etcd_peer_addresses_list = [] -%}
+      {%- for host,item in _cluster_members.items()  -%}
+      {%- set _tmp = _etcd_access_addresses_list.append(item.etcd_client_url) -%}
+      {%- set _tmp = _etcd_peer_addresses_list.append(item.etcd_name + '=' + item.etcd_peer_url) -%}
+      {%- if inventory_hostname in groups[_building_cluster_group] and host == inventory_hostname -%}
+      {%-   set _tmp = _cluster_info.update(item) -%}
+      {%- endif -%}
+      {%- endfor -%}
+
+      {%- set _lb_address = 'https://' + _building_lb_host + ':' + (_building_lb_port|string) if _building_lb_enabled and _building_lb_host else '' -%}
+      {%- set _client_addresses = _lb_address if _lb_address else _etcd_access_addresses_list | join(',') -%}
+
+      {%- set _cert_paths = {
+        'server': {
+          'cert': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-server.crt',
+          'key': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-server.key',
+          'ca': etcd_cert_dir + '/client-ca.crt'
+        },
+        'client': {
+          'cert': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-client.crt',
+          'key': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-client.key',
+          'ca': etcd_cert_dir + '/client-ca.crt'
+        },
+        'peer': {
+          'cert': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-peer.crt',
+          'key': etcd_cert_dir + '/etcd-' + _building_cluster_name + '-peer.key',
+          'ca': etcd_cert_dir + '/peer-ca.crt'
+        }
+      } -%}
+
+      {%- set _tmp =  _cluster_info.update({
+      'cluster': {
+      'etcd_cluster_name': _building_cluster_name,
+      'etcd_client_port': _building_client_port,
+      'etcd_peer_port': _building_peer_port},
+      'etcd_members': _cluster_members,
+      'etcd_cert_dir': etcd_cert_dir,
+      'etcd_cert_paths': _cert_paths,
+      'etcd_access_addresses': _client_addresses,
+      'etcd_access_addresses_semicolon': _client_addresses.replace(',', ';'),
+      'etcd_access_addresses_direct': _etcd_access_addresses_list | join(','),
+      'etcd_access_addresses_direct_semicolon': _etcd_access_addresses_list | join(';'),
+      'etcd_lb_address': _lb_address,
+      'etcd_lb_enabled': _building_lb_enabled,
+      'etcd_peer_addresses': _etcd_peer_addresses_list | join(','),
+      'etcd_peer_addresses_semicolon': _etcd_peer_addresses_list | join(';')
+      }) -%}
+      {%- set _d = {_building_cluster_name: _cluster_info} -%}
+      {{_d}}
+  tags:
+    - facts
+
+- name: Merge cluster {{ cluster_item.key }} into global etcd_clusters dict
+  set_fact:
+    etcd_clusters: "{{ (etcd_clusters | default({})) | combine(_building_cluster_info) }}"
+  tags:
+    - facts
+
+- name: Display facts built for {{ cluster_item.key }}
+  debug:
+    msg:
+      - "✅ Facts built for cluster: {{ cluster_item.key }}"
+      - "  Stored as: etcd_clusters['{{ _building_cluster_name }}']"
+      - "  Ports: {{ _building_client_port }}/{{ _building_peer_port }}"
+      - "  Nodes: {{ groups[_building_cluster_group] | length }}"
+      - "  Node name (this host): {{ _building_cluster_info[_building_cluster_name].etcd_name if inventory_hostname in groups[_building_cluster_group] else 'N/A (not in this cluster)' }}"
+      - ""
+      - "DEBUG - Built cluster info details:"
+      - "  _building_cluster_name: {{ _building_cluster_name }}"
+      - "  _building_client_port: {{ _building_client_port }}"
+      - "  _building_peer_port: {{ _building_peer_port }}"
+      - "  _building_cluster_group: {{ _building_cluster_group }}"
+      - "  _building_lb_enabled: {{ _building_lb_enabled }}"
+      - "  _building_lb_host: {{ _building_lb_host }}"
+      - "  _building_lb_port: {{ _building_lb_port }}"
+      - "  etcd_access_addresses (final): {{ _building_cluster_info[_building_cluster_name].etcd_access_addresses }}"
+      - "  etcd_access_addresses_direct: {{ _building_cluster_info[_building_cluster_name].etcd_access_addresses_direct }}"
+      - "  etcd_peer_addresses: {{ _building_cluster_info[_building_cluster_name].etcd_peer_addresses }}"
+      - "  cluster.etcd_client_port: {{ _building_cluster_info[_building_cluster_name].cluster.etcd_client_port }}"
+      - "  cluster.etcd_peer_port: {{ _building_cluster_info[_building_cluster_name].cluster.etcd_peer_port }}"
+      - "  etcd_lb_enabled: {{ _building_cluster_info[_building_cluster_name].etcd_lb_enabled }}"
+  tags:
+    - facts

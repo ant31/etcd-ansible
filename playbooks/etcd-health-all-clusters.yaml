@@ -1,0 +1,121 @@
+---
+# ============================================================================
+# HEALTH CHECK ALL CONFIGURED CLUSTERS
+# ============================================================================
+# Check health of ALL clusters defined in etcd_cluster_configs
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/etcd-health-all-clusters.yaml
+#   ansible-playbook -i inventory.ini playbooks/etcd-health-all-clusters.yaml -e output_format=json
+#
+# This automatically:
+# - Discovers all clusters from etcd_cluster_configs
+# - Runs health check on each cluster
+# - Shows consolidated status
+#
+# Output formats:
+#   text (default): Human-readable tables
+#   json: Machine-readable JSON for monitoring
+
+- name: Discover clusters to check
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Validate etcd_cluster_configs exists
+      assert:
+        that:
+          - etcd_cluster_configs is defined
+          - etcd_cluster_configs | length > 0
+        fail_msg: |
+          ❌ No clusters configured in etcd_cluster_configs
+          
+          Define clusters in group_vars/all/etcd.yaml
+    
+    - name: Get list of clusters
+      set_fact:
+        clusters_to_check: "{{ etcd_cluster_configs.keys() | list }}"
+    
+    - name: Display health check plan
+      debug:
+        msg:
+          - "🔍 Multi-Cluster Health Check"
+          - ""
+          - "Will check {{ clusters_to_check | length }} clusters:"
+          - "{% for cluster in clusters_to_check %}- {{ cluster }}{% endfor %}"
+
+- name: Check health of each cluster
+  hosts: "etcd_{{ item }}"
+  gather_facts: yes
+  become: yes
+  vars:
+    etcd_cluster_name: "{{ item }}"
+    etcd_cluster_group: "etcd-{{ item }}"
+  roles:
+    - etcd3/facts
+  tasks:
+    - name: Display cluster being checked
+      debug:
+        msg: "Checking cluster: {{ etcd_cluster_name }}"
+      run_once: true
+    
+    - name: Check cluster health
+      command: >
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
+        --cert={{ etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_cert_paths.client.ca }}
+        --key={{ etcd_cert_paths.client.key }}
+        endpoint health
+      environment:
+        ETCDCTL_API: "3"
+      register: cluster_health
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname == groups['etcd_' + etcd_cluster_name][0]
+    
+    - name: Store health status
+      set_fact:
+        "health_status_{{ etcd_cluster_name | replace('-', '_') }}": 
+          cluster: "{{ etcd_cluster_name }}"
+          healthy: "{{ cluster_health.rc == 0 }}"
+          output: "{{ cluster_health.stdout if cluster_health.rc == 0 else cluster_health.stderr }}"
+      delegate_to: localhost
+      delegate_facts: true
+      when: inventory_hostname == groups['etcd_' + etcd_cluster_name][0]
+  loop: "{{ hostvars['localhost']['clusters_to_check'] }}"
+
+- name: Display consolidated health status
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Build health summary
+      set_fact:
+        health_summary: |
+          {%- set summary = [] -%}
+          {%- for cluster_name in clusters_to_check -%}
+          {%-   set status_var = 'health_status_' + (cluster_name | replace('-', '_')) -%}
+          {%-   if hostvars['localhost'][status_var] is defined -%}
+          {%-     set _ = summary.append(hostvars['localhost'][status_var]) -%}
+          {%-   endif -%}
+          {%- endfor -%}
+          {{ summary }}
+    
+    - name: Display health summary (text)
+      debug:
+        msg:
+          - ""
+          - "╔════════════════════════════════════════════════════════════════╗"
+          - "║           MULTI-CLUSTER HEALTH SUMMARY                        ║"
+          - "╠════════════════════════════════════════════════════════════════╣"
+          - "{% for status in health_summary %}"
+          - "║ Cluster: {{ status.cluster | ljust(20) }} Status: {{ '✅ HEALTHY' if status.healthy else '❌ UNHEALTHY' }}"
+          - "{% endfor %}"
+          - "╠════════════════════════════════════════════════════════════════╣"
+          - "║ Overall: {{ '✅ All clusters healthy' if health_summary | selectattr('healthy', 'equalto', true) | list | length == health_summary | length else '⚠️  Some clusters have issues' }}"
+          - "╚════════════════════════════════════════════════════════════════╝"
+          - ""
+      when: output_format | default('text') == 'text'
+    
+    - name: Display health summary (JSON)
+      debug:
+        var: health_summary
+      when: output_format | default('text') == 'json'

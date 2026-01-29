@@ -3,7 +3,7 @@
 # Usage: ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml
 
 - name: Replicate step-ca CA keys to backup nodes
-  hosts: etcd-cert-managers
+  hosts: etcd_cert_managers
   gather_facts: no
   roles:
     - role: etcd3/certs/replicate

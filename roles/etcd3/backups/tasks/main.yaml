@@ -66,7 +66,7 @@
       - "3. Check backup directory permissions: ls -la {{ etcd_backup_dir }}"
       - "4. Verify cluster health: etcdctl endpoint health"
       - "5. Check if etcd is running: systemctl status etcd-*"
-      - "6. Check AWS credentials: aws s3 ls s3://{{ etcd_upload_backup.bucket }}"
+      - "6. Check AWS credentials: aws s3 ls s3://{{ etcd_backup_s3_bucket }}"
       - ""
       - "Note: Default behavior is to backup regardless of cluster health."
   when: manual_backup_result.rc != 0

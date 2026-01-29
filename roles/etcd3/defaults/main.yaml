@@ -1,20 +1,139 @@
 ---
 etcd_cluster_group: etcd
-etcd_clients_group: etcd-clients
-etcd_certmanagers_group: etcd
+etcd_clients_group: etcd_clients
+etcd_certmanagers_group: etcd_cert_managers
 etcd_all_hosts: "{{groups[etcd_cluster_group] + groups[etcd_clients_group] + groups[etcd_certmanagers_group] | unique}}"
 etcd_clusters: {}
+
+# ============================================================================
+# CLUSTER-SPECIFIC CONFIGURATION
+# ============================================================================
+# Define per-cluster settings in a dictionary keyed by cluster name
+# This makes it easy to configure multiple clusters with different settings
+#
+# Example configuration (add to group_vars/all/etcd.yaml or inventory):
+#
+# etcd_cluster_configs:
+#   k8s:  # Main Kubernetes cluster
+#     client_port: 2379
+#     peer_port: 2380
+#     backup_s3_bucket: "my-backups"
+#     backup_s3_prefix: "prod/k8s/"
+#     backup_interval: "*/30"
+#     backup_retention_days: 90
+#     backup_distributed: true
+#     lb_enabled: true
+#     lb_host: "etcd-k8s.internal"
+#     lb_ip: "10.0.1.100"
+#     cert_alt_names: ["etcd.kube-system.svc"]
+#     cert_alt_ips: ["10.0.1.100"]
+#     quota_backend_bytes: "8G"
+#   k8s-events:  # Events cluster (different settings)
+#     client_port: 2381
+#     peer_port: 2382
+#     backup_interval: "*/60"
+#     backup_s3_prefix: "prod/events/"
+#     backup_retention_days: 30
+#     backup_distributed: false
+#   legacy:  # Old cluster (no backups)
+#     client_port: 2383
+#     peer_port: 2384
+#     backup_enabled: false
+#
+# Available cluster-specific settings (all optional overrides):
+#
+# Network & Ports (flat):
+# - client_port / peer_port
+# - lb_enabled / lb_host / lb_port / lb_ip
+#
+# Backup Configuration (flat):
+# - backup_enabled / backup_interval / backup_s3_bucket / backup_s3_prefix
+# - backup_retention_days / backup_distributed / backup_independent / backup_online_only
+# - ca_backup_enabled / ca_backup_check_interval / ca_backup_retention_days
+#
+# Certificates (flat):
+# - cert_alt_names (list of DNS SANs)
+# - cert_alt_ips (list of IP SANs)
+#
+# Performance Tuning:
+# - performance.heartbeat_interval / performance.election_timeout
+# - performance.snapshot_count / performance.compaction_retention
+# - performance.quota_backend_bytes / performance.metrics
+#
+# Systemd Service:
+# - systemd.timeout_start_sec / systemd.restart_sec / systemd.limit_nofile
+# - systemd.nice_level / systemd.ionice_class / systemd.ionice_priority
+# - systemd.memory_limit / systemd.cpu_quota
+#
+# Security:
+# - security.secure_client / security.peer_client_auth
+#
+# step-ca:
+# - step_ca.runtime_minutes / step_ca.port
+#
+# Monitoring:
+# - monitoring.backup_healthcheck_url / monitoring.ca_backup_healthcheck_url
+#
+etcd_cluster_configs: {}
+
+# Load balancer configuration (optional)
+# Enable this to use a load balancer in front of etcd for stable client connectivity
+# Only affects client traffic (port 2379) - peer traffic (2380) stays direct
+etcd_lb_enabled: false
+etcd_lb_host: ""  # e.g., "etcd-lb.internal.example.com"
+etcd_lb_port: 2379  # Optional, defaults to etcd client port
+etcd_lb_ip: ""  # Optional VIP, e.g., "10.0.1.100"
 # Backup directory (root-owned, everything under /opt/backups)
 etcd_backup_dir: "/opt/backups"
-etcd_cluster_backup:
-  directory: "{{etcd_backup_dir}}/etcd/{{etcd_cluster_name}}"
+etcd_cluster_backup_directory: "{{etcd_backup_dir}}/etcd/{{etcd_cluster_name}}"
 
-etcd_action: none
+# ============================================================================
+# CLUSTER ACTIONS
+# ============================================================================
+# etcd_action controls what operation to perform on the cluster
+#
+# CREATE (new cluster initialization):
+#   - No backup (nothing to backup yet)
+#   - Can cleanup/force create directories (etcd_force_create=true)
+#   - Starts ALL nodes SIMULTANEOUSLY (parallel)
+#   - No cluster health checks beforehand
+#   - Sets initial-cluster-state: new
+#   - Use for: First-time cluster creation
+#
+# DEPLOY (idempotent cluster operations):
+#   - ALWAYS creates backup before changes
+#   - Only applies needed changes
+#   - Restarts nodes ONE-BY-ONE (serial, maintains quorum)
+#   - Checks cluster health before/after
+#   - Can involve: config changes, version upgrades, etc.
+#   - Sets initial-cluster-state: existing
+#   - Use for: Any operation on a running cluster
+#
+# Example usage:
+#   Create new cluster:
+#     ansible-playbook etcd.yaml -e etcd_action=create
+#
+#   Upgrade existing cluster:
+#     ansible-playbook etcd.yaml -e etcd_action=deploy -e etcd_version=v3.5.26
+#
+#   Apply config changes:
+#     ansible-playbook etcd.yaml -e etcd_action=deploy
+#
+etcd_action: deploy
+
+# DEPRECATED: etcd_new_cluster is no longer needed
+# Use etcd_action=create for new clusters instead
+# This variable will be removed in a future version
+# Migration:
+#   OLD: -e etcd_action=deploy -e etcd_new_cluster=true
+#   NEW: -e etcd_action=create
+etcd_new_cluster: null
 etcd_ca_profiles: {'server': 'client', 'client': 'client', 'peer': 'peer'}
 bin_dir: /opt/bin
 download_cache_dir: "{{ bin_dir }}"
 etcd_config_dir: /etc/etcd
 etcd_cert_dir: "{{ etcd_config_dir }}/ssl"
+etcd_client_cert_dir: /etc/etcd-client/ssl  # Separate directory for client-only nodes
 dns_domain: cluster.local
 etcd_backup: yes
 
@@ -23,43 +142,30 @@ etcd_backup: yes
 # WARNING: Only use in non-production or when S3 has bucket-level encryption
 deactivate_backup_encryption: false
 
-etcd_upload_backup:
-  # storage: s3 or gcs
-  storage: s3
-  bucket:
-  access_key:
-  secret_key:
-  region:
-  s3_url:
-  metadata:
-    key: value
+# ============================================================================
+# S3 BACKUP STORAGE (flat variables)
+# ============================================================================
+# Note: AWS credentials use top-level aws_* variables (no duplication)
+etcd_backup_s3_bucket: ""       # S3 bucket name for etcd data backups
+etcd_backup_s3_prefix: ""       # S3 prefix/folder (e.g., "prod/k8s/" or "etcd/")
 
-# etcd_backups:
-#   defaults:
-#     type: file
-#     path: "{{etcd_backup_file}}"
-#     host: "{{etcd[0]}}"
-#   k8s:
-#     url:
-#   k8s-events:
-#     object-storage:
-#       storage: s3
-#       bucket:
-#       access_key:
-#       secret_key:
-#       region:
-#       s3_url:
-#       metadata:
-#         key: value
+# All backup operations use these flat variables
+# No nested dicts - allows easy CLI override: -e etcd_backup_s3_bucket=mybucket
 
 ################
 ## DOWNLOADS
 ################
 
+# ============================================================================
+# DEFAULT NETWORK PORTS (can be overridden per-cluster)
+# ============================================================================
 etcd_cluster_name: default
-etcd_ports:
-  client: 2379
-  peer: 2380
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# Note: When using etcd_cluster_configs, these defaults are automatically
+# merged with cluster-specific settings in the facts role.
+# All variables use FLAT structure (no nested dicts) for easy CLI override.
 
 cfssl_version: 1.6.5
 
@@ -98,6 +204,7 @@ etcd_downloads:
     mode: "0755"
     groups:
       - "{{etcd_cluster_group}}"
+      - "etcd-all"  # Support aggregate group for multi-cluster
   
   awscli:
     file: true
@@ -110,6 +217,7 @@ etcd_downloads:
     groups:
       - "{{etcd_cluster_group}}"
       - "{{etcd_certmanagers_group}}"
+      - "etcd-all"  # Support aggregate group for multi-cluster
   
   step:
     file: true
@@ -124,6 +232,7 @@ etcd_downloads:
       - "{{etcd_cluster_group}}"
       - "{{etcd_clients_group}}"
       - "{{etcd_certmanagers_group}}"
+      - "etcd-all"  # Support aggregate group for multi-cluster
   
   step_ca:
     file: true
@@ -136,6 +245,7 @@ etcd_downloads:
     mode: "0755"
     groups:
       - "{{etcd_certmanagers_group}}"
+      - "etcd-all"  # Support aggregate group for multi-cluster
   
 ###########
 ## CERTS
@@ -151,8 +261,18 @@ etcd_events_cluster_enabled: false
 
 etcd_home: "/var/lib/etcd/"
 
-# Note: This does not set up DNS entries. It simply adds the following DNS
-# entries to the certificate
+# Certificate Subject Alternative Names (SANs)
+# These DNS names and IPs are added to the server certificate
+# IMPORTANT: If using a load balancer, add the LB hostname/IP here!
+#
+# Example with load balancer:
+#   etcd_cert_alt_names:
+#     - "{{ etcd_lb_host }}"  # Load balancer hostname
+#     - "etcd.kube-system.svc.{{ dns_domain }}"
+#   etcd_cert_alt_ips:
+#     - "{{ etcd_lb_ip }}"  # Load balancer VIP
+#
+# Default includes common Kubernetes DNS names:
 etcd_cert_alt_names:
   - "etcd.kube-system.svc.{{ dns_domain }}"
   - "etcd.kube-system.svc"
@@ -162,8 +282,11 @@ etcd_cert_alt_ips: []
 
 etcd_script_dir: "{{ bin_dir }}/etcd-scripts"
 
+# Performance tuning (can be overridden per-cluster)
 etcd_heartbeat_interval: 250
 etcd_election_timeout: 5000
+etcd_snapshot_count: 10000
+etcd_quota_backend_bytes: 0  # 0 = unlimited
 
 # etcd_snapshot_count: 10000
 
@@ -189,6 +312,12 @@ etcd_secure_client: true
 
 # Enable peer client cert authentication
 etcd_peer_client_auth: true
+
+# Skip certificate generation during deploy (assumes certs already exist)
+# Set to true to skip all cert generation/renewal setup and just ensure step-ca is running
+# Useful for: config changes, quick deploys when certs are already valid
+# Default: false (always setup/verify certificates)
+etcd_skip_cert_generation: false
 
 # AWS credentials for backup encryption (set in vault.yml)
 aws_access_key_id: ""
@@ -252,6 +381,7 @@ step_ca_backup_password: ""  # Encryption password (store in ansible-vault)
 # AUTOMATED BACKUP CRON CONFIGURATION (used by roles/etcd3/backups/cron)
 # ============================================================================
 # Backup scheduling - ENABLED BY DEFAULT
+# Can be overridden per-cluster via etcd_cluster_configs[cluster_name].backup.*
 etcd_backup_cron_enabled: true
 etcd_backup_cron_minute: "*/30"
 etcd_backup_cron_hour: "*"
@@ -259,7 +389,7 @@ etcd_backup_interval: "*/30"  # Alias for cron_minute
 
 # Distributed backup strategy (high availability)
 etcd_backup_distributed: true  # Enable multi-node backups
-etcd_backup_independent: false  # If true, nodes don't check for existing backups (higher frequency)
+etcd_backup_independent: true  # If true, nodes don't check for existing backups (higher frequency)
 
 # Online-only backup mode (abort if cluster unhealthy)
 # Default: false (always backup regardless of health, filename indicates online/offline)
@@ -267,6 +397,7 @@ etcd_backup_independent: false  # If true, nodes don't check for existing backup
 # etcd_backup_online_only: false  # Default is false (backup always, mark health in filename)
 
 # CA backup - only when changed - ENABLED BY DEFAULT
+# Can be overridden per-cluster via etcd_cluster_configs[cluster_name].ca_backup.*
 ca_backup_cron_enabled: true
 ca_backup_cron_minute: "*/5"
 ca_backup_cron_hour: "*"
@@ -293,9 +424,10 @@ etcd_backup_log_file: "{{ backup_log_dir }}/etcd-backup-{{ etcd_cluster_name }}.
 ca_backup_log_file: "{{ backup_log_dir }}/ca-backup-{{ etcd_cluster_name }}.log"
 ca_backup_state_file: "/var/lib/etcd-ca-backup/last-backup-checksum-{{ etcd_cluster_name }}"
 
-# Backup retention
-etcd_backup_retention_days: 90
-ca_backup_retention_days: 365
+# Local backup retention (controls local disk cleanup only, not S3)
+# S3 retention must be configured separately via S3 lifecycle policies
+etcd_backup_local_retention_days: 90
+ca_backup_local_retention_days: 365
 
 # Certificate renewal monitoring (optional)
 # Healthcheck URL for certificate renewal success/failure notifications
@@ -375,6 +507,8 @@ etcd_systemd_limit_nofile: 40000
 # etcd_systemd_memory_limit: "2G"
 # etcd_systemd_cpu_quota: "200%"  # Percentage of CPU (200% = 2 cores)
 
+# Certificate paths for cluster nodes
+# Client nodes in etcd_clients group use etcd_client_cert_dir separately
 etcd_cert_paths:
   server:
     cert: "{{ etcd_cert_dir }}/etcd-{{ etcd_cluster_name }}-server.crt"

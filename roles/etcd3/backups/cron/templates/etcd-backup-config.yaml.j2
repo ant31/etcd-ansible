@@ -6,15 +6,15 @@ node_name: "{{ inventory_hostname }}"
 
 # Cluster configuration
 cluster_name: "{{ etcd_cluster_name }}"
-etcd_endpoints: "{{ etcd_access_addresses }}"
+etcd_endpoints: "{{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}"
 
 # Certificate paths
-cert: "{{ etcd_cert_paths.client.cert }}"
-key: "{{ etcd_cert_paths.client.key }}"
-cacert: "{{ etcd_cert_paths.client.ca }}"
+cert: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+key: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
+cacert: "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}"
 
 # Backup paths
-backup_dir: "{{ etcd_cluster_backup.directory }}"
+backup_dir: "{{ etcd_cluster_backup_directory }}"
 backup_tmp_dir: "{{ backup_tmp_dir | default('/opt/backups/tmp') }}"
 bin_dir: "{{ bin_dir }}"
 
@@ -22,10 +22,11 @@ bin_dir: "{{ bin_dir }}"
 etcd_data_dir_pattern: "{{ etcd_home }}/etcd-{{ etcd_cluster_name }}-*"
 
 # S3 configuration
-s3_bucket: "{{ etcd_upload_backup.bucket }}"
-# Note: prefix should already include cluster name (e.g., "etcd/cluster-name/")
-# Don't append cluster name again in Python script
-s3_prefix: "{{ etcd_upload_backup.prefix | default('') }}"
+s3_bucket: "{{ etcd_backup_s3_bucket }}"
+# S3 prefix includes cluster name automatically
+# Per-cluster override: etcd_cluster_configs[cluster_name].backup_s3_prefix
+# Example: "prod/k8s/" vs "prod/events/"
+s3_prefix: "{{ etcd_backup_s3_prefix }}{{ etcd_cluster_name }}/"
 
 # Encryption configuration
 encryption_method: "{{ step_ca_backup_encryption_method }}"
@@ -40,7 +41,7 @@ aws_region: "{{ aws_default_region | default('us-east-1') }}"
 # Backup strategy
 backup_interval_minutes: {{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}
 distributed_backup: {{ etcd_backup_distributed | default(true) | lower }}
-retention_days: {{ etcd_backup_retention_days }}
+local_retention_days: {{ etcd_backup_local_retention_days }}
 
 # Monitoring
 healthcheck_url: "{{ backup_healthcheck_url }}"

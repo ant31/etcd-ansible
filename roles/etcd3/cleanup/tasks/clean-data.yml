@@ -1,7 +1,7 @@
 ---
 - name: Confirm data deletion
   pause:
-    prompt: "This will DELETE all etcd data on {{ inventory_hostname }}. Type 'yes' to confirm"
+    prompt: "This will DELETE etcd data for cluster {{ etcd_cluster_name }} on {{ inventory_hostname }}. Type 'yes' to confirm"
   register: confirm_delete
   when: cleanup_require_confirm | default(true) | bool
 
@@ -12,13 +12,13 @@
     fail_msg: "Data deletion cancelled"
   when: cleanup_require_confirm | default(true) | bool
 
-- name: Stop etcd services
+- name: Stop etcd service (cluster-specific)
   systemd:
-    name: etcd-*
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: stopped
   failed_when: false
 
-- name: Remove etcd data directories
-  shell: rm -rf /var/lib/etcd/etcd-*
-  args:
-    warn: false
+- name: Remove etcd data directory (cluster-specific)
+  file:
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
+    state: absent

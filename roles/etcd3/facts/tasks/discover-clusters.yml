@@ -1,0 +1,91 @@
+---
+# ============================================================================
+# CLUSTER DISCOVERY AND DEPLOYMENT MATRIX
+# ============================================================================
+# Discover all configured clusters from etcd_cluster_configs and validate
+# against inventory groups. Build deployment matrix for multi-cluster deployment.
+#
+# This runs ONCE at the start of multi-cluster deployment to:
+# 1. Find all clusters defined in etcd_cluster_configs
+# 2. Validate each has a matching inventory group [etcd-CLUSTERNAME]
+# 3. Build deployment matrix with cluster metadata
+# 4. Share matrix across all hosts for deployment coordination
+
+- name: Discover clusters from etcd_cluster_configs
+  set_fact:
+    _configured_clusters: "{{ etcd_cluster_configs.keys() | list }}"
+  when: etcd_cluster_configs is defined
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Validate clusters have inventory groups (using explicit 'cluster_group' or fallback to 'etcd-CLUSTERNAME')
+  assert:
+    that:
+      - "etcd_cluster_configs[item].get('cluster_group', 'etcd_' + item) in groups"
+      - "groups[etcd_cluster_configs[item].get('cluster_group', 'etcd_' + item)] | length > 0"
+    fail_msg: |
+      ❌ Cluster '{{ item }}' configured but inventory group not found!
+      
+      Config specifies cluster_group: {{ etcd_cluster_configs[item].get('cluster_group', 'etcd_' + item) }}
+      
+      Fix by adding to inventory.ini:
+        [{{ etcd_cluster_configs[item].get('cluster_group', 'etcd_' + item) }}]
+        node1 ansible_host=...
+        node2 ansible_host=...
+        node3 ansible_host=...
+      
+      Or set explicit cluster_group in etcd_cluster_configs:
+        {{ item }}:
+          cluster_group: your-existing-group-name
+          ports: ...
+  loop: "{{ _configured_clusters }}"
+  when: etcd_cluster_configs is defined
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Build deployment matrix
+  set_fact:
+    etcd_deployment_matrix: |
+      {%- set matrix = {} -%}
+      {%- for cluster_key in _configured_clusters -%}
+      {%-   set cluster_config = etcd_cluster_configs[cluster_key] -%}
+      {%-   set cluster_name = cluster_config.get('cluster_name', cluster_key) -%}
+      {%-   set cluster_group = cluster_config.get('cluster_group', 'etcd_' + cluster_key) -%}
+      {%-   set cert_group = cluster_config.get('cert_managers_group', 'etcd_cert_managers_' + cluster_key) -%}
+      {%-   set clients_group_candidate = 'etcd_clients_' + cluster_key -%}
+      {%-   set clients_group = cluster_config.get('clients_group', (clients_group_candidate if clients_group_candidate in groups else 'etcd_clients')) -%}
+      {%-   set cluster_data = {
+            'name': cluster_name,
+            'dict_key': cluster_key,
+            'group': cluster_group,
+            'cert_managers_group': cert_group if cert_group in groups else 'etcd_cert_managers',
+            'clients_group': clients_group,
+            'config': cluster_config,
+            'nodes': groups[cluster_group],
+            'node_count': groups[cluster_group] | length
+          } -%}
+      {%-   set _ = matrix.update({cluster_key: cluster_data}) -%}
+      {%- endfor -%}
+      {{ matrix }}
+  when: etcd_cluster_configs is defined
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster
+
+- name: Display deployment matrix
+  debug:
+    msg:
+      - "📋 Deployment Matrix Built"
+      - ""
+      - "Clusters to deploy: {{ _configured_clusters | length }}"
+      - "{% for cluster_key, cluster_info in etcd_deployment_matrix.items() %}  {{ cluster_info.name }} (key: {{ cluster_key }}):\n    Inventory group: {{ cluster_info.group }}\n    Clients group: {{ cluster_info.clients_group }}\n    Nodes: {{ cluster_info.node_count }}\n    Ports: {{ cluster_info.config.get('client_port', 'default') }}/{{ cluster_info.config.get('peer_port', 'default') }}\n{% endfor %}"
+  when: etcd_cluster_configs is defined
+  run_once: true
+  tags:
+    - facts
+    - multi-cluster

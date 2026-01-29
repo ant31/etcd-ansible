@@ -1,0 +1,34 @@
+---
+# ============================================================================
+# MULTI-CLUSTER DASHBOARD
+# ============================================================================
+# Show consolidated status of all configured clusters in a single view
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbooks/cluster-dashboard.yaml
+#
+# This displays:
+# - Cluster name, node count, ports
+# - Leader node
+# - Database size
+# - Health status
+# - etcd version
+#
+# Prerequisites:
+# - etcd_cluster_configs defined in group_vars/all/etcd.yaml
+# - All clusters deployed and running
+#
+# See: docs/advanced/unified-multi-cluster.md
+# ============================================================================
+
+- name: Display multi-cluster dashboard
+  hosts: etcd_all
+  gather_facts: yes
+  become: yes
+  vars:
+    operation_action: dashboard
+  roles:
+    - etcd3/facts
+    - etcd3/operations
+  tags:
+    - dashboard

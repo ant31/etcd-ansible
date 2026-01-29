@@ -24,25 +24,78 @@
       - "   chmod 755 {{ bin_dir }}/step"
   when: not step_cli_installed.stat.exists
 
-- name: Determine certificate owner for this node
+- name: Determine if this node needs client cert in separate directory
   set_fact:
-    cert_owner_user: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
+    _use_client_cert_dir: "{{ inventory_hostname in groups[etcd_clients_group] }}"
+    _client_cert_owner: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
 
-- name: Create etcd cert directory
+- name: Check if client certificate owner user exists
+  command: id {{ _client_cert_owner.name }}
+  register: cert_owner_check
+  changed_when: false
+  failed_when: false
+
+- name: Display warning if user doesn't exist (fallback to etcd user)
+  debug:
+    msg:
+      - "⚠️  WARNING: Client cert owner user '{{ _client_cert_owner.name }}' does not exist on {{ inventory_hostname }}"
+      - ""
+      - "Falling back to etcd user for client certificate ownership."
+      - ""
+      - "To fix: Create the user before deploying certificates"
+  when: 
+    - cert_owner_check.rc != 0
+    - _use_client_cert_dir | bool
+
+- name: Set certificate owner to etcd user if configured client user doesn't exist
+  set_fact:
+    _client_cert_owner: "{{ etcd_user }}"
+  when: cert_owner_check.rc != 0
+
+- name: Create /etc/etcd-client directory for client certificates
+  file:
+    path: "{{ etcd_client_cert_dir | dirname }}"
+    state: directory
+    owner: "{{ _client_cert_owner.name }}"
+    group: "{{ _client_cert_owner.name }}"
+    mode: 0700
+  when: _use_client_cert_dir | bool
+
+- name: Create client certificate directory
+  file:
+    path: "{{ etcd_client_cert_dir }}"
+    state: directory
+    owner: "{{ _client_cert_owner.name }}"
+    group: "{{ _client_cert_owner.name }}"
+    mode: 0700
+  when: _use_client_cert_dir | bool
+
+- name: Create step configuration directory for client certs
+  file:
+    path: "{{ etcd_client_cert_dir }}/.step"
+    state: directory
+    owner: "{{ _client_cert_owner.name }}"
+    group: "{{ _client_cert_owner.name }}"
+    mode: 0700
+  when: _use_client_cert_dir | bool
+
+- name: Create standard etcd cert directory (cluster nodes always need this)
   file:
     path: "{{ etcd_cert_dir }}"
     state: directory
-    owner: "{{ cert_owner_user.name }}"
-    group: "{{ cert_owner_user.name }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0700
+  when: inventory_hostname in groups[etcd_cluster_group]
 
-- name: Create step configuration directory
+- name: Create step configuration directory for cluster nodes
   file:
     path: "{{ etcd_cert_dir }}/.step"
     state: directory
-    owner: "{{ cert_owner_user.name }}"
-    group: "{{ cert_owner_user.name }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0700
+  when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Fetch root CA certificate from cert-manager
   slurp:
@@ -51,37 +104,23 @@
   delegate_to: "{{ groups[etcd_certmanagers_group][0] }}"
   run_once: false
 
-- name: Install root CA certificate (cert owner only, NOT world-readable)
+- name: Install root CA certificate in client cert directory
+  copy:
+    content: "{{ root_ca_from_certmanager.content | b64decode }}"
+    dest: "{{ etcd_client_cert_dir }}/root_ca.crt"
+    owner: "{{ _client_cert_owner.name }}"
+    group: "{{ _client_cert_owner.name }}"
+    mode: 0400
+  when: _use_client_cert_dir | bool
+
+- name: Install root CA certificate in etcd cert directory (cluster nodes)
   copy:
     content: "{{ root_ca_from_certmanager.content | b64decode }}"
     dest: "{{ etcd_cert_dir }}/root_ca.crt"
-    owner: "{{ cert_owner_user.name }}"
-    group: "{{ cert_owner_user.name }}"
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
     mode: 0400
-
-- name: Verify root CA certificate exists immediately
-  stat:
-    path: "{{ etcd_cert_dir }}/root_ca.crt"
-  register: root_ca_stat_check
-
-- name: Debug etcd cert directory (if root CA missing or empty)
-  shell: "ls -la {{ etcd_cert_dir }}"
-  register: cert_dir_ls
-  when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
-  ignore_errors: true
-
-- name: Fail if root CA missing or empty immediately after install
-  fail:
-    msg:
-      - "Root CA missing or empty at {{ etcd_cert_dir }}/root_ca.crt"
-      - "Exists: {{ root_ca_stat_check.stat.exists | string }}"
-      - "Size: {{ root_ca_stat_check.stat.size | default(0) }} bytes"
-      - "Expected owner: {{ etcd_user.name }}"
-      - "Expected group: {{ etcd_user.name }}"
-      - ""
-      - "Directory listing of {{ etcd_cert_dir }}:"
-      - "{{ cert_dir_ls.stdout_lines | default(['Unable to list directory']) | join('\n') }}"
-  when: not root_ca_stat_check.stat.exists or root_ca_stat_check.stat.size == 0
+  when: inventory_hostname in groups[etcd_cluster_group]
 
 - name: Wait for step-ca health endpoint
   uri:
@@ -92,7 +131,7 @@
   until: step_ca_health.status == 200
   retries: 30
   delay: 5
-  when: not (ansible_check_mode | default(false))
+  when: not (ansible_check_mode | default(false) | bool)
 
 - name: Test step-ca provisioner accessibility
   uri:
@@ -104,7 +143,7 @@
   delay: 5
   until: provisioners_check.status == 200
   failed_when: false
-  when: not (ansible_check_mode | default(false))
+  when: not (ansible_check_mode | default(false) | bool)
 
 - name: Display provisioner check result
   debug:
@@ -113,25 +152,44 @@
   when: provisioners_check is defined
 
 
-- name: Get root CA fingerprint
-  command: "{{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
-  register: root_ca_fingerprint
+- name: Get root CA fingerprint (from client cert dir)
+  command: "{{ bin_dir }}/step certificate fingerprint {{ etcd_client_cert_dir }}/root_ca.crt"
+  register: root_ca_fingerprint_client
   changed_when: false
+  when: _use_client_cert_dir | bool
 
-- name: Debug bootstrap parameters
-  debug:
-    msg:
-      - "Bootstrap Command:"
-      - "{{ bin_dir }}/step ca bootstrap --ca-url {{ step_ca_url }} --fingerprint {{ root_ca_fingerprint.stdout }} --root {{ etcd_cert_dir }}/root_ca.crt --install --force"
-      - ""
-      - "Root CA Fingerprint: {{ root_ca_fingerprint.stdout }}"
-      - "CA URL: {{ step_ca_url }}"
+- name: Get root CA fingerprint (from etcd cert dir)
+  command: "{{ bin_dir }}/step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
+  register: root_ca_fingerprint_etcd
+  changed_when: false
+  when: inventory_hostname in groups[etcd_cluster_group]
 
-- name: Bootstrap step CLI
+- name: Bootstrap step CLI for client cert directory
   shell: >
     {{ bin_dir }}/step ca bootstrap
     --ca-url {{ step_ca_url }}
-    --fingerprint {{ root_ca_fingerprint.stdout }}
+    --fingerprint {{ root_ca_fingerprint_client.stdout }}
+    --install
+    --force
+  args:
+    executable: /bin/bash
+    creates: "{{ etcd_client_cert_dir }}/.step/config/defaults.json"
+  environment:
+    STEPPATH: "{{ etcd_client_cert_dir }}/.step"
+  when: _use_client_cert_dir | bool
+  register: bootstrap_result_client
+  retries: 3
+  delay: 15
+  until: bootstrap_result_client.rc == 0
+  changed_when: false
+  failed_when: false
+  ignore_errors: yes
+
+- name: Bootstrap step CLI for etcd cert directory (cluster nodes)
+  shell: >
+    {{ bin_dir }}/step ca bootstrap
+    --ca-url {{ step_ca_url }}
+    --fingerprint {{ root_ca_fingerprint_etcd.stdout }}
     --install
     --force
   args:
@@ -139,14 +197,18 @@
     creates: "{{ etcd_cert_dir }}/.step/config/defaults.json"
   environment:
     STEPPATH: "{{ etcd_cert_dir }}/.step"
-    STEPDEBUG: "1"
-  register: bootstrap_result
+  when: inventory_hostname in groups[etcd_cluster_group]
+  register: bootstrap_result_etcd
   retries: 3
   delay: 15
-  until: bootstrap_result.rc == 0
+  until: bootstrap_result_etcd.rc == 0
   changed_when: false
   failed_when: false
   ignore_errors: yes
+
+- name: Set bootstrap result for error checking
+  set_fact:
+    bootstrap_result: "{{ bootstrap_result_client if _use_client_cert_dir | bool else bootstrap_result_etcd }}"
 
 - name: Display bootstrap error if failed
   debug:
@@ -167,10 +229,10 @@
       - ""
       - "4. Verify root CA fingerprint matches:"
       - "   On cert-manager: step certificate fingerprint /etc/step-ca/certs/root_ca.crt"
-      - "   On this node: step certificate fingerprint {{ etcd_cert_dir }}/root_ca.crt"
+      - "   On this node: step certificate fingerprint {{ etcd_client_cert_dir if _use_client_cert_dir | bool else etcd_cert_dir }}/root_ca.crt"
       - ""
       - "5. Check if root_ca.crt exists and is readable:"
-      - "   ls -la {{ etcd_cert_dir }}/root_ca.crt"
+      - "   ls -la {{ etcd_client_cert_dir if _use_client_cert_dir | bool else etcd_cert_dir }}/root_ca.crt"
   when: 
     - bootstrap_result is defined
     - bootstrap_result.rc != 0
@@ -182,14 +244,37 @@
     - bootstrap_result is defined
     - bootstrap_result.rc != 0
 
-- name: Fix step configuration directory permissions (recursively - ensures cert owner can access)
+- name: Fix step configuration directory permissions for client cert dir
   file:
-    path: "{{ etcd_cert_dir }}/.step"
+    path: "{{ etcd_client_cert_dir }}/.step"
     state: directory
-    owner: "{{ cert_owner_user.name }}"
-    group: "{{ cert_owner_user.name }}"
+    owner: "{{ _client_cert_owner.name }}"
+    group: "{{ _client_cert_owner.name }}"
     mode: 0700
     recurse: yes
   when:
-    - bootstrap_result is defined
-    - bootstrap_result.rc == 0
+    - _use_client_cert_dir | bool
+    - bootstrap_result_client is defined
+    - bootstrap_result_client.rc == 0
+
+- name: Fix step configuration directory permissions for cluster nodes
+  file:
+    path: "{{ etcd_cert_dir }}/.step"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+    recurse: yes
+  when:
+    - inventory_hostname in groups[etcd_cluster_group]
+    - bootstrap_result_etcd is defined
+    - bootstrap_result_etcd.rc == 0
+
+- name: Ensure /etc/etcd ownership is always etcd:etcd (cluster nodes)
+  file:
+    path: "{{ etcd_config_dir }}"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: 0700
+  when: inventory_hostname in groups[etcd_cluster_group]

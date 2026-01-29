@@ -7,14 +7,14 @@
 # cluster: {{etcd_cluster_name}}
 # This is the configuration file for the etcd server.
 # Human-readable name for this member.
-name: {{etcd_name}}
+name: {{etcd_clusters[etcd_cluster_name].etcd_name}}
 
 
 # Initial cluster state ('new' or 'existing').
 initial-cluster-state: '{{etcd_cluster_state|default("new")}}'
 
 # Path to the data directory.
-data-dir: {{etcd_data_dir }}
+data-dir: {{etcd_clusters[etcd_cluster_name].etcd_data_dir }}
 
 # Path to the dedicated wal directory.
 wal-dir:
@@ -33,10 +33,10 @@ election-timeout: {{etcd_election_interval | default(5000) | int}}
 quota-backend-bytes: {{etcd_quota_backend_bytes | default(0) }}
 
 # List of comma separated URLs to listen on for peer traffic.
-listen-peer-urls: https://{{etcd_address }}:{{etcd_ports['peer']}}
+listen-peer-urls: https://{{etcd_clusters[etcd_cluster_name].etcd_address }}:{{etcd_clusters[etcd_cluster_name].cluster.etcd_peer_port}}
 
 # List of comma separated URLs to listen on for client traffic.
-listen-client-urls: https://{{etcd_address }}:{{etcd_ports['client']}},https://127.0.0.1:{{etcd_ports['client']}}
+listen-client-urls: https://{{etcd_clusters[etcd_cluster_name].etcd_address }}:{{etcd_clusters[etcd_cluster_name].cluster.etcd_client_port}},https://127.0.0.1:{{etcd_clusters[etcd_cluster_name].cluster.etcd_client_port}}
 
 # Maximum number of snapshot files to retain (0 is unlimited).
 max-snapshots: {{etcd_max_snapshots | default(5) | int}}
@@ -49,14 +49,14 @@ max-wals: {{etcd_max_wals | default(5) | int}}
 
 # List of this member's peer URLs to advertise to the rest of the
 # The URLs needed to be a comma-separated list.
-initial-advertise-peer-urls: {{etcd_peer_url }}
+initial-advertise-peer-urls: {{etcd_clusters[etcd_cluster_name].etcd_peer_url }}
 
 # List of this member's client URLs to advertise to the public.
 # The URLs needed to be a comma-separated list.
-advertise-client-urls: {{etcd_client_url }}
+advertise-client-urls: {{etcd_clusters[etcd_cluster_name].etcd_client_url }}
 
 # Initial cluster configuration for bootstrapping.
-initial-cluster: {{etcd_peer_addresses }}
+initial-cluster: {{etcd_clusters[etcd_cluster_name].etcd_peer_addresses }}
 
 # Initial cluster token for the etcd cluster during bootstrap.
 initial-cluster-token: {{cluster_token|default(etcd_cluster_name)}}
@@ -75,13 +75,13 @@ proxy: 'off'
 
 client-transport-security:
   # Path to the client server TLS cert file.
-  cert-file: {{etcd_cert_paths.server.cert}}
+  cert-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert}}
 
   # Path to the client server TLS key file.
-  key-file: {{etcd_cert_paths.server.key}}
+  key-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.key}}
 
   # Path to the client server TLS trusted CA cert file.
-  trusted-ca-file: {{etcd_cert_paths.server.ca}}
+  trusted-ca-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.ca}}
 
   # Enable client cert authentication.
   client-cert-auth: {{etcd_secure_client | default(true) | bool  }}
@@ -91,13 +91,13 @@ client-transport-security:
 
 peer-transport-security:
   # Path to the peer server TLS cert file.
-  cert-file: {{etcd_cert_paths.peer.cert}}
+  cert-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert}}
 
   # Path to the peer server TLS key file.
-  key-file: {{etcd_cert_paths.peer.key}}
+  key-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.key}}
 
   # Path to the peer server TLS trusted CA cert file.
-  trusted-ca-file: {{etcd_cert_paths.peer.ca}}
+  trusted-ca-file: {{etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.ca}}
 
   # Enable peer client cert authentication.
   client-cert-auth: {{etcd_peer_client_auth | default(true) | bool  }}

@@ -1,0 +1,37 @@
+---
+# ============================================================================
+# DEPRECATED: Multi-cluster logic moved to etcd3/cluster role
+# ============================================================================
+# This role is now deprecated. The multi-cluster looping has been moved into
+# the main etcd3/cluster role for DRY principle.
+#
+# Migration:
+#   The etcd3/cluster role now handles both:
+#   - Single cluster deployment (no loop)
+#   - Multi-cluster deployment (loops internally)
+#
+# This role is kept temporarily for backward compatibility with
+# playbooks/deploy-all-clusters.yaml, but that playbook now just imports
+# etcd-cluster.yaml.
+#
+# To be removed in future version.
+# ============================================================================
+
+- name: Display deprecation warning
+  debug:
+    msg:
+      - "⚠️  WARNING: roles/etcd3/multi-cluster is DEPRECATED"
+      - ""
+      - "Multi-cluster logic has been consolidated into roles/etcd3/cluster"
+      - "This ensures DRY principle - same code for 1 or N clusters"
+      - ""
+      - "This role will be removed in a future version."
+  run_once: true
+
+# Forward to main cluster role (which now handles multi-cluster internally)
+- name: Forward to etcd3/cluster role
+  import_role:
+    name: etcd3/cluster
+  tags:
+    - multi-cluster
+    - deploy
