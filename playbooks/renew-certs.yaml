@@ -5,7 +5,7 @@
 # This forces immediate renewal of all certificates and ensures proper permissions
 
 - name: Manually renew all certificates
-  hosts: etcd,etcd-clients
+  hosts: etcd,etcd_clients
   gather_facts: yes
   roles:
     - role: etcd3/certs/operations

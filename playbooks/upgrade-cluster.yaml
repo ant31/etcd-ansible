@@ -36,10 +36,10 @@
 
     - name: Check cluster health before upgrade
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -64,27 +64,30 @@
       tags:
         - validate
 
-- name: Upgrade etcd cluster (serial rollout)
-  hosts: etcd
-  serial: 1  # CRITICAL: One node at a time
+# Upgrade cluster using main playbook with serial rollout
+# Target hosts automatically determined by etcd_cluster_configs (if defined) or 'etcd' group
+- name: Upgrade etcd cluster with serial rollout
+  hosts: "{{ 'etcd_all' if (etcd_cluster_configs is defined and etcd_cluster_configs | length > 0) else 'etcd' }}"
+  serial: 1  # CRITICAL: One node at a time for safety
   gather_facts: yes
   vars:
-    etcd_action: upgrade
+    etcd_action: deploy  # Upgrades use deploy action
   roles:
     - role: etcd3/cluster
   tags:
     - upgrade
 
-- name: Post-upgrade verification
-  hosts: etcd[0]
-  gather_facts: no
+# Post-upgrade verification
+- name: Verify upgrade completion
+  hosts: "{{ (groups.get('etcd_all', []) | first | default(groups['etcd'][0])) if (etcd_cluster_configs is defined and etcd_cluster_configs | length > 0) else 'etcd[0]' }}"
+  gather_facts: yes
   tasks:
     - name: Verify cluster health after upgrade
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -95,10 +98,10 @@
 
     - name: Check cluster member list
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         member list -w table
       environment:
         ETCDCTL_API: "3"
@@ -109,10 +112,10 @@
 
     - name: Check etcd version on all nodes
       command: >
-        {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint status -w table
       environment:
         ETCDCTL_API: "3"
@@ -121,8 +124,20 @@
       tags:
         - verify
 
-    - name: Display upgrade results
+    - name: Display upgrade success
       debug:
-        msg: "{{ ['════════════════════════════════════════════════════════════════', 'UPGRADE COMPLETE - ' + etcd_cluster_name, '════════════════════════════════════════════════════════════════', '', '✅ All nodes upgraded to ' + etcd_version, '', 'Cluster Health:'] + post_upgrade_health.stdout_lines + ['', 'Member List:'] + member_list.stdout_lines + ['', 'Endpoint Status:'] + endpoint_status.stdout_lines + ['', 'Next steps:', '1. Verify applications can still connect', '2. Monitor logs: ansible etcd -i inventory.ini -m shell -a journalctl -u etcd-* -n 20 -b', '3. Run health check: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml'] }}"
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "UPGRADE COMPLETE"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "✅ All nodes upgraded to {{ etcd_version }}"
+          - ""
+          - "{{ post_upgrade_health.stdout }}"
+          - ""
+          - "Next steps:"
+          - "1. Run full health check: ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
+          - "2. Verify applications: Check if services can still connect"
+          - "3. Monitor logs: ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 20' -b"
       tags:
         - verify

@@ -8,7 +8,7 @@
 #   - 'aws-s3-sse': Uses S3 server-side encryption (SSE-KMS)
 
 - name: Backup step-ca CA keys
-  hosts: etcd-cert-managers[0]
+  hosts: etcd_cert_managers[0]
   gather_facts: yes
   roles:
     - role: etcd3/backups/ca

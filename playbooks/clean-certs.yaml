@@ -1,6 +1,6 @@
 ---
 - name: Clean all certificates
-  hosts: etcd,etcd-clients,etcd-cert-managers
+  hosts: etcd,etcd_clients,etcd_cert_managers
   gather_facts: no
   roles:
     - role: etcd3/cleanup

@@ -22,7 +22,9 @@ bin_dir: "{{ bin_dir }}"
 
 # S3 configuration
 s3_bucket: "{{ step_ca_backup_s3_bucket }}"
-s3_prefix: "{{ step_ca_backup_s3_prefix }}"
+# S3 prefix for CA backups
+# Per-cluster override: etcd_cluster_configs[cluster_name].ca_backup.s3_prefix
+s3_prefix: "{{ step_ca_backup_s3_prefix | regex_replace('/$', '') }}/{{ etcd_cluster_name }}"
 
 # Encryption configuration
 encryption_method: "{{ step_ca_backup_encryption_method }}"

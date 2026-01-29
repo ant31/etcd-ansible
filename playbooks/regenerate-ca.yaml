@@ -60,7 +60,7 @@
         fail_msg: "CA regeneration cancelled"
 
 - name: Backup CA before regeneration (SAFETY FIRST - backs up old CA)
-  hosts: etcd-cert-managers[0]
+  hosts: etcd_cert_managers[0]
   become: yes
   gather_facts: yes
   roles:
@@ -81,7 +81,7 @@
         - backup
 
 - name: Cleanup old CA and certificates (etcd keeps running with old certs)
-  hosts: etcd,etcd-clients,etcd-cert-managers
+  hosts: etcd,etcd_clients,etcd_cert_managers
   become: yes
   gather_facts: yes
   vars:
@@ -92,7 +92,7 @@
         - regenerate-ca
 
 - name: Regenerate certificates with new CA
-  hosts: etcd,etcd-clients,etcd-cert-managers
+  hosts: etcd,etcd_clients,etcd_cert_managers
   become: yes
   gather_facts: yes
   vars:
@@ -110,7 +110,7 @@
   tasks:
     - name: Restart etcd service with new certificates
       systemd:
-        name: "etcd-{{ etcd_cluster_name }}-{{ etcd_member_index | default(groups[etcd_cluster_group].index(inventory_hostname) + 1) }}"
+        name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
         state: restarted
       throttle: 1  # CRITICAL: Defense in depth - ensures serial even if play-level serial removed
       register: etcd_restart
@@ -120,10 +120,10 @@
     
     - name: Wait for node to be healthy after restart
       command: >
-        {{ bin_dir }}/etcdctl --endpoints=https://{{ ansible_default_ipv4.address }}:2379
-        --cert={{ etcd_cert_paths.client.cert }}
-        --cacert={{ etcd_cert_paths.client.ca }}
-        --key={{ etcd_cert_paths.client.key }}
+        {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_client_url }}
+        --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+        --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+        --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
         endpoint health
       environment:
         ETCDCTL_API: "3"
@@ -138,7 +138,7 @@
         msg: "{{ ['✅ Node ' + inventory_hostname + ' restarted with new certificates', 'Remaining nodes: ' + ((groups[etcd_cluster_group] | length - (ansible_play_hosts.index(inventory_hostname) + 1)) | string)] }}"
 
 - name: Replicate new CA to backup cert-managers
-  hosts: etcd-cert-managers
+  hosts: etcd_cert_managers
   become: yes
   gather_facts: yes
   roles:
@@ -162,7 +162,7 @@
   hosts: localhost
   gather_facts: no
   vars:
-    etcd_certmanagers_group: etcd-cert-managers
+    etcd_certmanagers_group: etcd_cert_managers
   tasks:
     - name: Show success message
       debug:

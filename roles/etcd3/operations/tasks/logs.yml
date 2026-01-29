@@ -1,6 +1,6 @@
 ---
-- name: View etcd logs
-  command: journalctl -u etcd-* -n 50 --no-pager
+- name: View etcd logs (use cluster-specific service name)
+  command: journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -n 50 --no-pager
   register: etcd_logs
   changed_when: false
 

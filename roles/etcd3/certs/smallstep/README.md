@@ -61,10 +61,10 @@ etcd-k8s-1 ansible_host=10.0.1.10
 etcd-k8s-2 ansible_host=10.0.1.11
 etcd-k8s-3 ansible_host=10.0.1.12
 
-[etcd-clients]
+[etcd_clients]
 app-server ansible_host=10.0.2.50
 
-[etcd-cert-managers]
+[etcd_cert_managers]
 etcd-k8s-1  # This node will run step-ca
 ```
 

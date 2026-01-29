@@ -37,8 +37,8 @@
 - name: Find latest etcd backup in S3
   command: >
     {{ bin_dir }}/aws s3api list-objects-v2
-    --bucket {{ etcd_upload_backup.bucket }}
-    --prefix {{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/
+    --bucket {{ etcd_backup_s3_bucket }}
+    --prefix {{ etcd_backup_s3_prefix }}{{ etcd_cluster_name }}/
     --query 'reverse(sort_by(Contents, &LastModified))[0].Key'
     --output text
     --no-cli-pager
@@ -84,7 +84,7 @@
 - name: Download etcd backup from S3 (preserving filename)
   command: >
     {{ bin_dir }}/aws s3 cp
-    s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}
+    s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path }}
     {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}
   environment:
     AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | default('') }}"
@@ -102,7 +102,7 @@
     msg:
       - "✅ File downloaded from S3"
       - ""
-      - "Source: s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path }}"
+      - "Source: s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path }}"
       - "Destination: {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/{{ etcd_backup_filename }}"
       - "Filename preserved: {{ etcd_backup_filename }}"
       - ""
@@ -219,41 +219,41 @@
       - "Troubleshooting steps:"
       - ""
       - "1. Verify encryption method matches backup:"
-      - "   aws s3api head-object --bucket {{ etcd_upload_backup.bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}"
+      - "   aws s3api head-object --bucket {{ etcd_backup_s3_bucket }} --key {{ etcd_backup_file_path | default('UNKNOWN') }}"
       - ""
       - "2. Check S3 file integrity:"
-      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable"
+      - "   aws s3 ls s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path | default('') }} --human-readable"
       - ""
       - "3. Try manual download and decrypt:"
-      - "   aws s3 cp s3://{{ etcd_upload_backup.bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test"
+      - "   aws s3 cp s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_file_path | default('') }} /tmp/manual-test"
       - "   {% if backup_encryption_method == 'aws-kms' %}aws kms decrypt --ciphertext-blob fileb:///tmp/manual-test --output text --query Plaintext | base64 -d > /tmp/manual-test.db{% elif backup_encryption_method == 'symmetric' %}openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 -in /tmp/manual-test -out /tmp/manual-test.db -pass pass:YOUR_PASSWORD{% endif %}"
       - "   etcdutl snapshot status /tmp/manual-test.db"
       - ""
       - "4. List available backups and try different one:"
-      - "   aws s3 ls s3://{{ etcd_upload_backup.bucket }}/{{ etcd_upload_backup.prefix | default('') }}{{ etcd_cluster_name }}/ --recursive"
+      - "   aws s3 ls s3://{{ etcd_backup_s3_bucket }}/{{ etcd_backup_s3_prefix }}{{ etcd_cluster_name }}/ --recursive"
   when: snapshot_validation.rc != 0
   tags:
     - restore-etcd
 
-- name: Stop etcd service (if running)
+- name: Stop etcd service (if running) - use namespaced variable
   systemd:
-    name: "{{ etcd_name }}"
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: stopped
   failed_when: false
   tags:
     - restore-etcd
 
-- name: Check if etcd data directory exists
+- name: Check if etcd data directory exists - use namespaced variable
   stat:
-    path: "{{ etcd_data_dir }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
   register: etcd_data_dir_stat
   when: restore_backup_existing | bool
   tags:
     - restore-etcd
 
-- name: Remove old backup directory if exists
+- name: Remove old backup directory if exists - use namespaced variable
   file:
-    path: "{{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}"
     state: absent
   when: 
     - restore_backup_existing | bool
@@ -261,10 +261,10 @@
   tags:
     - restore-etcd
 
-- name: Backup current etcd data
+- name: Backup current etcd data - use namespaced variable
   command: >
-    mv {{ etcd_data_dir }}
-    {{ etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
+    mv {{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}
+    {{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}.backup-{{ ansible_date_time.epoch }}
   when: 
     - restore_backup_existing | bool
     - etcd_data_dir_stat.stat.exists
@@ -274,11 +274,11 @@
 - name: Restore etcd snapshot (fast - local file operation)
   command: >
     {{ bin_dir }}/etcdutl snapshot restore {{ backup_tmp_dir | default('/opt/backups/tmp') }}/restore/etcd-restore-{{ etcd_cluster_name }}.db
-    --name {{ etcd_name }}
-    --initial-cluster {{ etcd_peer_addresses }}
+    --name {{ etcd_clusters[etcd_cluster_name].etcd_name }}
+    --initial-cluster {{ etcd_clusters[etcd_cluster_name].etcd_peer_addresses }}
     --initial-cluster-token {{ cluster_token | default(etcd_cluster_name) }}
-    --initial-advertise-peer-urls {{ etcd_peer_url }}
-    --data-dir {{ etcd_data_dir }}
+    --initial-advertise-peer-urls {{ etcd_clusters[etcd_cluster_name].etcd_peer_url }}
+    --data-dir {{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}
     --skip-hash-check
     --bump-revision {{ restore_bump_revision | default(1000000000) }}
     --mark-compacted
@@ -289,7 +289,7 @@
 
 - name: Set etcd data directory ownership
   file:
-    path: "{{ etcd_data_dir }}"
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     recurse: yes
@@ -317,7 +317,7 @@
       - ""
       - "Configuration:"
       - "  initial-cluster-state: new"
-      - "  initial-cluster: {{ etcd_peer_addresses }}"
+      - "  initial-cluster: {{ etcd_clusters[etcd_cluster_name].etcd_peer_addresses }}"
       - "  initial-cluster-token: {{ cluster_token | default(etcd_cluster_name) }}"
       - ""
       - "⚠️  IMPORTANT: All nodes MUST start together (not one-by-one)"

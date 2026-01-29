@@ -31,13 +31,13 @@ export AWS_ACCESS_KEY_ID="{{ aws_access_key_id | default('') }}"
 export AWS_SECRET_ACCESS_KEY="{{ aws_secret_access_key | default('') }}"
 export AWS_DEFAULT_REGION="{{ aws_default_region | default('us-east-1') }}"
 
-BACKUP_DIR="{{ etcd_cluster_backup.directory }}"
-ETCD_ENDPOINTS="{{ etcd_access_addresses }}"
-CERT="{{ etcd_cert_paths.client.cert }}"
-KEY="{{ etcd_cert_paths.client.key }}"
-CACERT="{{ etcd_cert_paths.client.ca }}"
-S3_BUCKET="{{ etcd_upload_backup.bucket }}"
-S3_PREFIX="{{ etcd_upload_backup.prefix | default('') }}"
+BACKUP_DIR="{{ etcd_cluster_backup_directory }}"
+ETCD_ENDPOINTS="{{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}"
+CERT="{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+KEY="{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
+CACERT="{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}"
+S3_BUCKET="{{ etcd_backup_s3_bucket }}"
+S3_PREFIX="{{ etcd_backup_s3_prefix }}"
 ENCRYPTION_METHOD="{{ step_ca_backup_encryption_method }}"
 KMS_KEY_ID="{{ step_ca_backup_kms_key_id }}"
 BACKUP_PASSWORD="{{ step_ca_backup_password }}"
@@ -301,7 +301,7 @@ create_snapshot() {
     log "INFO" "Final file checksum: $final_checksum"
     
     # Upload to S3
-    local s3_path="${S3_PREFIX}${CLUSTER_NAME}/${year}/${month}/$(basename ${snapshot_file})${s3_suffix}"
+    local s3_path="${S3_PREFIX}${year}/${month}/$(basename ${snapshot_file})${s3_suffix}"
     log "INFO" "Uploading backup to S3: s3://${S3_BUCKET}/${s3_path}"
     
     if ! {{ bin_dir }}/aws s3 cp "$final_file" \
@@ -333,7 +333,7 @@ create_snapshot() {
     # Update latest pointer
     log "INFO" "Updating 'latest' pointer..."
     if ! {{ bin_dir }}/aws s3 cp "$final_file" \
-        "s3://${S3_BUCKET}/${S3_PREFIX}${CLUSTER_NAME}/latest-snapshot.db${s3_suffix}" \
+        "s3://${S3_BUCKET}/${S3_PREFIX}latest-snapshot.db${s3_suffix}" \
         --metadata "backup-timestamp=${timestamp},snapshot-checksum=${snapshot_checksum},encrypted-checksum=${final_checksum},retention=long-term"; then
         log "WARN" "Failed to update latest pointer (non-fatal)"
     else
@@ -401,7 +401,7 @@ check_recent_backup() {
     # List recent backups from S3
     local recent_backups=$({{ bin_dir }}/aws s3api list-objects-v2 \
         --bucket "$S3_BUCKET" \
-        --prefix "${S3_PREFIX}${CLUSTER_NAME}/" \
+        --prefix "${S3_PREFIX}" \
         --query "Contents[?LastModified>=\`$(date -u -d @${cutoff_time} '+%Y-%m-%dT%H:%M:%S')\`].{Key:Key,Modified:LastModified}" \
         --output text 2>/dev/null || echo "")
     

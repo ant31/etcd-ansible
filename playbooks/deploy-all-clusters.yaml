@@ -1,0 +1,43 @@
+---
+# ============================================================================
+# DEPRECATED: Use playbooks/etcd-cluster.yaml instead
+# ============================================================================
+# This playbook is now just an import of etcd-cluster.yaml
+# The main etcd-cluster.yaml playbook handles both single and multi-cluster
+# deployments automatically (DRY principle)
+#
+# Migration:
+#   OLD: ansible-playbook -i inventory.ini playbooks/deploy-all-clusters.yaml -e etcd_action=create -b
+#   NEW: ansible-playbook -i inventory.ini playbooks/etcd-cluster.yaml -e etcd_action=create -b
+#
+# The etcd-cluster.yaml playbook now:
+# - Detects if you have 1 or multiple clusters configured
+# - Uses the same code path for both
+# - No duplicate logic
+#
+# This file kept for backward compatibility only.
+# ============================================================================
+
+- name: Show deprecation notice
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Deprecation warning
+      debug:
+        msg:
+          - "⚠️  DEPRECATION NOTICE"
+          - ""
+          - "This playbook (deploy-all-clusters.yaml) is deprecated."
+          - ""
+          - "Use playbooks/etcd-cluster.yaml instead - it handles both:"
+          - "  - Single cluster deployment"
+          - "  - Multi-cluster deployment (when etcd_cluster_configs has multiple clusters)"
+          - ""
+          - "Migration:"
+          - "  OLD: ansible-playbook playbooks/deploy-all-clusters.yaml -e etcd_action=create"
+          - "  NEW: ansible-playbook playbooks/etcd-cluster.yaml -e etcd_action=create"
+          - ""
+          - "Forwarding to etcd-cluster.yaml..."
+
+# Import the main playbook
+- import_playbook: etcd-cluster.yaml

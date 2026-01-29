@@ -1,4 +1,62 @@
 ---
+# Quick mode: Skip all cert generation, just ensure step-ca is running
+- name: Skip certificate setup (quick deploy mode)
+  block:
+    - name: Display skip certificate generation notice
+      debug:
+        msg:
+          - "⏭️  SKIPPING CERTIFICATE GENERATION (etcd_skip_cert_generation=true)"
+          - ""
+          - "Assumptions:"
+          - "- CA already exists and is replicated"
+          - "- Node certificates already exist and are valid"
+          - "- Renewal timers already configured"
+          - ""
+          - "Actions taken:"
+          - "- Ensure step-ca is running on cert-manager"
+          - "- Skip all certificate generation/validation"
+          - ""
+          - "This saves significant deployment time when only updating configuration."
+      run_once: true
+    
+    - name: Ensure step-ca is running on cert-manager (quick mode)
+      systemd:
+        name: step-ca
+        state: started
+        enabled: yes
+      when: inventory_hostname in groups[etcd_certmanagers_group]
+      tags:
+        - step-ca
+    
+    - name: Wait for step-ca health check (quick mode)
+      uri:
+        url: "{{ step_ca_url }}/health"
+        validate_certs: no
+        status_code: 200
+      register: step_ca_health
+      until: step_ca_health.status == 200
+      retries: 10
+      delay: 3
+      when: inventory_hostname == groups[etcd_certmanagers_group][0]
+      tags:
+        - step-ca
+    
+    - name: Display quick mode completion
+      debug:
+        msg:
+          - "✅ Certificate setup skipped (quick mode)"
+          - "step-ca status: {{ 'RUNNING' if inventory_hostname in groups[etcd_certmanagers_group] else 'N/A (not cert-manager)' }}"
+          - ""
+          - "Continuing with cluster deployment..."
+      tags:
+        - step-ca
+    
+    - meta: end_role
+  when: etcd_skip_cert_generation | default(false) | bool
+  tags:
+    - step-ca
+    - step-ca-quick
+
 - name: Stop step-ca if forced cleanup
   systemd:
     name: step-ca

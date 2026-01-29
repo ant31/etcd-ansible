@@ -1,0 +1,87 @@
+---
+# ============================================================================
+# DEPLOY SINGLE CLUSTER
+# ============================================================================
+# Deploy a single cluster (called in loop by main.yml)
+#
+# Variables:
+#   current_cluster_name: Name of cluster to deploy (from loop)
+#
+# This task:
+# 1. Sets cluster-specific variables (name, group)
+# 2. Loads cluster-specific configuration via facts role
+# 3. Deploys cluster components via cluster/install role
+# 4. Only runs on nodes belonging to this cluster
+
+- name: Set cluster-specific variables for {{ current_cluster_name }}
+  set_fact:
+    etcd_cluster_name: "{{ etcd_deployment_matrix[current_cluster_name].name }}"
+    etcd_cluster_group: "{{ etcd_deployment_matrix[current_cluster_name].group }}"
+    etcd_certmanagers_group: "{{ etcd_deployment_matrix[current_cluster_name].cert_managers_group }}"
+    etcd_clients_group: "{{ etcd_deployment_matrix[current_cluster_name].clients_group }}"
+  tags:
+    - multi-cluster
+    - deploy
+
+- name: Display cluster deployment start
+  debug:
+    msg:
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - "Deploying Cluster: {{ etcd_cluster_name }} (config key: {{ current_cluster_name }})"
+      - "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      - ""
+      - "Inventory group: {{ etcd_cluster_group }}"
+      - "Nodes: {{ groups[etcd_cluster_group] | length }}"
+      - "Current node: {{ inventory_hostname }}"
+      - "In this cluster: {{ inventory_hostname in groups[etcd_cluster_group] }}"
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+  tags:
+    - multi-cluster
+    - deploy
+
+# Load cluster-specific configuration
+# This re-runs facts role with new cluster_name to get correct merged config
+- name: Load cluster-specific configuration for {{ current_cluster_name }}
+  include_role:
+    name: etcd3/facts
+  vars:
+    etcd_cluster_name: "{{ current_cluster_name }}"
+    etcd_deploy_all_clusters: false  # Don't trigger discovery recursively
+  tags:
+    - multi-cluster
+    - deploy
+    - facts
+
+# Deploy cluster components (only on nodes belonging to this cluster)
+- name: Deploy cluster components for {{ etcd_cluster_name }}
+  include_role:
+    name: etcd3/cluster/install
+  when: inventory_hostname in groups[etcd_cluster_group]
+  tags:
+    - multi-cluster
+    - deploy
+    - etcd-cluster
+
+# Setup backup cron for this cluster
+- name: Setup backup cron for {{ etcd_cluster_name }}
+  include_role:
+    name: etcd3/backups/cron
+  vars:
+    skip_initial_backup: false  # Run initial backup for each cluster
+  when: 
+    - inventory_hostname in groups[etcd_cluster_group]
+    - etcd_backup_cron_enabled | default(true)
+  tags:
+    - multi-cluster
+    - deploy
+    - backup-cron
+
+- name: Display cluster deployment complete
+  debug:
+    msg:
+      - "✅ Cluster {{ etcd_cluster_name }} deployment complete"
+      - ""
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+  tags:
+    - multi-cluster
+    - deploy

@@ -1,17 +1,98 @@
 ---
-- name: display cluster upgrading
-  debug:
-    msg: "Cluster: {{ etcd_cluster_name }}, Action: {{ etcd_action }}, Node: {{ inventory_hostname }}"
+# ============================================================================
+# CLUSTER MODE DETERMINATION
+# ============================================================================
+# Set cluster mode early based on action (no complex state detection)
 
-- name: Check available disk space
+- name: Set cluster mode based on action
+  set_fact:
+    cluster_mode: "{{ 'new' if etcd_action == 'create' else 'existing' }}"
+    etcd_cluster_state: "{{ 'new' if etcd_action == 'create' else 'existing' }}"
+
+- name: Display cluster deployment info
+  debug:
+    msg:
+      - "════════════════════════════════════════════════════════════════"
+      - "ETCD CLUSTER {{ 'CREATION' if cluster_mode == 'new' else 'DEPLOYMENT' }}"
+      - "════════════════════════════════════════════════════════════════"
+      - ""
+      - "Cluster: {{ etcd_cluster_name }}"
+      - "Action: {{ etcd_action }} ({{ cluster_mode }} cluster mode)"
+      - "Node: {{ inventory_hostname }}"
+      - "Inventory group: {{ etcd_cluster_group }}"
+      - ""
+      - "DEBUG - Current variable values:"
+      - "  etcd_cluster_name: {{ etcd_cluster_name }}"
+      - "  etcd_client_port: {{ etcd_client_port }}"
+      - "  etcd_peer_port: {{ etcd_peer_port }}"
+      - "  etcd_cluster_group: {{ etcd_cluster_group }}"
+      - ""
+      - "DEBUG - etcd_clusters dictionary keys:"
+      - "  {{ etcd_clusters.keys() | list | join(', ') if etcd_clusters is defined else 'NOT DEFINED' }}"
+      - ""
+      - "DEBUG - etcd_clusters[{{ etcd_cluster_name }}] (if exists):"
+      - "{% if etcd_clusters is defined and etcd_cluster_name in etcd_clusters %}  etcd_name: {{ etcd_clusters[etcd_cluster_name].get('etcd_name', 'N/A') }}{% endif %}"
+      - "{% if etcd_clusters is defined and etcd_cluster_name in etcd_clusters %}  etcd_access_addresses: {{ etcd_clusters[etcd_cluster_name].get('etcd_access_addresses', 'N/A') }}{% endif %}"
+      - "{% if etcd_clusters is defined and etcd_cluster_name in etcd_clusters %}  etcd_peer_addresses: {{ etcd_clusters[etcd_cluster_name].get('etcd_peer_addresses', 'N/A') }}{% endif %}"
+      - "{% if etcd_clusters is defined and etcd_cluster_name in etcd_clusters %}  cluster.etcd_client_port: {{ etcd_clusters[etcd_cluster_name].cluster.etcd_client_port }}{% endif %}"
+      - "{% if etcd_clusters is defined and etcd_cluster_name in etcd_clusters %}  cluster.etcd_peer_port: {{ etcd_clusters[etcd_cluster_name].cluster.etcd_peer_port }}{% endif %}"
+      - ""
+      - "{% if cluster_mode == 'new' %}CREATE MODE (new cluster):{% endif %}"
+      - "{% if cluster_mode == 'new' %}  - No backup (nothing to backup yet){% endif %}"
+      - "{% if cluster_mode == 'new' %}  - Can force cleanup directories{% endif %}"
+      - "{% if cluster_mode == 'new' %}  - Starts ALL nodes SIMULTANEOUSLY{% endif %}"
+      - "{% if cluster_mode == 'new' %}  - No pre-checks (cluster doesn't exist){% endif %}"
+      - "{% if cluster_mode == 'new' %}  - initial-cluster-state: new{% endif %}"
+      - ""
+      - "{% if cluster_mode == 'existing' %}DEPLOY MODE (existing cluster):{% endif %}"
+      - "{% if cluster_mode == 'existing' %}  - Backup before changes{% endif %}"
+      - "{% if cluster_mode == 'existing' %}  - Restarts nodes ONE-BY-ONE{% endif %}"
+      - "{% if cluster_mode == 'existing' %}  - Health checks before/after{% endif %}"
+      - "{% if cluster_mode == 'existing' %}  - initial-cluster-state: existing{% endif %}"
+      - ""
+      - "{% if etcd_new_cluster is defined and etcd_new_cluster is not none %}⚠️  WARNING: etcd_new_cluster is DEPRECATED{% endif %}"
+      - "{% if etcd_new_cluster is defined and etcd_new_cluster is not none %}   Use etcd_action=create instead{% endif %}"
+      - "════════════════════════════════════════════════════════════════"
+
+# ============================================================================
+# CREATE MODE VALIDATION
+# ============================================================================
+
+- name: CREATE | Check available disk space
   shell: df -BG {{ etcd_home }} | tail -1 | awk '{print $4}' | sed 's/G//'
   register: disk_space_gb
   changed_when: false
-  when: etcd_action in ['create', 'upgrade', 'deploy']
+  when: cluster_mode == 'new'
   tags:
     - validate
 
-- name: Validate sufficient disk space (minimum 10GB free)
+- name: CREATE | Validate sufficient disk space (minimum 10GB free)
+  assert:
+    that:
+      - disk_space_gb.stdout | int >= 10
+    fail_msg:
+      - "❌ INSUFFICIENT DISK SPACE on {{ inventory_hostname }}"
+      - "Available: {{ disk_space_gb.stdout }}GB"
+      - "Required: At least 10GB free in {{ etcd_home }}"
+  when: 
+    - cluster_mode == 'new'
+    - disk_space_gb.stdout is defined
+  tags:
+    - validate
+
+# ============================================================================
+# DEPLOY MODE VALIDATION
+# ============================================================================
+
+- name: DEPLOY | Check available disk space
+  shell: df -BG {{ etcd_home }} | tail -1 | awk '{print $4}' | sed 's/G//'
+  register: disk_space_gb
+  changed_when: false
+  when: cluster_mode == 'existing'
+  tags:
+    - validate
+
+- name: DEPLOY | Validate sufficient disk space (minimum 10GB free)
   assert:
     that:
       - disk_space_gb.stdout | int >= 10
@@ -26,24 +107,24 @@
       - "3. Consider compaction: etcdctl compact $(etcdctl endpoint status -w json | jq -r '.[0].Status.header.revision')"
       - "4. If needed, expand disk: resize2fs /dev/sdX (after extending volume)"
   when: 
-    - etcd_action in ['create', 'upgrade', 'deploy']
+    - cluster_mode == 'existing'
     - disk_space_gb.stdout is defined
   tags:
     - validate
 
-- name: Check current etcd version (if exists)
+- name: DEPLOY | Check current etcd version (if exists)
   shell: "{{ bin_dir }}/etcd --version | head -1 | awk '{print $3}'"
   register: current_etcd_version
   changed_when: false
   failed_when: false
-  when: etcd_action == 'upgrade'
+  when: cluster_mode == 'existing'
   tags:
     - validate
 
-- name: Validate upgrade path (no version downgrade)
+- name: DEPLOY | Validate upgrade path (no version downgrade)
   assert:
     that:
-      - (current_etcd_version.stdout | string) is version(etcd_version | string, '<=')
+      - current_etcd_version.stdout | trim | regex_replace('^v', '') is version(etcd_version | regex_replace('^v', ''), '<=')
     fail_msg:
       - "❌ VERSION DOWNGRADE NOT ALLOWED on {{ inventory_hostname }}"
       - "Current version: {{ current_etcd_version.stdout }}"
@@ -56,228 +137,228 @@
       - "2. Upgrade to newer version (change etcd_version to >= {{ current_etcd_version.stdout }})"
       - "3. Restore from backup if you need to go back"
   when:
-    - etcd_action == 'upgrade'
-    - current_etcd_version.stdout != ''
+    - cluster_mode == 'existing'
+    - current_etcd_version is defined
+    - current_etcd_version.rc is defined
     - current_etcd_version.rc == 0
+    - current_etcd_version.stdout is defined
+    - current_etcd_version.stdout | trim | length > 0
+    - current_etcd_version.stdout | trim is version('0.0.0', '>')
   tags:
     - validate
 
-- name: check if datadir exists
-  stat:
-    path: "{{ etcd_data_dir }}"
-  register: etcd_data
+# ============================================================================
+# CREATE MODE: Check for existing data
+# ============================================================================
 
-- name: CREATE | fail if it exists
-  assert:
-    that: not etcd_data.stat.exists
-    fail_msg:
+- name: CREATE | Check if datadir exists
+  stat:
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
+  register: etcd_data
+  when: cluster_mode == 'new'
+
+- name: CREATE | Fail if data exists without force flag
+  fail:
+    msg:
       - "❌ ETCD DATA ALREADY EXISTS on {{ inventory_hostname }}"
-      - "Cannot create new cluster: {{ etcd_cluster_name }}"
+      - "Cluster: {{ etcd_cluster_name }}"
       - "Data directory: {{ etcd_data_dir }}"
       - ""
-      - "This indicates etcd was already initialized on this node."
+      - "Cannot create new cluster - data directory already exists!"
       - ""
       - "Options:"
-      - "1. Use 'deploy' action (idempotent - works for new or existing)"
+      - ""
+      - "1. Use DEPLOY action instead (for existing clusters):"
       - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
       - ""
-      - "2. Force recreation (DESTROYS DATA):"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy -e etcd_force_create=true"
+      - "2. Force recreation (⚠️  DESTROYS ALL DATA):"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create -e etcd_force_create=true"
       - ""
-      - "3. Delete cluster first, then recreate:"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_delete_cluster=true"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
+      - "⚠️  WARNING: Force create will DELETE all existing data!"
   when:
-    - etcd_action == "create"
-    - not etcd_force_create |default(false) | bool
+    - cluster_mode == 'new'
+    - etcd_data.stat.exists
+    - not etcd_force_create | default(false) | bool
 
-- name: Find a node with existing etcd data to query cluster
-  set_fact:
-    query_node: "{{ groups[etcd_cluster_group] | map('extract', hostvars) | selectattr('etcd_data', 'defined') | selectattr('etcd_data.stat.exists', 'equalto', true) | map(attribute='inventory_hostname') | first | default(groups[etcd_cluster_group][0]) }}"
-  delegate_to: "{{ item }}"
-  delegate_facts: true
-  loop: "{{ ansible_play_hosts }}"
-  run_once: true
+- name: CREATE | Remove existing data if force create enabled
+  file:
+    path: "{{ etcd_data_dir }}"
+    state: absent
   when:
-    - etcd_action in ['deploy', 'upgrade']
-    - groups[etcd_cluster_group] | length > 1
+    - cluster_mode == 'new'
+    - etcd_data.stat.exists
+    - etcd_force_create | default(false) | bool
 
-- name: Query existing cluster members from a running node
+- name: CREATE | Display force cleanup notice
+  debug:
+    msg:
+      - "⚠️  FORCE CREATE: Removed existing data directory"
+      - "{{ etcd_data_dir }}"
+      - ""
+      - "Creating fresh cluster..."
+  when:
+    - cluster_mode == 'new'
+    - etcd_data.stat.exists
+    - etcd_force_create | default(false) | bool
+
+# ============================================================================
+# DEPLOY MODE: Validate cluster exists
+# ============================================================================
+
+- name: DEPLOY | Check if datadir exists
+  stat:
+    path: "{{ etcd_clusters[etcd_cluster_name].etcd_data_dir }}"
+  register: etcd_data
+  when: cluster_mode == 'existing'
+
+- name: DEPLOY | Query existing cluster members (check for new node additions)
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ hostvars[query_node].etcd_client_url | default('https://' + hostvars[query_node].ansible_default_ipv4.address + ':' + etcd_ports.client | string) }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_members[groups[etcd_cluster_group][0]].etcd_client_url }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     member list -w json
   environment:
     ETCDCTL_API: "3"
   register: cluster_members_raw
   changed_when: false
   failed_when: false
-  delegate_to: "{{ query_node }}"
+  delegate_to: "{{ groups[etcd_cluster_group][0] }}"
   run_once: true
   when:
-    - etcd_action in ['deploy', 'upgrade']
+    - cluster_mode == 'existing'
     - groups[etcd_cluster_group] | length > 1
-    - query_node is defined
 
-- name: Parse cluster member names from member list
+- name: DEPLOY | Parse cluster member names from member list
   set_fact:
     existing_member_names: "{{ cluster_members_raw.stdout | from_json | json_query('members[*].name') }}"
   run_once: true
   when:
-    - etcd_action in ['deploy', 'upgrade']
-    - groups[etcd_cluster_group] | length > 1
+    - cluster_mode == 'existing'
+    - cluster_members_raw is defined
     - cluster_members_raw.rc == 0
 
-- name: Check if current node is a new addition (not in cluster member list)
+- name: DEPLOY | Check if current node is a new addition (not in cluster)
   set_fact:
-    is_new_node_addition: "{{ etcd_name not in existing_member_names | default([]) }}"
+    is_new_node_addition: "{{ etcd_clusters[etcd_cluster_name].etcd_name not in existing_member_names | default([]) }}"
   when:
-    - etcd_action in ['deploy', 'upgrade']
-    - groups[etcd_cluster_group] | length > 1
-    - cluster_members_raw.rc == 0
+    - cluster_mode == 'existing'
+    - existing_member_names is defined
 
-- name: Automatically add new node to cluster
+- name: DEPLOY | Automatically add new node to cluster
   command: >
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
-    member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
+    member add {{ etcd_clusters[etcd_cluster_name].etcd_name }} --peer-urls={{ etcd_clusters[etcd_cluster_name].etcd_peer_url }}
   environment:
     ETCDCTL_API: "3"
   register: member_add_result
   delegate_to: "{{ groups[etcd_cluster_group][0] }}"
   when:
-    - etcd_action in ['deploy', 'upgrade']
-    - is_new_node_addition | default(false)
+    - cluster_mode == 'existing'
+    - is_new_node_addition | default(false) | bool
     - not etcd_data.stat.exists
 
-- name: Display automatic member add result
+- name: DEPLOY | Display automatic member add result
   debug:
     msg:
       - "✅ Node automatically added to cluster"
-      - "Node: {{ etcd_name }}"
-      - "Peer URL: {{ etcd_peer_url }}"
+      - "Node: {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - "Peer URL: {{ etcd_clusters[etcd_cluster_name].etcd_peer_url }}"
       - ""
       - "{{ member_add_result.stdout }}"
-      - ""
-      - "Continuing with deployment..."
   when:
-    - etcd_action in ['deploy', 'upgrade']
-    - is_new_node_addition | default(false)
+    - cluster_mode == 'existing'
+    - is_new_node_addition | default(false) | bool
     - member_add_result is defined
     - member_add_result is changed
 
-- name: Fail if automatic member add failed
+- name: DEPLOY | Fail if data directory doesn't exist and not a new node
   fail:
     msg:
-      - "❌ AUTOMATIC MEMBER ADD FAILED"
-      - "Node: {{ inventory_hostname }}"
-      - "Cluster: {{ etcd_cluster_name }}"
-      - ""
-      - "Error from etcdctl member add:"
-      - "{{ member_add_result.stderr | default('No error message') }}"
-      - ""
-      - "Common causes:"
-      - "1. Node already exists in cluster (check: etcdctl member list)"
-      - "2. Network connectivity issues between nodes"
-      - "3. Certificate issues"
-      - "4. Cluster is unhealthy"
-      - ""
-      - "Manual troubleshooting:"
-      - "1. Check cluster health:"
-      - "   etcdctl --endpoints={{ etcd_access_addresses }} endpoint health"
-      - ""
-      - "2. List existing members:"
-      - "   etcdctl --endpoints={{ etcd_access_addresses }} member list"
-      - ""
-      - "3. Try manual member add:"
-      - "   etcdctl --endpoints={{ etcd_access_addresses }} member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}"
-      - ""
-      - "4. If member already exists, remove and re-add:"
-      - "   etcdctl --endpoints={{ etcd_access_addresses }} member remove <MEMBER_ID>"
-      - "   etcdctl --endpoints={{ etcd_access_addresses }} member add {{ etcd_name }} --peer-urls={{ etcd_peer_url }}"
-  when:
-    - etcd_action in ['deploy', 'upgrade']
-    - is_new_node_addition | default(false)
-    - member_add_result is defined
-    - member_add_result is failed
-
-- name: UPDATE | fail if data dir doesn't exist and not adding new node
-  assert:
-    that: etcd_data.stat.exists or is_new_node_addition | default(false)
-    fail_msg:
       - "❌ ETCD DATA NOT FOUND on {{ inventory_hostname }}"
-      - "Cannot upgrade cluster: {{ etcd_cluster_name }}"
-      - "Data directory: {{ etcd_data_dir }} does not exist"
+      - "Cannot deploy to existing cluster"
+      - "Data directory: {{ etcd_clusters[etcd_cluster_name].etcd_data_dir }} does not exist"
       - ""
-      - "This indicates etcd was never initialized on this node."
+      - "This node is not in the cluster and has no data."
       - ""
       - "Options:"
-      - "1. Use 'deploy' action to deploy new cluster or add new nodes:"
-      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
+      - "1. If this is a NEW cluster, use CREATE action:"
+      - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=create"
       - ""
-      - "2. Check if data directory path is correct:"
-      - "   Current setting: {{ etcd_data_dir }}"
-      - "   Override if needed: -e etcd_home=/your/custom/path"
+      - "2. If adding node to existing cluster, check member add succeeded"
       - ""
-      - "3. Restore from backup if this is a disaster recovery:"
+      - "3. Restore from backup:"
       - "   ansible-playbook -i inventory.ini playbooks/restore-etcd-cluster.yaml"
   when:
-    - etcd_action == "upgrade"
+    - cluster_mode == 'existing'
+    - not etcd_data.stat.exists
+    - not (is_new_node_addition | default(false) | bool)
 
-- name: set cluster_state based on actual cluster status
+- name: Set etcd binary checksum
   set_fact:
-    etcd_cluster_state: >-
-      {%- if etcd_restored | default(false) -%}
-      new
-      {%- elif etcd_action == "create" -%}
-      new
-      {%- elif cluster_members_raw is defined and cluster_members_raw.rc == 0 -%}
-      existing
-      {%- elif etcd_data.stat.exists -%}
-      existing
-      {%- else -%}
-      new
-      {%- endif -%}
     etcd_binary_sha256: "{{etcdbin.stat.checksum}}"
 
-- name: Create a backup on upgrade, deploy
+# ============================================================================
+# DEPLOY MODE: Backup before changes
+# ============================================================================
+
+- name: DEPLOY | Create backup before any changes
   import_role:
     name: etcd3/backups
   when:
-    - etcd_backup | d(true) | bool
-    - etcd_action | d('none') in ['upgrade', 'deploy']
+    - cluster_mode == 'existing'
+    - etcd_backup | default(true) | bool
     - inventory_hostname == groups[etcd_cluster_group][0]
-    - etcd_cluster_state == "existing"
   tags:
     - etcd-backups
 
-- name: Create etcd data dir
+# ============================================================================
+# COMMON: Create directories and config
+# ============================================================================
+
+- name: Create etcd config directory (MUST be etcd:etcd ownership)
   file:
-    path: "{{etcd_data_dir}}"
+    path: "{{ etcd_config_dir }}"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0700'
+
+- name: Create etcd data dir (use namespaced variable)
+  file:
+    path: "{{etcd_clusters[etcd_cluster_name].etcd_data_dir}}"
     state: directory
     owner: "{{ etcd_user.name}}"
     group: "{{ etcd_user.name}}"
     mode: '0700'
 
 
-- name: ETCD | Create etcd env file
+- name: Ensure etcd config directory ownership (CRITICAL - must be etcd:etcd)
+  file:
+    path: "{{ etcd_config_dir }}"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0700'
+    recurse: no
+
+- name: ETCD | Create etcd env file (use namespaced variable)
   template:
     src: etcd.env.j2
-    dest: "{{etcd_config_dir}}/{{etcd_name}}.env"
+    dest: "{{etcd_config_dir}}/{{etcd_clusters[etcd_cluster_name].etcd_name}}.env"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     mode: '0400'
     backup: yes
   register: envchanged
 
-- name: ETCD | Create etcd config file
+- name: ETCD | Create etcd config file (use namespaced variable)
   template:
     src: etcd-conf.yaml.j2
-    dest: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
+    dest: "{{etcd_config_dir}}/{{etcd_clusters[etcd_cluster_name].etcd_name}}-conf.yaml"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     mode: '0400'
@@ -287,16 +368,25 @@
 
 - name: ETCD | Fix config file permissions (ensure etcd user ownership)
   file:
-    path: "{{etcd_config_dir}}/{{etcd_name}}-conf.yaml"
+    path: "{{etcd_config_dir}}/{{etcd_clusters[etcd_cluster_name].etcd_name}}-conf.yaml"
     owner: "{{ etcd_user.name }}"
     group: "{{ etcd_user.name }}"
     mode: '0400'
 
+- name: ETCD | Fix config directory ownership recursively (CRITICAL)
+  file:
+    path: "{{ etcd_config_dir }}"
+    state: directory
+    owner: "{{ etcd_user.name }}"
+    group: "{{ etcd_user.name }}"
+    mode: '0700'
+    recurse: yes
+
 # Should be safe to update the etcd service file when needed
-- name: ETCD | Copy etcd.service systemd file
+- name: ETCD | Copy etcd.service systemd file (use namespaced variable)
   template:
     src: "etcd-host.service.j2"
-    dest: /etc/systemd/system/{{etcd_name}}.service
+    dest: /etc/systemd/system/{{etcd_clusters[etcd_cluster_name].etcd_name}}.service
     backup: false
   register: etcdsystemd
 
@@ -305,69 +395,313 @@
   when:
     - etcdsystemd is changed
 
-- name: CREATE | Ensure etcd is running (SKIP for restore - uses parallel start)
+# ============================================================================
+# CREATE MODE: Start all nodes in parallel
+# ============================================================================
+
+- name: CREATE | Start etcd services in parallel (NO WAIT - all nodes start together)
+  shell: systemctl start {{ etcd_clusters[etcd_cluster_name].etcd_name }}
+  async: 60
+  poll: 0
+  when: cluster_mode == 'new'
+  register: etcd_create_start_async
+  tags:
+    - etcd-start
+
+- name: CREATE | Check async job results (ensure systemctl start succeeded)
+  async_status:
+    jid: "{{ etcd_create_start_async.ansible_job_id }}"
+  register: async_job_result
+  until: async_job_result.finished
+  retries: 10
+  delay: 2
+  when: 
+    - cluster_mode == 'new'
+    - etcd_create_start_async is changed
+  tags:
+    - etcd-start
+
+- name: CREATE | Display systemctl start result
+  debug:
+    msg:
+      - "Systemctl start command: {{ 'SUCCESS' if async_job_result.rc is defined and async_job_result.rc == 0 else 'FAILED' }}"
+      - "Service name: {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - "{% if async_job_result.rc is defined and async_job_result.rc != 0 %}Exit code: {{ async_job_result.rc }}{% endif %}"
+      - "{% if async_job_result.stderr is defined and async_job_result.stderr %}Error: {{ async_job_result.stderr }}{% endif %}"
+  when:
+    - cluster_mode == 'new'
+    - async_job_result is defined
+  tags:
+    - etcd-start
+
+- name: CREATE | Fail if systemctl start failed
+  fail:
+    msg:
+      - "❌ FAILED TO START ETCD SERVICE: {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - ""
+      - "systemctl start command failed with exit code {{ async_job_result.rc }}"
+      - ""
+      - "Error output:"
+      - "{{ async_job_result.stderr | default('No error output') }}"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check if service file exists:"
+      - "   ls -la /etc/systemd/system/{{ etcd_clusters[etcd_cluster_name].etcd_name }}.service"
+      - ""
+      - "2. Check service status:"
+      - "   systemctl status {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - ""
+      - "3. Check service logs:"
+      - "   journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -n 50"
+      - ""
+      - "4. Verify config file exists:"
+      - "   ls -la /etc/etcd/{{ etcd_clusters[etcd_cluster_name].etcd_name }}-conf.yaml"
+      - ""
+      - "5. Reload systemd and retry:"
+      - "   systemctl daemon-reload"
+      - "   systemctl start {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+  when:
+    - cluster_mode == 'new'
+    - async_job_result is defined
+    - async_job_result.rc is defined
+    - async_job_result.rc != 0
+  tags:
+    - etcd-start
+
+- name: CREATE | Verify service is actually running
+  command: systemctl is-active {{ etcd_clusters[etcd_cluster_name].etcd_name }}
+  register: service_active_check
+  changed_when: false
+  failed_when: false
+  retries: 5
+  delay: 2
+  until: service_active_check.stdout == 'active'
+  when: cluster_mode == 'new'
+  tags:
+    - etcd-start
+
+- name: CREATE | Get service status if not running
+  command: systemctl status {{ etcd_clusters[etcd_cluster_name].etcd_name }}
+  register: service_status_output
+  changed_when: false
+  failed_when: false
+  when:
+    - cluster_mode == 'new'
+    - service_active_check is defined
+    - service_active_check.stdout != 'active'
+  tags:
+    - etcd-start
+
+- name: CREATE | Get service logs if not running
+  command: journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -n 50 --no-pager
+  register: service_logs_output
+  changed_when: false
+  failed_when: false
+  when:
+    - cluster_mode == 'new'
+    - service_active_check is defined
+    - service_active_check.stdout != 'active'
+  tags:
+    - etcd-start
+
+- name: CREATE | Fail if service is not running
+  fail:
+    msg:
+      - "❌ ETCD SERVICE FAILED TO START: {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - ""
+      - "Service status: {{ service_active_check.stdout | upper }}"
+      - ""
+      - "systemctl status output:"
+      - "{{ service_status_output.stdout_lines | default(['Not available']) | join('\n') }}"
+      - ""
+      - "Recent logs (last 50 lines):"
+      - "{{ service_logs_output.stdout_lines | default(['Not available']) | join('\n') }}"
+      - ""
+      - "Common causes:"
+      - "1. Configuration file syntax error"
+      - "2. Certificate files missing or wrong permissions"
+      - "3. Port already in use"
+      - "4. Data directory permissions wrong"
+      - ""
+      - "Troubleshooting:"
+      - "1. Check service status on node:"
+      - "   systemctl status {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - ""
+      - "2. Check full logs:"
+      - "   journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -n 100"
+      - ""
+      - "3. Verify config file:"
+      - "   cat /etc/etcd/{{ etcd_clusters[etcd_cluster_name].etcd_name }}-conf.yaml"
+      - ""
+      - "4. Verify certificates exist:"
+      - "   ls -la /etc/etcd/ssl/etcd-{{ etcd_cluster_name }}-*.crt"
+      - ""
+      - "5. Check port availability:"
+      - "   netstat -tulpn | grep {{ etcd_client_port }}"
+      - ""
+      - "6. Manually start with verbose output:"
+      - "   {{ bin_dir }}/etcd --config-file=/etc/etcd/{{ etcd_clusters[etcd_cluster_name].etcd_name }}-conf.yaml"
+  when:
+    - cluster_mode == 'new'
+    - service_active_check is defined
+    - service_active_check.stdout != 'active'
+  tags:
+    - etcd-start
+
+- name: CREATE | Display service status (success)
+  debug:
+    msg:
+      - "✅ Service is RUNNING"
+      - "Service name: {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
+      - "Status: {{ service_active_check.stdout | upper }}"
+      - ""
+      - "Waiting for cluster to form..."
+  when:
+    - cluster_mode == 'new'
+    - service_active_check is defined
+    - service_active_check.stdout == 'active'
+  tags:
+    - etcd-start
+
+- name: CREATE | Brief pause to let all nodes begin starting
+  pause:
+    seconds: 5
+  when: cluster_mode == 'new'
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Debug endpoints before health check
+  debug:
+    msg:
+      - "DEBUG - Health check parameters:"
+      - "  Cluster name: {{ etcd_cluster_name }}"
+      - "  Endpoints: {{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}"
+      - "  Client cert: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+      - "  CA cert: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}"
+      - "  Key: {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
+      - ""
+      - "  Full etcdctl command:"
+      - "  {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }} --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }} --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }} --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }} endpoint health"
+  when: cluster_mode == 'new'
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Wait for cluster to form via LB (if configured)
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
+    endpoint health
+  register: create_cluster_health_lb
+  retries: 30
+  delay: 10
+  until: create_cluster_health_lb.rc == 0
+  changed_when: false
+  environment:
+    ETCDCTL_API: "3"
+  when: 
+    - cluster_mode == 'new'
+    - etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false)
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Wait for cluster to form via direct endpoints (all nodes)
+  command: >-
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses_direct }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
+    endpoint health
+  register: create_cluster_health_direct
+  retries: 30
+  delay: 10
+  until: create_cluster_health_direct.rc == 0
+  changed_when: false
+  environment:
+    ETCDCTL_API: "3"
+  when: cluster_mode == 'new'
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Set health check result (use direct if no LB, otherwise use LB)
+  set_fact:
+    create_cluster_health: "{{ create_cluster_health_lb if (etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false)) else create_cluster_health_direct }}"
+  when: cluster_mode == 'new'
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Display health check failure details
+  debug:
+    msg:
+      - "❌ HEALTH CHECK FAILED"
+      - ""
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}LB Health Check:{% endif %}"
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}  Command: {{ create_cluster_health_lb.cmd | default('N/A') | join(' ') }}{% endif %}"
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}  Exit code: {{ create_cluster_health_lb.rc | default('N/A') }}{% endif %}"
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}  STDERR: {{ create_cluster_health_lb.stderr | default('No output') }}{% endif %}"
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}{% endif %}"
+      - "Direct Nodes Health Check:"
+      - "  Command: {{ create_cluster_health_direct.cmd | default('N/A') | join(' ') }}"
+      - "  Exit code: {{ create_cluster_health_direct.rc | default('N/A') }}"
+      - "  STDOUT: {{ create_cluster_health_direct.stdout | default('No output') }}"
+      - "  STDERR: {{ create_cluster_health_direct.stderr | default('No error output') }}"
+      - ""
+      - "Variables used:"
+      - "  etcd_cluster_name: {{ etcd_cluster_name }}"
+      - "  etcd_access_addresses (LB): {{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}"
+      - "  etcd_access_addresses_direct: {{ etcd_clusters[etcd_cluster_name].etcd_access_addresses_direct }}"
+      - "  Expected client port: {{ etcd_clusters[etcd_cluster_name].cluster.etcd_client_port }}"
+      - "  Expected peer port: {{ etcd_clusters[etcd_cluster_name].cluster.etcd_peer_port }}"
+  when:
+    - cluster_mode == 'new'
+    - create_cluster_health is defined
+    - create_cluster_health.rc is defined
+    - create_cluster_health.rc != 0
+  run_once: true
+  tags:
+    - etcd-start
+
+- name: CREATE | Display cluster formation success
+  debug:
+    msg:
+      - "✅ NEW CLUSTER FORMED SUCCESSFULLY"
+      - ""
+      - "All {{ groups[etcd_cluster_group] | length }} nodes started in parallel"
+      - "{% if etcd_clusters[etcd_cluster_name].etcd_lb_enabled | default(false) %}Load balancer health: ✅ PASSED ({{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}){% endif %}"
+      - "Direct nodes health: ✅ PASSED ({{ etcd_clusters[etcd_cluster_name].etcd_access_addresses_direct }})"
+      - ""
+      - "Cluster is now healthy and ready"
+  when: cluster_mode == 'new'
+  run_once: true
+  tags:
+    - etcd-start
+
+# ============================================================================
+# DEPLOY MODE: Ensure running or restart if config changed
+# ============================================================================
+
+- name: DEPLOY | Ensure etcd is running (start if not running)
   service:
-    name: "{{ etcd_name }}"
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: started
     enabled: yes
   register: started_etcd
   retries: 10
   delay: 10
   until: started_etcd is succeeded
-  failed_when: started_etcd is failed
-  when:
-    - not (etcd_restored | default(false) | bool)  # Skip for restore - must start all nodes together
+  when: cluster_mode == 'existing'
   tags:
     - etcd-start
 
-- name: RESTORE | Start etcd services in parallel (NO WAIT - all nodes start together)
-  shell: systemctl start {{ etcd_name }}
-  async: 60  # Allow 60s for service to start
-  poll: 0    # Don't wait - continue immediately
-  when:
-    - etcd_restored | default(false) | bool
-  register: etcd_restore_start_async
-  tags:
-    - etcd-start
-    - etcd-restore
-
-- name: RESTORE | Brief pause to let all nodes begin starting
-  pause:
-    seconds: 5
-  when:
-    - etcd_restored | default(false) | bool
-  run_once: true
-  tags:
-    - etcd-start
-    - etcd-restore
-
-- name: RESTORE | Wait for cluster to form (all nodes starting together)
-  command: >-
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
-    endpoint health
-  register: restore_cluster_health
-  retries: 30
-  delay: 10
-  until: restore_cluster_health.rc == 0
-  changed_when: false
-  environment:
-    ETCDCTL_API: "3"
-  when:
-    - etcd_restored | default(false) | bool
-  run_once: true
-  tags:
-    - etcd-start
-    - etcd-restore
-
-
-# CRITICAL: Restart one node at a time to maintain quorum
-# throttle: 1 ensures only one host restarts at a time regardless of play-level serial setting
-- name: UPDATE | Restart etcd if config changed (SERIAL - maintains quorum)
+- name: DEPLOY | Restart etcd if config changed (SERIAL - maintains quorum)
   service:
-    name: "{{ etcd_name }}"
+    name: "{{ etcd_clusters[etcd_cluster_name].etcd_name }}"
     state: restarted
     enabled: yes
   throttle: 1  # CRITICAL: Only 1 node at a time to maintain quorum
@@ -376,19 +710,18 @@
   delay: 20
   until: restarted_etcd is succeeded
   when:
+    - cluster_mode == 'existing'
     - started_etcd is not changed
-    - not (etcd_restored | default(false) | bool)  # Skip for restore - already started in parallel
-    - etcd_action in ['upgrade', 'deploy'] or etcd_force_create | default(false) | bool
     - confchanged is changed or envchanged is changed or etcdsystemd is changed or etcd_force_restart | d(false) | bool
   tags:
     - etcd-restart
 
-- name: UPDATE | Wait for node to rejoin cluster after restart
+- name: DEPLOY | Wait for node to rejoin cluster after restart
   command: >-
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_client_url }}
-    --cert={{ etcd_cert_paths.client.cert }}
-    --cacert={{ etcd_cert_paths.client.ca }}
-    --key={{ etcd_cert_paths.client.key }}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_client_url }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
     endpoint health
   register: node_health_after_restart
   retries: 20
@@ -398,17 +731,21 @@
   environment:
     ETCDCTL_API: "3"
   when:
+    - cluster_mode == 'existing'
     - restarted_etcd is changed
-    - not (etcd_restored | default(false) | bool)  # Skip - restore health check already done
   tags:
     - etcd-restart
 
-- name: ETCD | Check if etcd cluster is healthy (FINAL VALIDATION)
+# ============================================================================
+# FINAL VALIDATION (both modes)
+# ============================================================================
+
+- name: Check if etcd cluster is healthy (FINAL VALIDATION)
   command: >-
-    {{ bin_dir }}/etcdctl --endpoints={{ etcd_access_addresses }}
-    --cert={{etcd_cert_paths.client.cert}}
-    --cacert={{etcd_cert_paths.client.ca}}
-    --key={{etcd_cert_paths.client.key}}
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert}}
+    --cacert={{etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca}}
+    --key={{etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key}}
     endpoint health
   register: etcd_cluster_is_healthy
   changed_when: false
@@ -421,8 +758,9 @@
 - name: Fail if cluster is unhealthy after deployment
   fail:
     msg:
-      - "❌ ETCD CLUSTER IS UNHEALTHY AFTER DEPLOYMENT"
+      - "❌ ETCD CLUSTER IS UNHEALTHY"
       - "Cluster: {{ etcd_cluster_name }}"
+      - "Mode: {{ cluster_mode | upper }}"
       - "Node: {{ inventory_hostname }}"
       - ""
       - "Health check failed:"
@@ -430,14 +768,14 @@
       - ""
       - "Troubleshooting:"
       - "1. Check if service started:"
-      - "   systemctl status {{ etcd_name }}"
+      - "   systemctl status {{ etcd_clusters[etcd_cluster_name].etcd_name }}"
       - ""
       - "2. Check logs on this node:"
-      - "   journalctl -u {{ etcd_name }} -n 100"
+      - "   journalctl -u {{ etcd_clusters[etcd_cluster_name].etcd_name }} -n 100"
       - ""
       - "3. Verify certificates exist and are valid:"
-      - "   ls -la {{ etcd_cert_dir }}"
-      - "   step certificate inspect {{ etcd_cert_paths.peer.cert }}"
+      - "   ls -la {{ etcd_client_cert_dir if _use_client_cert_dir | bool else etcd_cert_dir }}"
+      - "   step certificate inspect {{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
       - ""
       - "4. Check connectivity between nodes:"
       - "   ansible etcd -i inventory.ini -m shell -a 'etcdctl member list' -b"
@@ -446,8 +784,16 @@
       - "   ansible-playbook -i inventory.ini playbooks/etcd-health.yaml"
   when:
     - etcd_cluster_is_healthy.rc != 0
-    - not etcd_force_deploy | default(false) | bool
+    - not (etcd_force_deploy | default(false) | bool)
 
-- name: set cluster_state to existing
-  set_fact:
-    etcd_cluster_state: existing
+- name: Display success message
+  debug:
+    msg:
+      - "✅ {{ 'CLUSTER CREATED' if cluster_mode == 'new' else 'DEPLOYMENT COMPLETE' }}"
+      - ""
+      - "Cluster: {{ etcd_cluster_name }}"
+      - "Mode: {{ cluster_mode | upper }}"
+      - "Nodes: {{ groups[etcd_cluster_group] | length }}"
+      - ""
+      - "{% if cluster_mode == 'new' %}All nodes started in parallel{% else %}Changes applied with serial restart{% endif %}"
+  run_once: true

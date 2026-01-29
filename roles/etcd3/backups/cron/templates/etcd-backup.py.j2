@@ -33,13 +33,13 @@ from typing import Optional, Tuple
 
 # Configuration from Ansible template
 CONFIG = {
-    'backup_dir': Path('{{ etcd_cluster_backup.directory }}'),
-    'etcd_endpoints': '{{ etcd_access_addresses }}',
-    'cert': Path('{{ etcd_cert_paths.client.cert }}'),
-    'key': Path('{{ etcd_cert_paths.client.key }}'),
-    'cacert': Path('{{ etcd_cert_paths.client.ca }}'),
-    's3_bucket': '{{ etcd_upload_backup.bucket }}',
-    's3_prefix': '{{ etcd_upload_backup.prefix | default("") }}',
+    'backup_dir': Path('{{ etcd_cluster_backup_directory }}'),
+    'etcd_endpoints': '{{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}',
+    'cert': Path('{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}'),
+    'key': Path('{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}'),
+    'cacert': Path('{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}'),
+    's3_bucket': '{{ etcd_backup_s3_bucket }}',
+    's3_prefix': '{{ etcd_backup_s3_prefix }}',
     'encryption_method': '{{ step_ca_backup_encryption_method }}',
     'kms_key_id': '{{ step_ca_backup_kms_key_id }}',
     'backup_password': '{{ step_ca_backup_password }}',
@@ -311,7 +311,7 @@ def check_recent_backup() -> bool:
         result = run_command([
             CONFIG['bin_dir'] / 'aws', 's3api', 'list-objects-v2',
             '--bucket', CONFIG['s3_bucket'],
-            '--prefix', f"{CONFIG['s3_prefix']}{CONFIG['cluster_name']}/",
+            '--prefix', f"{CONFIG['s3_prefix']}",
             '--query', f"Contents[?LastModified>=`{cutoff_datetime}`].{{Key:Key,Modified:LastModified}}",
             '--output', 'text'
         ], check=False)
@@ -446,7 +446,8 @@ def create_snapshot(dry_run: bool = False) -> Optional[Tuple[Path, str]]:
     logger.info(f"Final file checksum: {final_checksum}")
     
     # Upload to S3
-    s3_path = f"{CONFIG['s3_prefix']}{CONFIG['cluster_name']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
+    # Format: s3_prefix/YYYY/MM/filename (s3_prefix already includes cluster name)
+    s3_path = f"{CONFIG['s3_prefix']}{year}/{month}/{snapshot_file.name}{s3_suffix}"
     logger.info(f"Uploading backup to S3: s3://{CONFIG['s3_bucket']}/{s3_path}")
     
     try:
@@ -486,7 +487,7 @@ def create_snapshot(dry_run: bool = False) -> Optional[Tuple[Path, str]]:
     
     # Update latest pointer
     logger.info("Updating 'latest' pointer...")
-    latest_path = f"{CONFIG['s3_prefix']}{CONFIG['cluster_name']}/latest-snapshot.db{s3_suffix}"
+    latest_path = f"{CONFIG['s3_prefix']}latest-snapshot.db{s3_suffix}"
     try:
         run_command([
             CONFIG['bin_dir'] / 'aws', 's3', 'cp',

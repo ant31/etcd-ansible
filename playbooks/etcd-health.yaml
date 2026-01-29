@@ -39,7 +39,7 @@
     - certs
 
 - name: Check step-ca health on cert-managers
-  hosts: etcd-cert-managers
+  hosts: etcd_cert_managers
   gather_facts: no
   roles:
     - role: etcd3/operations
@@ -70,6 +70,6 @@
           - ""
           - "For detailed troubleshooting:"
           - "  Cluster logs:  ansible etcd -i inventory.ini -m shell -a 'journalctl -u etcd-* -n 50' -b"
-          - "  step-ca logs:  ansible etcd-cert-managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b"
+          - "  step-ca logs:  ansible etcd_cert_managers -i inventory.ini -m shell -a 'journalctl -u step-ca -n 50' -b"
           - ""
       when: output_format | default('text') == 'text'

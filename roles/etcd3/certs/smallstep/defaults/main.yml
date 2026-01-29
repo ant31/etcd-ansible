@@ -25,7 +25,7 @@ step_ca_secrets: "{{ step_path }}/secrets"
 etcd_client_cert_user: "{{ etcd_user }}"  # Default to etcd user for backward compatibility
 
 # Default group names (override in inventory if using different group names)
-etcd_clients_group: "etcd-clients"
+etcd_clients_group: "etcd_clients"
 
 # Client-only mode (skip peer/server certificate generation)
 # Set to true when only generating client certificates (e.g., for etcd-clients group)

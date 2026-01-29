@@ -2,10 +2,10 @@
 - name: Defragment etcd database
   shell: |
     {{ bin_dir }}/etcdctl \
-      --endpoints=$(cat /etc/etcd/etcd-*-conf.yaml | grep advertise-client-urls | cut -d' ' -f2) \
-      --cert=/etc/etcd/ssl/etcd-*-client.crt \
-      --key=/etc/etcd/ssl/etcd-*-client.key \
-      --cacert=/etc/etcd/ssl/root_ca.crt \
+      --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }} \
+      --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }} \
+      --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }} \
+      --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }} \
       defrag
   environment:
     ETCDCTL_API: "3"

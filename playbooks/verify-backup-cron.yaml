@@ -3,7 +3,7 @@
 # Usage: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
 
 - name: Verify Backup Cron Jobs
-  hosts: etcd,etcd-cert-managers
+  hosts: etcd,etcd_cert_managers
   gather_facts: yes
   become: yes
   vars:

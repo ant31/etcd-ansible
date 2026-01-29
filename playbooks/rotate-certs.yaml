@@ -35,7 +35,7 @@
       when: not (force_cert_rotation | default(false))
 
 - name: Rotate all certificates (force renewal)
-  hosts: etcd,etcd-clients
+  hosts: etcd,etcd_clients
   gather_facts: yes
   roles:
     - role: etcd3/certs/operations

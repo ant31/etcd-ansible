@@ -362,7 +362,7 @@ def check_recent_backup(config: dict) -> bool:
         result = run_command([
             config['bin_dir'] / 'aws', 's3api', 'list-objects-v2',
             '--bucket', config['s3_bucket'],
-            '--prefix', f"{config['s3_prefix']}{config['cluster_name']}/",
+            '--prefix', f"{config['s3_prefix']}",
             '--query', f"Contents[?LastModified>=`{cutoff_datetime}`].{{Key:Key,Modified:LastModified}}",
             '--output', 'text'
         ], check=False)
@@ -570,9 +570,9 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     final_checksum = calculate_sha256(final_file)
     logger.info(f"Final file checksum: {final_checksum}")
     
-    # Upload to S3 - include cluster name in path
-    # Format: s3_prefix/cluster_name/YYYY/MM/filename
-    s3_path = f"{config['s3_prefix']}{config['cluster_name']}/{year}/{month}/{snapshot_file.name}{s3_suffix}"
+    # Upload to S3
+    # Format: s3_prefix/YYYY/MM/filename (s3_prefix already includes cluster name)
+    s3_path = f"{config['s3_prefix']}{year}/{month}/{snapshot_file.name}{s3_suffix}"
     logger.info(f"Uploading backup to S3: s3://{config['s3_bucket']}/{s3_path}")
     
     try:
@@ -634,10 +634,10 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
     
     logger.info("✓ Upload verification PASSED")
     
-    # Update latest pointer - include cluster name in path
+    # Update latest pointer
     logger.info("Updating 'latest' pointer...")
-    latest_path = f"{config['s3_prefix']}{config['cluster_name']}/latest-snapshot.db{s3_suffix}"
-    latest_sha256_path = f"{config['s3_prefix']}{config['cluster_name']}/latest-snapshot.db.sha256"
+    latest_path = f"{config['s3_prefix']}latest-snapshot.db{s3_suffix}"
+    latest_sha256_path = f"{config['s3_prefix']}latest-snapshot.db.sha256"
     
     try:
         run_command([
@@ -714,11 +714,11 @@ def create_snapshot(config: dict, cluster_online: bool, dry_run: bool = False) -
 
 
 def cleanup_old_backups(config: dict) -> None:
-    """Remove local backups older than retention period"""
-    retention_days = config['retention_days']
-    logger.info(f"Cleaning up local backups older than {retention_days} days...")
+    """Remove local backups older than retention period (local disk only, not S3)"""
+    local_retention_days = config['local_retention_days']
+    logger.info(f"Cleaning up local backups older than {local_retention_days} days...")
     
-    cutoff_time = time.time() - (retention_days * 86400)
+    cutoff_time = time.time() - (local_retention_days * 86400)
     deleted_count = 0
     
     for backup_file in config['backup_dir'].rglob('*.db'):
@@ -1008,7 +1008,7 @@ def main():
         'kms_key_id': config_dict.get('kms_key_id', ''),
         'backup_password': config_dict.get('backup_password', ''),
         'cluster_name': config_dict['cluster_name'],
-        'retention_days': config_dict['retention_days'],
+        'local_retention_days': config_dict['local_retention_days'],
         'healthcheck_url': config_dict.get('healthcheck_url', ''),
         'backup_interval_minutes': config_dict['backup_interval_minutes'],
         'distributed_backup': config_dict.get('distributed_backup', True),

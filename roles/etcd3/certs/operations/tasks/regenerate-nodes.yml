@@ -24,12 +24,12 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - "{{ etcd_cert_paths.peer.cert }}"
-    - "{{ etcd_cert_paths.peer.key }}"
-    - "{{ etcd_cert_paths.server.cert }}"
-    - "{{ etcd_cert_paths.server.key }}"
-    - "{{ etcd_cert_paths.client.cert }}"
-    - "{{ etcd_cert_paths.client.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.peer.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.server.key }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}"
+    - "{{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}"
   when: inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group]
   tags:
     - regenerate-nodes-clean
@@ -48,7 +48,7 @@
       - "✅ Old node certificates removed from {{ inventory_hostname }}"
       - ""
       - "CA certificates intact:"
-      - "- Root CA: {{ etcd_cert_dir }}/root_ca.crt ✓"
+      - "- Root CA: {{ etcd_clusters[etcd_cluster_name].etcd_cert_dir }}/root_ca.crt ✓"
       - "- step-ca running: {{ 'YES' if inventory_hostname in groups[etcd_certmanagers_group] else 'N/A' }}"
       - ""
       - "Ready to generate new node certificates from existing CA"

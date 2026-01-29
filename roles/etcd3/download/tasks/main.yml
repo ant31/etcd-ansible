@@ -14,9 +14,9 @@
     name: unzip
     state: present
   when:
-    - not skip_downloads | default(false)
+    - not (skip_downloads | default(false) | bool)
     - downloads.awscli is defined
-    - downloads.awscli.enabled
+    - downloads.awscli.enabled | bool
     - groups[etcd_cluster_group] | union(groups[etcd_certmanagers_group]) | intersect(ansible_play_hosts) | length > 0
   tags:
     - download
@@ -30,9 +30,9 @@
     recurse: yes
   loop: "{{ downloads | dict2items }}"
   when:
-    - not skip_downloads | default(false)
-    - item.value.enabled
-    - item.value.file
+    - not (skip_downloads | default(false) | bool)
+    - item.value.enabled | bool
+    - item.value.file | bool
     - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
@@ -56,9 +56,9 @@
   delay: "{{ retry_stagger | default(5) }}"
   loop: "{{ downloads | dict2items }}"
   when:
-    - not skip_downloads | default(false)
-    - item.value.enabled
-    - item.value.file
+    - not (skip_downloads | default(false) | bool)
+    - item.value.enabled | bool
+    - item.value.file | bool
     - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
@@ -73,10 +73,10 @@
     remote_src: yes
   loop: "{{ downloads | dict2items }}"
   when:
-    - not skip_downloads | default(false)
-    - item.value.enabled
-    - item.value.file
-    - item.value.unarchive | default(False)
+    - not (skip_downloads | default(false) | bool)
+    - item.value.enabled | bool
+    - item.value.file | bool
+    - item.value.unarchive | default(False) | bool
     - group_names | intersect(item.value.groups) | length > 0
   tags:
     - download
@@ -87,9 +87,9 @@
   args:
     creates: "{{ bin_dir }}/aws"
   when:
-    - not skip_downloads | default(false)
+    - not (skip_downloads | default(false) | bool)
     - downloads.awscli is defined
-    - downloads.awscli.enabled
+    - downloads.awscli.enabled | bool
     - group_names | intersect(downloads.awscli.groups) | length > 0
   tags:
     - download
@@ -104,9 +104,9 @@
     group: root
     remote_src: yes
   when:
-    - not skip_downloads | default(false)
+    - not (skip_downloads | default(false) | bool)
     - downloads.step is defined
-    - downloads.step.enabled
+    - downloads.step.enabled | bool
     - group_names | intersect(downloads.step.groups) | length > 0
   tags:
     - download
@@ -121,9 +121,9 @@
     group: root
     remote_src: yes
   when:
-    - not skip_downloads | default(false)
+    - not (skip_downloads | default(false) | bool)
     - downloads.step_ca is defined
-    - downloads.step_ca.enabled
+    - downloads.step_ca.enabled | bool
     - group_names | intersect(downloads.step_ca.groups) | length > 0
   tags:
     - download

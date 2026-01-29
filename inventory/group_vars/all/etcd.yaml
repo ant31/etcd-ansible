@@ -32,15 +32,14 @@ etcd_version: v3.5.26
 # Group names from inventory.ini
 # Override these if using custom group names
 etcd_cluster_group: etcd              # Nodes running etcd cluster
-etcd_clients_group: etcd-clients      # Nodes needing client certificates
-etcd_certmanagers_group: etcd-cert-managers  # Nodes running step-ca
+etcd_clients_group: etcd_clients      # Nodes needing client certificates
+etcd_certmanagers_group: etcd_cert_managers  # Nodes running step-ca
 
 # ============================================================================
 # NETWORK PORTS
 # ============================================================================
-etcd_ports:
-  client: 2379  # Client API port (for etcdctl, applications)
-  peer: 2380    # Peer communication port (cluster replication)
+etcd_client_port: 2379  # Client API port (for etcdctl, applications)
+etcd_peer_port: 2380    # Peer communication port (cluster replication)
 
 # ============================================================================
 # FILESYSTEM PATHS

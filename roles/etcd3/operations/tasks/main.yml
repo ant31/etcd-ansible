@@ -62,3 +62,9 @@
   when: operation_action == 'health-stepca'
   tags:
     - health-stepca
+
+- name: Multi-cluster dashboard
+  include_tasks: dashboard.yml
+  when: operation_action == 'dashboard'
+  tags:
+    - dashboard

@@ -51,24 +51,16 @@ aws_default_region: "us-east-1"
 # ============================================================================
 # S3 BACKUP STORAGE
 # ============================================================================
+# Note: Uses AWS credentials from above (no duplication)
+
 # CA backups storage location
 step_ca_backup_s3_bucket: "your-org-etcd-backups"
 step_ca_backup_s3_prefix: "step-ca"  # S3 folder/prefix
 
-# Etcd data backups storage configuration
-etcd_upload_backup:
-  storage: s3  # Options: s3, gcs, aws
-  bucket: "your-org-etcd-backups"
-  access_key: "AKIAIOSFODNN7EXAMPLE"  # AWS access key (can use same as aws_access_key_id above)
-  secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"  # AWS secret key (can use same as aws_secret_access_key above)
-  region: "us-east-1"  # AWS region (can use same as aws_default_region above)
-  prefix: ""  # Optional S3 prefix/folder for etcd backups
-  # Optional: Custom S3 endpoint (for S3-compatible storage)
-  # s3_url: "https://s3.example.com"
-  # Optional: Object metadata
-  # metadata:
-  #   environment: production
-  #   team: platform
+# Etcd data backups storage location
+# Note: All etcd data backups use same AWS credentials as defined above
+etcd_backup_s3_bucket: "your-org-etcd-backups"
+etcd_backup_s3_prefix: ""  # Optional S3 prefix/folder (e.g., "prod/" or "etcd/")
 
 # ============================================================================
 # OPTIONAL: DEADMAN MONITORING

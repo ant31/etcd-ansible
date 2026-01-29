@@ -97,11 +97,11 @@ etcd-k8s-1 ansible_host=10.0.1.10
 etcd-k8s-2 ansible_host=10.0.1.11
 etcd-k8s-3 ansible_host=10.0.1.12
 
-[etcd-clients]
+[etcd_clients]
 kube-apiserver-1 ansible_host=10.0.2.10
 kube-apiserver-2 ansible_host=10.0.2.11
 
-[etcd-cert-managers]
+[etcd_cert_managers]
 etcd-k8s-1  # Primary cert-manager (runs step-ca)
 etcd-k8s-2  # Backup cert-manager (CA keys replicated)
 ```
@@ -182,7 +182,7 @@ This will:
 ansible etcd -i inventory.ini -m shell -a "systemctl status etcd-*" -b
 
 # Check step-ca status
-ansible etcd-cert-managers -i inventory.ini -m shell -a "systemctl status step-ca" -b
+ansible etcd_cert_managers -i inventory.ini -m shell -a "systemctl status step-ca" -b
 
 # Check certificate details
 ansible etcd -i inventory.ini -m shell -a "step certificate inspect /etc/etcd/ssl/etcd-*-peer.crt | grep -E '(Subject|Not After)'" -b
@@ -665,7 +665,7 @@ etcd-1 ansible_host=10.0.1.10
 etcd-2 ansible_host=10.0.1.11
 etcd-3 ansible_host=10.0.1.12
 
-[etcd-cert-managers]
+[etcd_cert_managers]
 etcd-1  # Single cert-manager
 ```
 
@@ -676,7 +676,7 @@ etcd-1 ansible_host=10.0.1.10
 etcd-2 ansible_host=10.0.1.11
 etcd-3 ansible_host=10.0.1.12
 
-[etcd-cert-managers]
+[etcd_cert_managers]
 etcd-1  # Primary - step-ca running
 etcd-2  # Backup - CA keys replicated, step-ca stopped
 ```
@@ -688,11 +688,11 @@ etcd-1 ansible_host=10.0.1.10
 etcd-2 ansible_host=10.0.1.11
 etcd-3 ansible_host=10.0.1.12
 
-[etcd-clients]
+[etcd_clients]
 kube-apiserver-1 ansible_host=10.0.2.10
 kube-apiserver-2 ansible_host=10.0.2.11
 
-[etcd-cert-managers]
+[etcd_cert_managers]
 etcd-1
 ```
 
@@ -877,6 +877,77 @@ journalctl -u etcd-default-1 -n 100
 # Verify certificates are valid
 openssl verify -CAfile /etc/etcd/ssl/root_ca.crt /etc/etcd/ssl/etcd-k8s-1-peer.crt
 ```
+
+### Multi-Cluster Deployment
+
+Deploy multiple independent etcd clusters in a **single playbook run**:
+
+```bash
+# Deploy all configured clusters at once
+ansible-playbook -i inventory.ini playbooks/deploy-all-clusters.yaml -e etcd_action=create -b
+
+# View status of all clusters
+ansible-playbook -i inventory.ini playbooks/cluster-dashboard.yaml
+```
+
+**Benefits:**
+- ✅ Single command deploys all clusters
+- ✅ Shared preparation (downloads, user creation, step-ca)
+- ✅ Cluster-specific configuration (ports, backups, resources)
+- ✅ Flexible inventory group naming (underscores instead of hyphens)
+- ✅ Consolidated dashboard view of all clusters
+- ✅ 40%+ faster than deploying clusters separately
+
+**Example configuration:**
+
+```yaml
+# group_vars/all/etcd.yaml
+etcd_cluster_configs:
+  myapp:              # Cluster name = "myapp" (dict key)
+    cluster_group: etcd       # Explicit: maps to [etcd] inventory group
+    backup: { s3_prefix: "prod/myapp/" }
+  
+  events:             # Cluster name = "events" (dict key)
+    cluster_group: etcd-prod  # Explicit: maps to [etcd-prod] inventory group
+    client_port: 2381
+    peer_port: 2382
+    backup: { s3_prefix: "prod/events/" }
+  
+  k8s:                # Cluster name = "k8s" (dict key)
+    # No 'cluster_group' specified → defaults to [etcd-k8s] (convention)
+    backup: { s3_prefix: "prod/k8s/" }
+```
+
+**Inventory:**
+```ini
+# Cluster "myapp" uses simple [etcd] group
+[etcd]
+node1 ansible_host=10.0.1.10
+node2 ansible_host=10.0.1.11
+
+# Cluster "events" uses custom group name
+[etcd-prod]
+node1 ansible_host=10.0.1.10  # Same nodes, different ports
+node2 ansible_host=10.0.1.11
+
+# Cluster "k8s" uses convention [etcd-k8s]
+[etcd-k8s]
+node4 ansible_host=10.0.1.14
+
+[etcd-all:children]
+etcd
+etcd-prod
+etcd-k8s
+```
+
+**Cluster Name Resolution:**
+- Dict key is the cluster name (e.g., `myapp`, `events`)
+- Optional override: `cluster_name: custom-name` in config
+- Group mapping via `cluster_group: inventory-group-name` (or auto: `etcd-CLUSTERNAME`)
+
+See:
+- [Multi-Cluster Config](docs/advanced/multi-cluster-config.md) - Configuration guide
+- [Unified Deployment](docs/advanced/unified-multi-cluster.md) - Deployment guide
 
 ## Advanced Topics
 

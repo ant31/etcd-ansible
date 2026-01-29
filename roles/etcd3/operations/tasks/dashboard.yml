@@ -1,0 +1,125 @@
+---
+# Multi-cluster dashboard - show consolidated status of all clusters
+# Variables:
+#   etcd_cluster_configs: Dictionary of all configured clusters
+
+- name: Validate etcd_cluster_configs exists
+  assert:
+    that:
+      - etcd_cluster_configs is defined
+      - etcd_cluster_configs | length > 0
+    fail_msg: "No clusters configured in etcd_cluster_configs"
+  run_once: true
+
+- name: Get list of clusters
+  set_fact:
+    _dashboard_clusters: "{{ etcd_cluster_configs.keys() | list }}"
+  run_once: true
+
+- name: Gather cluster health for this cluster
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    endpoint health
+  environment:
+    ETCDCTL_API: "3"
+  register: cluster_health
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+
+- name: Get cluster endpoint status (includes leader, DB size)
+  command: >
+    {{ bin_dir }}/etcdctl --endpoints={{ etcd_clusters[etcd_cluster_name].etcd_access_addresses }}
+    --cert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.cert }}
+    --key={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.key }}
+    --cacert={{ etcd_clusters[etcd_cluster_name].etcd_cert_paths.client.ca }}
+    endpoint status -w json
+  environment:
+    ETCDCTL_API: "3"
+  register: endpoint_status
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+
+- name: Parse cluster metrics
+  set_fact:
+    cluster_metrics:
+      name: "{{ etcd_cluster_name }}"
+      nodes: "{{ groups[etcd_cluster_group] | length }}"
+      ports: "{{ etcd_client_port }}/{{ etcd_peer_port }}"
+      healthy: "{{ cluster_health.rc == 0 if cluster_health.rc is defined else false }}"
+      leader: "{{ (endpoint_status.stdout | from_json)[0].Status.leader if endpoint_status.rc == 0 else 'N/A' }}"
+      db_size_mb: "{{ ((endpoint_status.stdout | from_json) | map(attribute='Status.dbSize') | map('int') | sum / 1024 / 1024) | round(1) if endpoint_status.rc == 0 else 0 }}"
+      revision: "{{ (endpoint_status.stdout | from_json)[0].Status.header.revision if endpoint_status.rc == 0 else 0 }}"
+      version: "{{ (endpoint_status.stdout | from_json)[0].Status.version if endpoint_status.rc == 0 else 'N/A' }}"
+  when: inventory_hostname == groups[etcd_cluster_group][0]
+
+- name: Store cluster metrics in localhost facts
+  set_fact:
+    "dashboard_metrics_{{ etcd_cluster_name | replace('-', '_') }}": "{{ cluster_metrics }}"
+  delegate_to: localhost
+  delegate_facts: true
+  when: 
+    - inventory_hostname == groups[etcd_cluster_group][0]
+    - cluster_metrics is defined
+
+- name: Build consolidated dashboard (run once on localhost)
+  set_fact:
+    all_cluster_metrics: |
+      {%- set metrics = [] -%}
+      {%- for cluster_name in _dashboard_clusters -%}
+      {%-   set metric_var = 'dashboard_metrics_' + (cluster_name | replace('-', '_')) -%}
+      {%-   if hostvars['localhost'][metric_var] is defined -%}
+      {%-     set _ = metrics.append(hostvars['localhost'][metric_var]) -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ metrics }}
+  delegate_to: localhost
+  run_once: true
+
+- name: Build dashboard message as list
+  set_fact:
+    dashboard_lines: []
+  delegate_to: localhost
+  run_once: true
+
+- name: Add header lines
+  set_fact:
+    dashboard_lines: "{{ dashboard_lines + ['', '╔════════════════════════════════════════════════════════════════════════════════╗', '║                    ETCD MULTI-CLUSTER DASHBOARD                               ║', '╠════════════════════════════════════════════════════════════════════════════════╣', '║ Cluster          Nodes  Ports       Leader               DB Size  Version  Status      ║', '╠════════════════════════════════════════════════════════════════════════════════╣'] }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Add cluster rows
+  set_fact:
+    dashboard_lines: "{{ dashboard_lines + ['║ ' + ('%-16s' | format(item.name)) + ' ' + ('%-6s' | format(item.nodes | string)) + ' ' + ('%-11s' | format(item.ports)) + ' ' + ('%-20s' | format(item.leader | string)) + ' ' + ('%-8s' | format(item.db_size_mb | string + 'MB')) + ' ' + ('%-8s' | format(item.version)) + ' ' + ('%-12s' | format('✅ HEALTHY' if item.healthy else '❌ UNHEALTHY')) + '║'] }}"
+  loop: "{{ all_cluster_metrics }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Add summary lines
+  set_fact:
+    dashboard_lines: "{{ dashboard_lines + ['╠════════════════════════════════════════════════════════════════════════════════╣', '║ Summary: ' + (all_cluster_metrics | selectattr('healthy', 'equalto', true) | list | length | string) + '/' + (all_cluster_metrics | length | string) + ' clusters healthy' + (' ' * 45) + '║', '║ Total nodes: ' + (all_cluster_metrics | map(attribute='nodes') | map('int') | sum | string) + (' ' * 64) + '║', '║ Total DB size: ' + ((all_cluster_metrics | map(attribute='db_size_mb') | map('float') | sum) | round(1) | string) + 'MB' + (' ' * 59) + '║', '╚════════════════════════════════════════════════════════════════════════════════╝', '', 'Individual cluster details:'] }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Add individual cluster details
+  set_fact:
+    dashboard_lines: "{{ dashboard_lines + ['  ' + item.name + ':', '    Endpoints: ' + (item.nodes | string) + ' nodes on ports ' + item.ports, '    Health: ' + ('✅ HEALTHY' if item.healthy else '❌ UNHEALTHY - check logs'), '    Leader: ' + (item.leader | string), '    Database: ' + (item.db_size_mb | string) + 'MB (revision ' + (item.revision | string) + ')', '    Version: ' + item.version, ''] }}"
+  loop: "{{ all_cluster_metrics }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Add footer lines
+  set_fact:
+    dashboard_lines: "{{ dashboard_lines + ['', 'For detailed cluster health:', '  ansible-playbook -i inventory.ini playbooks/etcd-health-all-clusters.yaml', '', 'To check specific cluster:', '  ansible-playbook -i inventory.ini playbooks/etcd-health.yaml -e etcd_cluster_name=CLUSTER'] }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Display multi-cluster dashboard
+  debug:
+    msg: "{{ dashboard_lines }}"
+  delegate_to: localhost
+  run_once: true

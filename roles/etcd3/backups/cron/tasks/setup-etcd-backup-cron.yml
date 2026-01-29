@@ -29,12 +29,46 @@
   tags:
     - etcd-backup-cron
 
-- name: Calculate backup interval in minutes
+- name: Parse backup interval format (simple or full cron)
   set_fact:
-    backup_interval_minutes: "{{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}"
+    # Check if this is a full cron expression (5 fields) or simple interval (*/N)
+    _is_full_cron: "{{ etcd_backup_interval.split() | length == 5 }}"
   when: 
     - etcd_backup_cron_enabled | default(true) | bool
     - etcd_backup_distributed | default(true) | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Extract minute and hour from full cron expression
+  set_fact:
+    backup_cron_minute: "{{ etcd_backup_interval.split()[0] }}"
+    backup_cron_hour: "{{ etcd_backup_interval.split()[1] }}"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - _is_full_cron | bool
+  tags:
+    - etcd-backup-cron
+
+- name: Calculate backup interval in minutes from simple format
+  set_fact:
+    backup_interval_minutes: "{{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}"
+    backup_cron_minute: "{{ etcd_backup_interval }}"
+    backup_cron_hour: "*"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - not (_is_full_cron | bool)
+  tags:
+    - etcd-backup-cron
+
+- name: Calculate backup interval in minutes from full cron (for distributed mode)
+  set_fact:
+    backup_interval_minutes: "{{ (backup_cron_hour | replace('*/', '') | replace('*/','') | int) * 60 if backup_cron_hour is match('\\*/\\d+') else 60 }}"
+  when: 
+    - etcd_backup_cron_enabled | default(true) | bool
+    - etcd_backup_distributed | default(true) | bool
+    - _is_full_cron | bool
   tags:
     - etcd-backup-cron
 
@@ -65,8 +99,8 @@
 - name: Setup etcd backup cron job (independent mode - no deduplication)
   cron:
     name: "Backup etcd cluster data - {{ etcd_cluster_name }}"
-    minute: "{{ backup_time_offset | default(0) }}"
-    hour: "*/{{ (backup_interval_minutes | int / 60) | int if (backup_interval_minutes | int) >= 60 else '*' }}"
+    minute: "{{ backup_cron_minute }}"
+    hour: "{{ backup_cron_hour }}"
     job: "/usr/bin/python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} --independent >> {{ etcd_backup_log_file }} 2>&1"
     user: root
     state: present
