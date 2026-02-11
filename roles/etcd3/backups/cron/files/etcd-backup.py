@@ -771,13 +771,13 @@ def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
         return
     
     url = f"{config['healthcheck_url']}?status={status}"
-    logger.info("Sending healthcheck ping...")
+    logger.info(f"Sending healthcheck ping with status: {status.upper()}")
     
     try:
         run_command(['curl', '-fsS', '--retry', '3', url], check=False, capture_output=True)
-        logger.info("✓ Healthcheck ping successful")
+        logger.info(f"✓ Healthcheck ping sent: {status.upper()}")
     except Exception as e:
-        logger.warning(f"Healthcheck ping failed (non-fatal): {e}")
+        logger.warning(f"Healthcheck ping FAILED to send (non-fatal): {e}")
 
 
 def decrypt_file(config: dict, input_file: str, output_file: str, encryption_method: str, 
@@ -1153,10 +1153,14 @@ def main():
                 logger.error(line)
         
         logger.error("=" * 72)
+        logger.error("BACKUP FAILED - Sending failure notification...")
         sys.stdout.flush()
         
         if not args.dry_run:
-            send_healthcheck_ping(config, 'failure')
+            try:
+                send_healthcheck_ping(config, 'failure')
+            except Exception as ping_error:
+                logger.error(f"Failed to send healthcheck ping: {ping_error}")
         
         return 1
 
