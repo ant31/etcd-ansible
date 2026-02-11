@@ -185,19 +185,21 @@
   tags:
     - restore-ca
 
-- name: Display warning if no backup exists
+- name: Display warning if no backup exists (initial deployment - continue deployment)
   debug:
     msg:
       - "⚠️  No CA backup found in S3 (initial deployment)"
       - ""
       - "Bucket: s3://{{ step_ca_backup_s3_bucket }}/{{ step_ca_backup_s3_prefix }}/"
       - ""
-      - "This is expected during initial cluster deployment."
-      - "CA replication will be skipped for this backup cert-manager."
+      - "This is EXPECTED during initial cluster deployment."
+      - "CA replication will be SKIPPED for this backup cert-manager."
+      - "Deployment will CONTINUE normally."
       - ""
-      - "The CA backup is being created now and will be available soon."
+      - "The primary cert-manager already has the CA running."
+      - "CA backup will be created automatically by cron (every 5 minutes)."
       - ""
-      - "To manually replicate CA later:"
+      - "To manually replicate CA to backup nodes after first backup completes:"
       - "  ansible-playbook -i inventory.ini playbooks/replicate-ca.yaml"
   when: 
     - restore_ca_s3_file == 'latest'
@@ -205,22 +207,20 @@
   tags:
     - restore-ca
 
-- name: End play if no backup exists
-  meta: end_host
-  when:
-    - restore_ca_s3_file == 'latest'
-    - not ca_backup_exists | default(false)
-  tags:
-    - restore-ca
-
-- name: Set backup file path
+- name: Set backup file path (only if backup exists)
   set_fact:
     ca_backup_s3_path: "{{ restore_ca_s3_file if restore_ca_s3_file != 'latest' else latest_backup.stdout }}"
-  when: ca_backup_exists | default(true) | bool
+  when: 
+    - ca_backup_exists | default(true) | bool
+    - latest_backup is defined
+    - latest_backup.stdout is defined
+    - latest_backup.stdout != 'NONE'
+    - latest_backup.stdout != 'None'
+    - latest_backup.stdout | length > 0
   tags:
     - restore-ca
 
-- name: Detect encryption method from backup file
+- name: Detect encryption method from backup file (only if backup exists)
   set_fact:
     backup_encryption_method: >-
       {%- if ca_backup_s3_path.endswith('.kms') -%}
@@ -230,7 +230,9 @@
       {%- else -%}
       none
       {%- endif -%}
-  when: ca_backup_exists | default(true) | bool
+  when: 
+    - ca_backup_exists | default(true) | bool
+    - ca_backup_s3_path is defined
   tags:
     - restore-ca
 
