@@ -991,10 +991,6 @@ def main():
         logger.error(f"CA Backup FAILED: {e}")
         logger.error("=" * 72)
         sys.stdout.flush()
-        
-        if not args.dry_run:
-            send_healthcheck_ping(config, 'failure')
-        
         return 1
     
     except Exception as e:
@@ -1010,15 +1006,7 @@ def main():
                 logger.error(line)
         
         logger.error("=" * 72)
-        logger.error("CA BACKUP FAILED - Sending failure notification...")
         sys.stdout.flush()
-        
-        if not args.dry_run:
-            try:
-                send_healthcheck_ping(config, 'failure')
-            except Exception as ping_error:
-                logger.error(f"Failed to send healthcheck ping: {ping_error}")
-        
         return 1
 
 
