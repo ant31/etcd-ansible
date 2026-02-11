@@ -36,5 +36,9 @@ aws_access_key_id: "{{ aws_access_key_id | default('') }}"
 aws_secret_access_key: "{{ aws_secret_access_key | default('') }}"
 aws_region: "{{ aws_default_region | default('us-east-1') }}"
 
+# Local backup cleanup
+cleanup_enabled: {{ ca_backup_cleanup_enabled | default(true) | lower }}
+local_retention_days: {{ ca_backup_local_retention_days }}
+
 # Monitoring
 healthcheck_url: "{{ ca_backup_healthcheck_url }}"

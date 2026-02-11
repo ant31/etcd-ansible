@@ -59,6 +59,12 @@ ca_backup_healthcheck_url: ""
 etcd_backup_local_retention_days: 90
 ca_backup_local_retention_days: 365
 
+# Automatic cleanup of old local backups
+# Set to false to disable automatic cleanup (manual cleanup required)
+# Default: true (cleanup runs after successful backup)
+etcd_backup_cleanup_enabled: true
+ca_backup_cleanup_enabled: true
+
 # Restore checksum verification
 # If true, verify SHA256 checksum of decrypted backups during restore
 # If false, skip verification (faster but less safe)

@@ -735,6 +735,58 @@ def decrypt_file(config: dict, input_file: str, output_file: str, encryption_met
         return 1
 
 
+def cleanup_old_backups(config: dict) -> None:
+    """
+    Remove local CA backups older than retention period (local disk only, not S3)
+    
+    This function is designed to NEVER fail the backup operation.
+    All errors are caught and logged as warnings.
+    """
+    if not config.get('cleanup_enabled', True):
+        logger.info("Cleanup disabled by configuration, skipping")
+        return
+    
+    local_retention_days = config.get('local_retention_days', 365)
+    logger.info(f"Cleaning up local CA backups older than {local_retention_days} days...")
+    
+    try:
+        cutoff_time = time.time() - (local_retention_days * 86400)
+        deleted_count = 0
+        error_count = 0
+        
+        for backup_file in config['ca_backup_dir'].rglob('*.tar.gz*'):
+            try:
+                if backup_file.stat().st_mtime < cutoff_time:
+                    logger.info(f"Deleting old CA backup: {backup_file}")
+                    backup_file.unlink()
+                    deleted_count += 1
+            except Exception as e:
+                error_count += 1
+                logger.warning(f"Failed to delete {backup_file} (non-fatal): {e}")
+        
+        logger.info(f"Deleted {deleted_count} old CA backup(s)")
+        if error_count > 0:
+            logger.warning(f"Failed to delete {error_count} file(s) (non-fatal)")
+        
+        # Remove empty directories
+        try:
+            for dirpath in config['ca_backup_dir'].rglob('*'):
+                if dirpath.is_dir() and not any(dirpath.iterdir()):
+                    try:
+                        dirpath.rmdir()
+                    except Exception as e:
+                        logger.warning(f"Failed to remove empty directory {dirpath} (non-fatal): {e}")
+        except Exception as e:
+            logger.warning(f"Directory cleanup failed (non-fatal): {e}")
+        
+        logger.info("✓ Local CA cleanup completed")
+        
+    except Exception as e:
+        logger.warning(f"CA backup cleanup failed (non-fatal): {e}")
+        logger.warning("CA backup was successful, but old file cleanup failed")
+        logger.warning("You may need to manually clean old CA backups")
+
+
 def send_healthcheck_ping(config: dict, status: str = 'success') -> None:
     """Send healthcheck ping if configured"""
     if not config.get('healthcheck_url'):
@@ -922,6 +974,9 @@ def main():
             # Update state file
             config['state_file'].write_text(current_checksum)
             logger.info("✓ State file updated with new checksum")
+            
+            # Cleanup old backups AFTER successful backup (non-fatal)
+            cleanup_old_backups(config)
             
             # Send healthcheck ping
             send_healthcheck_ping(config, 'success')

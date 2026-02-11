@@ -429,6 +429,12 @@ ca_backup_state_file: "/var/lib/etcd-ca-backup/last-backup-checksum-{{ etcd_clus
 etcd_backup_local_retention_days: 90
 ca_backup_local_retention_days: 365
 
+# Automatic cleanup of old local backups
+# Set to false to disable automatic cleanup (manual cleanup required)
+# Default: true (cleanup runs after successful backup, never fails backup)
+etcd_backup_cleanup_enabled: true
+ca_backup_cleanup_enabled: true
+
 # Certificate renewal monitoring (optional)
 # Healthcheck URL for certificate renewal success/failure notifications
 # Examples:

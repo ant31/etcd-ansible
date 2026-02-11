@@ -42,6 +42,7 @@ aws_region: "{{ aws_default_region | default('us-east-1') }}"
 backup_interval_minutes: {{ (etcd_backup_interval | replace('*/', '') | replace('*/','') | int) }}
 distributed_backup: {{ etcd_backup_distributed | default(true) | lower }}
 local_retention_days: {{ etcd_backup_local_retention_days }}
+cleanup_enabled: {{ etcd_backup_cleanup_enabled | default(true) | lower }}
 
 # Monitoring
 healthcheck_url: "{{ backup_healthcheck_url }}"
