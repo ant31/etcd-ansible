@@ -207,8 +207,9 @@
     step_ca_port: "{{ _cluster_config.get('step_ca_port', step_ca_port | default(9000)) }}"
     
     # Monitoring settings (flat - easy CLI override)
-    backup_healthcheck_url: "{{ _cluster_config.get('backup_healthcheck_url', backup_healthcheck_url | default('')) }}"
-    ca_backup_healthcheck_url: "{{ _cluster_config.get('ca_backup_healthcheck_url', ca_backup_healthcheck_url | default('')) }}"
+    # Try nested backup.* first, then flat *, then global default
+    backup_healthcheck_url: "{{ _cluster_config.get('backup', {}).get('backup_healthcheck_url', _cluster_config.get('backup_healthcheck_url', backup_healthcheck_url | default(''))) }}"
+    ca_backup_healthcheck_url: "{{ _cluster_config.get('backup', {}).get('ca_backup_healthcheck_url', _cluster_config.get('ca_backup_healthcheck_url', ca_backup_healthcheck_url | default(''))) }}"
   when: 
     - etcd_cluster_configs is defined
     - _cluster_config is defined
