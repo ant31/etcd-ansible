@@ -1,0 +1,114 @@
+---
+# Healthchecks.io integration tasks
+# Only runs if healthchecks_enabled: true
+
+- name: Skip healthchecks.io integration (disabled)
+  debug:
+    msg:
+      - "⏭️  Healthchecks.io integration DISABLED"
+      - ""
+      - "To enable, set in group_vars/all/etcd.yaml or inventory:"
+      - "  healthchecks_enabled: true"
+      - "  healthchecks_api_key: 'your-api-key'  # Store in vault.yml"
+      - ""
+      - "See roles/healthchecks/defaults/main.yml for configuration options"
+  when: not (healthchecks_enabled | default(false) | bool)
+  run_once: true
+  tags:
+    - healthchecks
+
+- name: End play if healthchecks disabled
+  meta: end_play
+  when: not (healthchecks_enabled | default(false) | bool)
+  tags:
+    - healthchecks
+
+- name: Install Python dependencies
+  include_tasks: install-deps.yml
+  tags:
+    - healthchecks
+    - healthchecks-deps
+
+- name: Validate healthchecks.io configuration
+  assert:
+    that:
+      - healthchecks_api_key is defined
+      - healthchecks_api_key | length > 0
+    fail_msg:
+      - "❌ healthchecks_api_key is required when healthchecks_enabled=true"
+      - ""
+      - "Add to group_vars/all/vault.yml (encrypted):"
+      - "  healthchecks_api_key: 'your-api-key-from-healthchecks.io'"
+      - ""
+      - "Get your API key from: https://healthchecks.io/projects/YOUR_PROJECT/settings/"
+  run_once: true
+  tags:
+    - healthchecks
+
+- name: Install healthchecks.io management script
+  copy:
+    src: manage-healthchecks.py
+    dest: "{{ backup_scripts_dir }}/manage-healthchecks.py"
+    owner: root
+    group: root
+    mode: 0755
+  tags:
+    - healthchecks
+
+- name: Create healthchecks configuration file
+  template:
+    src: healthchecks-config.yaml.j2
+    dest: "{{ backup_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml"
+    owner: root
+    group: root
+    mode: 0600
+  tags:
+    - healthchecks
+
+- name: Create/update healthchecks.io checks
+  command: >
+    /usr/bin/python3 {{ backup_scripts_dir }}/manage-healthchecks.py
+    --config {{ backup_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml
+    --action create-all
+  register: healthchecks_create
+  changed_when: "'Created' in healthchecks_create.stdout or 'Updated' in healthchecks_create.stdout"
+  tags:
+    - healthchecks
+
+- name: Parse created check URLs from output
+  set_fact:
+    healthchecks_urls: "{{ healthchecks_create.stdout | regex_findall('Ping URL: (https://[^\\s]+)') }}"
+  when: healthchecks_create.rc == 0
+  tags:
+    - healthchecks
+
+- name: Store check URLs in facts for use by other roles
+  set_fact:
+    backup_healthcheck_url: "{{ healthchecks_urls[0] if healthchecks_urls | length > 0 else '' }}"
+    ca_backup_healthcheck_url: "{{ healthchecks_urls[1] if healthchecks_urls | length > 1 else '' }}"
+    step_cert_renewal_healthcheck_url: "{{ healthchecks_urls[2] if healthchecks_urls | length > 2 else '' }}"
+  when:
+    - healthchecks_auto_configure | default(true) | bool
+    - healthchecks_urls is defined
+  tags:
+    - healthchecks
+
+- name: Display healthchecks.io status
+  debug:
+    msg:
+      - "✅ Healthchecks.io integration configured"
+      - ""
+      - "Cluster: {{ etcd_cluster_name }}"
+      - "Environment: {{ healthchecks_environment }}"
+      - ""
+      - "Created/Updated checks:"
+      - "{{ healthchecks_create.stdout_lines | default(['No output']) }}"
+      - ""
+      - "{% if backup_healthcheck_url %}Etcd backup URL: {{ backup_healthcheck_url }}{% endif %}"
+      - "{% if ca_backup_healthcheck_url %}CA backup URL: {{ ca_backup_healthcheck_url }}{% endif %}"
+      - "{% if step_cert_renewal_healthcheck_url %}Cert renewal URL: {{ step_cert_renewal_healthcheck_url }}{% endif %}"
+      - ""
+      - "Channels configured: {{ healthchecks_channels | join(', ') if healthchecks_channels | length > 0 else 'Using project defaults' }}"
+  when: healthchecks_create.rc == 0
+  tags:
+    - healthchecks

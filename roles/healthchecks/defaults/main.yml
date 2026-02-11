@@ -1,0 +1,59 @@
+---
+# Healthchecks.io integration (optional)
+# Enable this role by setting healthchecks_enabled: true
+
+# Enable/disable healthchecks.io integration
+healthchecks_enabled: false
+
+# API configuration (store api_key in vault.yml)
+healthchecks_api_key: ""  # Required if enabled
+healthchecks_api_url: "https://healthchecks.io/api/v3"
+
+# Check name prefix (auto-generates names like: "prod-etcd-k8s-backup")
+healthchecks_name_prefix: "{{ healthchecks_environment | default('prod') }}"
+healthchecks_environment: "prod"  # Environment tag (prod/staging/dev)
+
+# Notification channels (list of channel names or UUIDs)
+# Channels must already exist in healthchecks.io
+# Leave empty to use default project channels
+healthchecks_channels: []
+
+# Auto-configure backup healthcheck URLs
+# When enabled, automatically sets backup_healthcheck_url and ca_backup_healthcheck_url
+healthchecks_auto_configure: true
+
+# Check settings (defaults for all checks)
+healthchecks_check_defaults:
+  timeout: 86400  # 24 hours (in seconds)
+  grace: 3600     # 1 hour grace period
+  schedule: "0 * * * *"  # Hourly (cron format)
+  tz: "UTC"
+  
+# Per-service check configuration (optional overrides)
+healthchecks_checks:
+  etcd_backup:
+    enabled: true
+    name_suffix: "etcd-backup"  # Will become: "prod-k8s-etcd-backup"
+    timeout: 3600   # 1 hour (backup interval is 30min, so 2x that)
+    grace: 1800     # 30 minutes
+    tags: ["etcd", "backup", "data"]
+    desc: "Etcd cluster data backup for {{ etcd_cluster_name }}"
+    
+  ca_backup:
+    enabled: true
+    name_suffix: "ca-backup"  # Will become: "prod-k8s-ca-backup"
+    timeout: 7200   # 2 hours (checks every 5min, but only backs up on change)
+    grace: 3600     # 1 hour
+    tags: ["etcd", "backup", "ca"]
+    desc: "Etcd CA backup for {{ etcd_cluster_name }} (change-based)"
+    
+  cert_renewal:
+    enabled: false  # Disabled by default (many renewal timers)
+    name_suffix: "cert-renewal"
+    timeout: 86400  # 24 hours
+    grace: 7200     # 2 hours
+    tags: ["etcd", "certificates", "renewal"]
+    desc: "Certificate renewal for {{ etcd_cluster_name }}"
+
+# Check UUID storage (populated after check creation)
+healthchecks_check_uuids: {}

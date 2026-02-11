@@ -1,0 +1,4 @@
+---
+# Healthchecks.io role has no dependencies
+# It's meant to be called explicitly when healthchecks_enabled: true
+allow_duplicates: true

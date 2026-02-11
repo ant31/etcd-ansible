@@ -49,9 +49,10 @@ etcd_backup_initial_run: true
 ca_backup_initial_run: true
 
 # Deadman monitoring (optional)
+# Can be set manually OR populated automatically by healthchecks role
 backup_healthcheck_enabled: false
-backup_healthcheck_url: ""  # e.g., https://hc-ping.com/your-uuid or https://deadmanssnitch.com/your-snitch
-ca_backup_healthcheck_url: ""
+backup_healthcheck_url: ""  # Set by healthchecks role or manually (e.g., https://hc-ping.com/your-uuid)
+ca_backup_healthcheck_url: ""  # Set by healthchecks role or manually
 
 # Local backup retention (controls local disk cleanup only, not S3)
 # S3 retention must be configured separately via S3 lifecycle policies

@@ -1,0 +1,95 @@
+---
+# Setup healthchecks.io monitoring for etcd clusters
+# 
+# This playbook creates/updates healthcheck.io monitors for:
+# - Etcd data backups (per cluster)
+# - CA backups (per cluster)
+# - Certificate renewal (optional)
+#
+# Usage:
+#   # Setup for single cluster
+#   ansible-playbook -i inventory.ini playbooks/setup-healthchecks.yaml
+#
+#   # Setup for specific cluster
+#   ansible-playbook -i inventory.ini playbooks/setup-healthchecks.yaml -e etcd_cluster_name=k8s
+#
+#   # Setup for all clusters
+#   ansible-playbook -i inventory.ini playbooks/setup-healthchecks.yaml -e setup_all_clusters=true
+#
+# Prerequisites:
+#   1. healthchecks.io account and project
+#   2. API key from: https://healthchecks.io/projects/YOUR_PROJECT/settings/
+#   3. Add to group_vars/all/vault.yml:
+#      healthchecks_api_key: "your-api-key"
+#      healthchecks_enabled: true
+#
+# Configuration in group_vars/all/etcd.yaml:
+#   healthchecks_enabled: true
+#   healthchecks_environment: prod  # or staging, dev, etc.
+#   healthchecks_channels:
+#     - "Slack #alerts"
+#     - "PagerDuty"
+
+- name: Setup healthchecks.io monitoring
+  hosts: localhost
+  gather_facts: false
+  vars:
+    setup_all_clusters: false
+  tasks:
+    - name: Validate healthchecks is enabled
+      assert:
+        that:
+          - healthchecks_enabled | default(false) | bool
+          - healthchecks_api_key is defined
+          - healthchecks_api_key | length > 0
+        fail_msg:
+          - "❌ Healthchecks.io integration not enabled"
+          - ""
+          - "Enable in group_vars/all/etcd.yaml:"
+          - "  healthchecks_enabled: true"
+          - ""
+          - "Add API key to group_vars/all/vault.yml:"
+          - "  healthchecks_api_key: 'your-api-key'"
+          - ""
+          - "Get API key from: https://healthchecks.io/projects/YOUR_PROJECT/settings/"
+    
+    - name: Determine clusters to configure
+      set_fact:
+        _clusters_to_configure: "{{ etcd_cluster_configs.keys() | list if (setup_all_clusters | bool and etcd_cluster_configs is defined) else [etcd_cluster_name] }}"
+    
+    - name: Display configuration plan
+      debug:
+        msg:
+          - "📋 Healthchecks.io Configuration Plan"
+          - ""
+          - "Mode: {{ 'ALL CLUSTERS' if setup_all_clusters | bool else 'SINGLE CLUSTER' }}"
+          - "Clusters: {{ _clusters_to_configure | join(', ') }}"
+          - "Environment: {{ healthchecks_environment | default('prod') }}"
+          - "Channels: {{ healthchecks_channels | join(', ') if healthchecks_channels | default([]) | length > 0 else 'Using project defaults' }}"
+    
+    - name: Setup healthchecks for each cluster
+      include_role:
+        name: healthchecks
+      vars:
+        etcd_cluster_name: "{{ item }}"
+      loop: "{{ _clusters_to_configure }}"
+      
+    - name: Display completion summary
+      debug:
+        msg:
+          - "✅ Healthchecks.io setup complete"
+          - ""
+          - "Configured {{ _clusters_to_configure | length }} cluster(s)"
+          - ""
+          - "Next steps:"
+          - "1. Verify checks in healthchecks.io dashboard"
+          - "2. Deploy clusters to activate monitoring:"
+          - "   ansible-playbook -i inventory.ini etcd.yaml -e etcd_action=deploy"
+          - ""
+          - "The backup URLs are now set as facts and will be used automatically"
+          - "in backup configurations during deployment."
+          - ""
+          - "To list all checks:"
+          - "  python3 {{ backup_scripts_dir | default('/opt/backups') }}/manage-healthchecks.py \\"
+          - "    --config {{ backup_scripts_dir | default('/opt/backups') }}/healthchecks-config-{{ _clusters_to_configure[0] }}.yaml \\"
+          - "    --action list"

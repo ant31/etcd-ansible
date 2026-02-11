@@ -408,9 +408,16 @@ etcd_backup_initial_run: true
 ca_backup_initial_run: true
 
 # Deadman monitoring (optional)
+# Can be configured manually OR via healthchecks.io role integration
 backup_healthcheck_enabled: false
-backup_healthcheck_url: ""
-ca_backup_healthcheck_url: ""
+backup_healthcheck_url: ""  # Set by healthchecks role or manually
+ca_backup_healthcheck_url: ""  # Set by healthchecks role or manually
+
+# Healthchecks.io integration (optional)
+# Enable to automatically create/manage checks in healthchecks.io
+# See roles/healthchecks/defaults/main.yml for configuration
+healthchecks_enabled: false
+healthchecks_api_key: ""  # Store in vault.yml
 
 # Backup paths (all organized under /opt/backups)
 backup_scripts_dir: "/opt/backups"
