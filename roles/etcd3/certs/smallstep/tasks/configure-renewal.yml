@@ -1,4 +1,14 @@
 ---
+# Determine certificate directory and owner (needed when called standalone)
+- name: Determine if this node needs client cert in separate directory
+  set_fact:
+    _use_client_cert_dir: "{{ inventory_hostname in groups[etcd_clients_group] }}"
+    _client_cert_owner: "{{ etcd_client_cert_user if inventory_hostname in groups[etcd_clients_group] else etcd_user }}"
+
+- name: Set client certificate name
+  set_fact:
+    client_cert_name: "{{ etcd_clusters[etcd_cluster_name].etcd_name if (inventory_hostname in groups[etcd_cluster_group]) else inventory_hostname }}"
+
 # Generate initial certificates using step-ca
 - name: Generate etcd peer certificate
   shell: |
@@ -49,10 +59,6 @@
   when:
     - inventory_hostname in groups[etcd_cluster_group]
     - not step_cert_client_only
-
-- name: Set client certificate name
-  set_fact:
-    client_cert_name: "{{ etcd_clusters[etcd_cluster_name].etcd_name if (inventory_hostname in groups[etcd_cluster_group]) else inventory_hostname }}"
 
 - name: Generate client certificate in /etc/etcd-client (for etcd_clients group)
   shell: |
