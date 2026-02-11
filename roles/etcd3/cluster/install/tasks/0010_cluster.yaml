@@ -1,5 +1,92 @@
 ---
 # ============================================================================
+# SCRIPTS-ONLY MODE (SHORTCUT)
+# ============================================================================
+# Quick reconfiguration of scripts without touching etcd or certificates
+
+- name: Scripts-only mode - update scripts and exit
+  block:
+    - name: Display scripts-only mode notice
+      debug:
+        msg:
+          - "🔧 SCRIPTS-ONLY MODE ENABLED"
+          - ""
+          - "Updating ONLY:"
+          - "  ✅ Backup scripts (Python)"
+          - "  ✅ Backup configurations (YAML)"
+          - "  ✅ Renewal services (systemd)"
+          - "  ✅ Cron jobs (if changed)"
+          - ""
+          - "Skipping:"
+          - "  ⏭️  Certificate generation"
+          - "  ⏭️  step-ca operations"
+          - "  ⏭️  etcd config changes"
+          - "  ⏭️  etcd restart"
+          - "  ⏭️  Health checks"
+          - ""
+          - "This is safe and fast (no cluster impact)"
+          - "Cluster: {{ etcd_cluster_name }}"
+          - "Node: {{ inventory_hostname }}"
+      run_once: true
+    
+    # Update backup cron (includes scripts and configs)
+    - name: Update backup scripts and cron
+      include_role:
+        name: etcd3/backups/cron
+      vars:
+        skip_initial_backup: true
+      when: 
+        - inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_certmanagers_group]
+      tags:
+        - backup-cron
+    
+    # Update renewal services (no cert generation)
+    - name: Update renewal services and timers
+      include_role:
+        name: etcd3/certs/smallstep
+        tasks_from: configure-renewal.yml
+      when: 
+        - inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group]
+      tags:
+        - renewal
+    
+    - name: Reload systemd after script updates
+      systemd:
+        daemon_reload: yes
+      when:
+        - inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group]
+    
+    - name: Display scripts-only completion
+      debug:
+        msg:
+          - "✅ Scripts-only update complete on {{ inventory_hostname }}"
+          - ""
+          - "Updated files:"
+          - "{% if inventory_hostname in groups[etcd_cluster_group] %}  - Etcd backup script: {{ backup_scripts_dir }}/etcd-backup.py{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_cluster_group] %}  - Etcd backup config: {{ etcd_backup_config_file }}{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}  - CA backup script: {{ backup_scripts_dir }}/ca-backup-check.py{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}  - CA backup config: {{ ca_backup_config_file }}{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group] %}  - Renewal services: /etc/systemd/system/step-renew-*.service{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_cluster_group] or inventory_hostname in groups[etcd_clients_group] %}  - Renewal timers: /etc/systemd/system/step-renew-*.timer{% endif %}"
+          - ""
+          - "{% if inventory_hostname in groups[etcd_cluster_group] %}Cron schedule: {{ etcd_backup_interval }} (etcd) | {{ ca_backup_check_interval }} (CA){% endif %}"
+          - ""
+          - "No cluster impact - etcd was not restarted"
+          - ""
+          - "To verify cron jobs:"
+          - "  ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml"
+          - ""
+          - "To test backup manually:"
+          - "{% if inventory_hostname in groups[etcd_cluster_group] %}  sudo python3 {{ backup_scripts_dir }}/etcd-backup.py --config {{ etcd_backup_config_file }} --dry-run{% endif %}"
+          - "{% if inventory_hostname in groups[etcd_certmanagers_group] %}  sudo python3 {{ backup_scripts_dir }}/ca-backup-check.py --config {{ ca_backup_config_file }} --dry-run{% endif %}"
+    
+    - meta: end_play
+  
+  when: etcd_scripts_only | default(false) | bool
+  tags:
+    - scripts-only
+
+# ============================================================================
 # CLUSTER MODE DETERMINATION
 # ============================================================================
 # Set cluster mode early based on action (no complex state detection)

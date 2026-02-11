@@ -1,0 +1,38 @@
+---
+# Update backup and renewal scripts without touching etcd
+# 
+# This is a convenience wrapper around etcd.yaml with etcd_scripts_only=true
+# Use when you've changed:
+# - Backup intervals or settings
+# - Healthcheck URLs
+# - S3 bucket/prefix
+# - Renewal configuration
+# - Monitoring integration
+#
+# Usage:
+#   # Update scripts on all clusters
+#   ansible-playbook -i inventory.ini playbooks/update-scripts.yaml
+#
+#   # Update scripts for specific cluster
+#   ansible-playbook -i inventory.ini playbooks/update-scripts.yaml -e etcd_cluster_name=k8s
+#
+#   # Update with new backup interval
+#   ansible-playbook -i inventory.ini playbooks/update-scripts.yaml -e etcd_backup_interval="*/15"
+#
+# What gets updated:
+#   ✅ Backup scripts (etcd-backup.py, ca-backup-check.py)
+#   ✅ Backup configs (cluster-specific YAML)
+#   ✅ Renewal services (step-renew systemd units)
+#   ✅ Cron jobs (if schedule changed)
+#
+# What's NOT touched:
+#   ⏭️ Certificates
+#   ⏭️ etcd config
+#   ⏭️ etcd restart
+#   ⏭️ step-ca
+
+- name: Update backup and renewal scripts (scripts-only mode)
+  import_playbook: etcd-cluster.yaml
+  vars:
+    etcd_action: deploy
+    etcd_scripts_only: true

@@ -1,13 +1,22 @@
 ---
 # Verify backup cron jobs are installed and show next run times
-# Usage: ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
+# Usage: 
+#   # Single cluster
+#   ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml
+#
+#   # All clusters (multi-cluster mode)
+#   ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml -e verify_all_clusters=true
+#
+#   # Specific cluster
+#   ansible-playbook -i inventory.ini playbooks/verify-backup-cron.yaml -e etcd_cluster_name=k8s
 
 - name: Verify Backup Cron Jobs
-  hosts: etcd,etcd_cert_managers
+  hosts: "{{ 'etcd_all,etcd_cert_managers_all' if (verify_all_clusters | default(false) | bool) else 'etcd,etcd_cert_managers' }}"
   gather_facts: yes
   become: yes
   vars:
     operation_action: verify-backup-cron
+    verify_all_clusters: false
   roles:
     - role: etcd3/operations
       tags:

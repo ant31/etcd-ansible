@@ -319,6 +319,26 @@ etcd_peer_client_auth: true
 # Default: false (always setup/verify certificates)
 etcd_skip_cert_generation: false
 
+# Scripts-only mode - ONLY update scripts, configs, and systemd units
+# Set to true to ONLY update:
+# - Backup scripts (etcd-backup.py, ca-backup-check.py)
+# - Backup configs (etcd-backup-config.yaml, ca-backup-config.yaml)
+# - Renewal services (step-renew-*.service, step-renew-*.timer)
+# - Cron jobs (if schedule changed)
+# - Monitoring configs (healthcheck URLs)
+#
+# Skips:
+# - etcd configuration changes
+# - etcd service restart
+# - Certificate generation
+# - step-ca operations
+# - Health checks
+#
+# Use case: Changed backup interval, healthcheck URLs, S3 settings, or renewal config
+# Benefits: Fast (seconds), safe (no cluster impact), idempotent
+# Default: false
+etcd_scripts_only: false
+
 # AWS credentials for backup encryption (set in vault.yml)
 aws_access_key_id: ""
 aws_secret_access_key: ""
