@@ -9,6 +9,11 @@ healthchecks_enabled: false
 healthchecks_api_key: ""  # Required if enabled
 healthchecks_api_url: "https://healthchecks.io/api/v3"
 
+# Script directory (localhost vs remote hosts)
+# When running on localhost, use user-writable directory
+# When running on etcd nodes, use backup_scripts_dir
+healthchecks_scripts_dir: "{{ '~/.ansible/etcd-healthchecks' if inventory_hostname == 'localhost' else (backup_scripts_dir | default('/opt/backups')) }}"
+
 # Check name prefix (auto-generates names like: "prod-etcd-k8s-backup")
 healthchecks_name_prefix: "{{ healthchecks_environment | default('prod') }}"
 healthchecks_environment: "prod"  # Environment tag (prod/staging/dev)

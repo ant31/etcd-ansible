@@ -162,6 +162,12 @@ ansible-playbook -i inventory.ini playbooks/setup-healthchecks.yaml \
 ### List Existing Checks
 
 ```bash
+# On Ansible controller (localhost)
+python3 ~/.ansible/etcd-healthchecks/manage-healthchecks.py \
+  --config ~/.ansible/etcd-healthchecks/healthchecks-config-k8s.yaml \
+  --action list
+
+# On etcd nodes (if script deployed there)
 python3 /opt/backups/manage-healthchecks.py \
   --config /opt/backups/healthchecks-config-k8s.yaml \
   --action list
@@ -170,8 +176,9 @@ python3 /opt/backups/manage-healthchecks.py \
 ### Delete a Check
 
 ```bash
-python3 /opt/backups/manage-healthchecks.py \
-  --config /opt/backups/healthchecks-config-k8s.yaml \
+# On Ansible controller (localhost)
+python3 ~/.ansible/etcd-healthchecks/manage-healthchecks.py \
+  --config ~/.ansible/etcd-healthchecks/healthchecks-config-k8s.yaml \
   --action delete \
   --check-name "prod-k8s-etcd-backup"
 ```

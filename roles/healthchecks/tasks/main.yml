@@ -45,12 +45,18 @@
   tags:
     - healthchecks
 
+- name: Create healthchecks scripts directory
+  file:
+    path: "{{ healthchecks_scripts_dir }}"
+    state: directory
+    mode: 0755
+  tags:
+    - healthchecks
+
 - name: Install healthchecks.io management script
   copy:
     src: manage-healthchecks.py
-    dest: "{{ backup_scripts_dir }}/manage-healthchecks.py"
-    owner: root
-    group: root
+    dest: "{{ healthchecks_scripts_dir }}/manage-healthchecks.py"
     mode: 0755
   tags:
     - healthchecks
@@ -58,17 +64,15 @@
 - name: Create healthchecks configuration file
   template:
     src: healthchecks-config.yaml.j2
-    dest: "{{ backup_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml"
-    owner: root
-    group: root
+    dest: "{{ healthchecks_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml"
     mode: 0600
   tags:
     - healthchecks
 
 - name: Create/update healthchecks.io checks
   command: >
-    /usr/bin/python3 {{ backup_scripts_dir }}/manage-healthchecks.py
-    --config {{ backup_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml
+    /usr/bin/python3 {{ healthchecks_scripts_dir }}/manage-healthchecks.py
+    --config {{ healthchecks_scripts_dir }}/healthchecks-config-{{ etcd_cluster_name }}.yaml
     --action create-all
   register: healthchecks_create
   changed_when: "'Created' in healthchecks_create.stdout or 'Updated' in healthchecks_create.stdout"
