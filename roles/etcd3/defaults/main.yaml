@@ -182,21 +182,21 @@ step_ca_checksums:
   "0.29.0": "sha256:817094de196bbd878919c6b4fe027f8cdbcee3ffe6f2e441ef98a63b3942ab3d"
   
 etcd_checksums:
-  v3.5.13: "sha256:31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7"
-  v3.5.26: "sha256:0a682a91201dc8351d507210bc30b021a11e254eab806f03224b51e8fad29abb"
-  v3.6.7: "sha256:cf8af880c5a01ee5363cefa14a3e0cb7e5308dcf4ed17a6973099c9a7aee5a9a"
+  "3.5.13": "sha256:31e6fcbee0e8c3df27cf1ba69b522e338377f5ed6447f5d05700aee367f3b7e7"
+  "3.5.26": "sha256:0a682a91201dc8351d507210bc30b021a11e254eab806f03224b51e8fad29abb"
+  "3.6.7": "sha256:cf8af880c5a01ee5363cefa14a3e0cb7e5308dcf4ed17a6973099c9a7aee5a9a"
   
 
-etcd_version: v3.5.26
+etcd_version: "3.5.26"
 
 
-etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+etcd_download_url: "https://storage.googleapis.com/etcd/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
 
 etcd_downloads:
   etcd:
     file: true
     enabled: true
-    dest: "{{ download_cache_dir }}/etcd-archive/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ download_cache_dir }}/etcd-archive/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
     sha256: "{{ etcd_checksums[etcd_version] | default(omit)}}"
     url: "{{ etcd_download_url }}"
     unarchive: true

@@ -211,11 +211,11 @@
 - name: DEPLOY | Validate upgrade path (no version downgrade)
   assert:
     that:
-      - current_etcd_version.stdout | trim | regex_replace('^v', '') is version(etcd_version | regex_replace('^v', ''), '<=')
+      - current_etcd_version.stdout | trim | regex_replace('^v', '') is version(etcd_version, '<=')
     fail_msg:
       - "❌ VERSION DOWNGRADE NOT ALLOWED on {{ inventory_hostname }}"
       - "Current version: {{ current_etcd_version.stdout }}"
-      - "Target version: {{ etcd_version }}"
+      - "Target version: v{{ etcd_version }}"
       - ""
       - "etcd does not support version downgrades."
       - ""
