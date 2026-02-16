@@ -732,15 +732,17 @@ def cleanup_old_backups(config: dict) -> None:
         deleted_count = 0
         error_count = 0
         
-        for backup_file in config['backup_dir'].rglob('*.db'):
-            try:
-                if backup_file.stat().st_mtime < cutoff_time:
-                    logger.info(f"Deleting old backup: {backup_file}")
-                    backup_file.unlink()
-                    deleted_count += 1
-            except Exception as e:
-                error_count += 1
-                logger.warning(f"Failed to delete {backup_file} (non-fatal): {e}")
+        # Clean up both unencrypted and encrypted backup files
+        for pattern in ['*.db', '*.db.kms', '*.db.enc']:
+            for backup_file in config['backup_dir'].rglob(pattern):
+                try:
+                    if backup_file.stat().st_mtime < cutoff_time:
+                        logger.info(f"Deleting old backup: {backup_file}")
+                        backup_file.unlink()
+                        deleted_count += 1
+                except Exception as e:
+                    error_count += 1
+                    logger.warning(f"Failed to delete {backup_file} (non-fatal): {e}")
         
         logger.info(f"Deleted {deleted_count} old backup(s)")
         if error_count > 0:
