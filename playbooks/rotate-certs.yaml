@@ -16,7 +16,7 @@
           
           This will FORCE immediate renewal of ALL certificates on:
           - {{ groups['etcd'] | length }} etcd nodes
-          - {{ groups['etcd-clients'] | length }} client nodes
+          - {{ groups['etcd_clients'] | length }} client nodes
           
           This operation:
           - Forces renewal even if certificates are not near expiration

@@ -11,7 +11,7 @@ etcd_cluster_name: k8s
 # ============================================================================
 # ETCD VERSION
 # ============================================================================
-etcd_version: v3.5.26
+etcd_version: v3.6.7
 # Available versions: v3.5.13, v3.5.26, v3.6.7
 
 # ============================================================================
@@ -163,6 +163,8 @@ etcd_cluster_configs:
     cluster_group: etcd              # Maps to [etcd] inventory group
     
     # Ports: Use defaults (2379/2380) - no override needed
+    backup_healthcheck_url: "https://hc-ping.com/a148392a-7033-413b-990b-dcf61618c56a"
+    ca_backup_healthcheck_url: "https://hc-ping.com/63dc5f51-be3f-4d9f-bb76-7d42f39499bf"      
 
     # Backup: Every 3 hours, INDEPENDENT mode (no deduplication)
     backup:
@@ -191,14 +193,16 @@ etcd_cluster_configs:
   # ========================================
   # Events cluster
   # ========================================
-  k8s-events:
+  k8s-events:        
     # Ports: Different to avoid conflicts on same nodes
     client_port: 2381
     peer_port: 2382
     cluster_group: etcd_events
+    backup_healthcheck_url: "https://hc-ping.com/b2f35dec-7fc4-43a1-b238-1c6fef12648f"      
+    ca_backup_healthcheck_url: "https://hc-ping.com/87564519-cc95-4dbb-93f0-ddfe5079e832"      
     
     # Backup: Once daily at 2 AM
-    backup:      
+    backup:
       interval: "0 2 * * *"        # Daily at 2:00 AM
        # S3 path: s3://bucket/prod/events/YYYY/MM/
       retention_days: 1           # Shorter retention (events age out)
@@ -220,3 +224,8 @@ etcd_cluster_configs:
 skip_downloads: false
 download_validate_certs: true
 retry_stagger: 5
+
+
+
+
+
