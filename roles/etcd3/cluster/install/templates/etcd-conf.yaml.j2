@@ -117,10 +117,5 @@ log-outputs: [stdout]
 force-new-cluster: false
 
 auto-compaction-mode: periodic
-{% if etcd_version is version('v3.3.0', '<') %}
-# int {{etcd_version}}
-auto-compaction-retention: {{etcd_compaction_retention | default("1") | int}}
-{% else %}
 # str {{etcd_version}}
 auto-compaction-retention: "{{etcd_compaction_retention | default("1") | string}}"
-{% endif %}
